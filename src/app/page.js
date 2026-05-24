@@ -67,6 +67,7 @@ export default function App() {
   const dates = generateDates();
 
   // LINEログインしていない場合はログイン画面を表示
+  console.log("session:", JSON.stringify(session));
   if (!session) {
     return (
       <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #fdf9f4 0%, #f5ede0 50%, #edf5f0 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Noto Sans JP', sans-serif" }}>
