@@ -120,7 +120,7 @@ export default function App() {
           body: JSON.stringify({
             name: form.name, kana: form.kana, tel: form.tel,
             email: form.email, points: 0,
-            line_user_id: session?.user?.id || null,
+            line_user_id: session?.lineUserId || null,,
           }),
         });
         const newCustomer = await newRes.json();
