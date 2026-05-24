@@ -10,8 +10,8 @@ const handler = NextAuth({
   ],
   callbacks: {
     async jwt({ token, account, profile }) {
-      if (account) {
-        token.lineUserId = profile?.sub;
+      if (account && profile) {
+        token.lineUserId = account.providerAccountId;
       }
       return token;
     },
