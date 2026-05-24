@@ -2,7 +2,7 @@
 import { useState } from "react";
 
 const SUPABASE_URL = "https://pbjekdzmvjqhqbbrzbfk.supabase.co";
-const SUPABASE_KEY = "sb_secret_CWW9eWX5oac53k17CzrYng_El16r4T5";
+const SUPABASE_KEY = "sb_publishable_I_98PawL-eNS__SZa0DlPA_80VwFUZc";
 
 // Anthropic APIを経由してSupabaseに保存
 async function saveBookingViaAPI(bookingData) {
