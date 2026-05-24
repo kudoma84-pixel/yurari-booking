@@ -9,14 +9,15 @@ const handler = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, account, profile }) {
-      if (account && profile) {
+    async jwt({ token, account }) {
+      if (account) {
         token.lineUserId = account.providerAccountId;
       }
       return token;
     },
     async session({ session, token }) {
       session.lineUserId = token.lineUserId;
+      session.user.lineUserId = token.lineUserId;
       return session;
     },
   },
