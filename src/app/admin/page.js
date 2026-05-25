@@ -384,8 +384,8 @@ export default function AdminPage() {
     if (selectedBooking?.id === id) setSelectedBooking({ ...selectedBooking, status });
   };
 
-  const statusLabel = (s) => ({ confirmed: "確認済", cancelled: "キャンセル", completed: "完了", pending: "未確認" }[s] || s);
-  const statusColor = (s) => ({ confirmed: "#5a9e7a", cancelled: "#e07070", completed: "#7090e0", pending: "#e0a040" }[s] || "#aaa");
+  const statusLabel = (s) => ({ confirmed: "確認済", received: "受付", treatment_done: "施術終了", cancelled: "キャンセル", completed: "会計済", pending: "未確認" }[s] || s);
+const statusColor = (s) => ({ confirmed: "#5a9e7a", received: "#7090e0", treatment_done: "#e0a040", cancelled: "#e07070", completed: "#aaa", pending: "#ccc" }[s] || "#aaa");
 
   const getTimeSlots = () => {
     const ext = extensions[0] || {};
