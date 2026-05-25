@@ -50,8 +50,6 @@ export default function AdminPage() {
   const [blocks, setBlocks] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [extensions, setExtensions] = useState([]);
-  const [showShiftModal, setShowShiftModal] = useState(false);
-  const [shiftWeekStart, setShiftWeekStart] = useState(null);
 
   const headers = {
     "apikey": SUPABASE_KEY,
@@ -65,6 +63,8 @@ export default function AdminPage() {
     if (user) { setLoggedIn(true); setCurrentStore(user); setError(""); }
     else setError("パスワードが違います");
   };
+
+  const formatDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 
   const fetchBookings = async (date) => {
     if (!date) return;
@@ -123,21 +123,17 @@ export default function AdminPage() {
     if (loggedIn && selectedDate) fetchAll(selectedDate);
   }, [selectedDate]);
 
-  const formatDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-
   const toggleExtension = async (type) => {
     const d = formatDate(selectedDate);
     const ext = extensions[0];
     if (ext) {
       await fetch(`${SUPABASE_URL}/rest/v1/time_extensions?id=eq.${ext.id}`, {
-        method: "PATCH",
-        headers,
+        method: "PATCH", headers,
         body: JSON.stringify({ [type]: !ext[type] }),
       });
     } else {
       await fetch(`${SUPABASE_URL}/rest/v1/time_extensions`, {
-        method: "POST",
-        headers,
+        method: "POST", headers,
         body: JSON.stringify({ store_id: currentStore.id, extension_date: d, [type]: true }),
       });
     }
@@ -151,8 +147,7 @@ export default function AdminPage() {
       await fetch(`${SUPABASE_URL}/rest/v1/blocks?id=eq.${existing.id}`, { method: "DELETE", headers });
     } else {
       await fetch(`${SUPABASE_URL}/rest/v1/blocks`, {
-        method: "POST",
-        headers,
+        method: "POST", headers,
         body: JSON.stringify({ store_id: currentStore.id, staff_id: staffId, block_date: d, block_time: time, block_type: staffId === "all" ? "store" : "staff" }),
       });
     }
@@ -161,8 +156,7 @@ export default function AdminPage() {
 
   const updateBookingStatus = async (id, status) => {
     await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${id}`, {
-      method: "PATCH",
-      headers,
+      method: "PATCH", headers,
       body: JSON.stringify({ status }),
     });
     fetchBookings(selectedDate);
@@ -310,53 +304,53 @@ export default function AdminPage() {
                     <table style={{ borderCollapse: "collapse", minWidth: "100%" }}>
                       <thead>
                         <tr style={{ background: "#f5f5f5" }}>
-                          <th style={{ padding: "10px 16px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", minWidth: 80, position: "sticky", left: 0, background: "#f5f5f5", zIndex: 1 }}>時間</th>
-                          {staffList.map(s => (
-                            <th key={s.id} style={{ padding: "10px 16px", textAlign: "center", fontSize: 12, fontWeight: 700, color: isOnShift(s.id) ? "#3a5a3a" : "#ccc", minWidth: 120, borderLeft: "1px solid #f0ebe4" }}>
-                              {s.name}
-                              {!isOnShift(s.id) && <div style={{ fontSize: 10, color: "#ccc" }}>休み</div>}
-                            </th>
-                          ))}
+                          <th style={{ padding: "10px 16px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", minWidth: 100, position: "sticky", left: 0, background: "#f5f5f5", zIndex: 1 }}>スタッフ</th>
+                          {timeSlots.map(time => {
+                            const isBreak = BREAK_SLOTS.includes(time);
+                            const isExt = MORNING_EXT.includes(time) || EVENING_EXT.includes(time);
+                            return (
+                              <th key={time} style={{ padding: "10px 8px", textAlign: "center", fontSize: 11, fontWeight: 700, color: isBreak ? "#e0a040" : isExt ? "#5a9e7a" : "#7a9a7a", minWidth: 70, borderLeft: "1px solid #f0ebe4", background: isBreak ? "#fdf5f0" : isExt ? "#f0f8f4" : "#f5f5f5" }}>
+                                {time}
+                                {isBreak && <div style={{ fontSize: 9, color: "#e0a040" }}>休憩</div>}
+                                {isExt && <div style={{ fontSize: 9, color: "#5a9e7a" }}>拡張</div>}
+                              </th>
+                            );
+                          })}
                         </tr>
                       </thead>
                       <tbody>
-                        {timeSlots.map(time => {
-                          const isBreak = BREAK_SLOTS.includes(time);
-                          const isMorningExt = MORNING_EXT.includes(time);
-                          const isEveningExt = EVENING_EXT.includes(time);
-                          const isExt = isMorningExt || isEveningExt;
-                          return (
-                            <tr key={time} style={{ borderTop: "1px solid #f0ebe4", background: isBreak ? "#fdf5f0" : isExt ? "#f0f8f4" : "white" }}>
-                              <td style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, color: isBreak ? "#e0a040" : isExt ? "#5a9e7a" : "#3a5a3a", position: "sticky", left: 0, background: isBreak ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", zIndex: 1 }}>
-                                {time}
-                                {isBreak && <span style={{ fontSize: 10, color: "#e0a040", marginLeft: 4 }}>休憩</span>}
-                                {isExt && <span style={{ fontSize: 10, color: "#5a9e7a", marginLeft: 4 }}>拡張</span>}
-                              </td>
-                              {staffList.map(s => {
-                                const booking = getBookingForCell(s.id, time);
-                                const blocked = isBlocked(s.id, time);
-                                const onShift = isOnShift(s.id);
-                                return (
-                                  <td key={s.id} style={{ padding: "6px 8px", textAlign: "center", borderLeft: "1px solid #f0ebe4", minWidth: 120 }}>
-                                    {isBreak ? (
-                                      <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
-                                    ) : !onShift ? (
-                                      <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
-                                    ) : booking ? (
-                                      <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 8, padding: "4px 8px", fontSize: 12, fontWeight: 600, cursor: "pointer" }} onClick={() => updateBookingStatus(booking.id, booking.status === "confirmed" ? "completed" : "confirmed")}>
-                                        {booking.customers?.name || "予約あり"}
-                                      </div>
-                                    ) : blocked ? (
-                                      <div onClick={() => toggleBlock(s.id, time)} style={{ background: "#f0ebe4", color: "#bbb", borderRadius: 8, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>🔒 ブロック</div>
-                                    ) : (
-                                      <div onClick={() => toggleBlock(s.id, time)} style={{ color: "#ddd", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>+</div>
-                                    )}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          );
-                        })}
+                        {staffList.map(s => (
+                          <tr key={s.id} style={{ borderTop: "1px solid #f0ebe4" }}>
+                            <td style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, color: isOnShift(s.id) ? "#3a5a3a" : "#ccc", position: "sticky", left: 0, background: "white", zIndex: 1, minWidth: 100 }}>
+                              {s.name}
+                              {!isOnShift(s.id) && <div style={{ fontSize: 10, color: "#ccc" }}>休み</div>}
+                            </td>
+                            {timeSlots.map(time => {
+                              const isBreak = BREAK_SLOTS.includes(time);
+                              const isExt = MORNING_EXT.includes(time) || EVENING_EXT.includes(time);
+                              const booking = getBookingForCell(s.id, time);
+                              const blocked = isBlocked(s.id, time);
+                              const onShift = isOnShift(s.id);
+                              return (
+                                <td key={time} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: isBreak ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", minWidth: 70 }}>
+                                  {isBreak ? (
+                                    <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
+                                  ) : !onShift ? (
+                                    <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
+                                  ) : booking ? (
+                                    <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "3px 6px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => updateBookingStatus(booking.id, booking.status === "confirmed" ? "completed" : "confirmed")}>
+                                      {booking.customers?.name || "予約あり"}
+                                    </div>
+                                  ) : blocked ? (
+                                    <div onClick={() => toggleBlock(s.id, time)} style={{ background: "#f0ebe4", color: "#bbb", borderRadius: 6, padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>🔒</div>
+                                  ) : (
+                                    <div onClick={() => toggleBlock(s.id, time)} style={{ color: "#ddd", fontSize: 16, cursor: "pointer", lineHeight: 1 }}>+</div>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -376,7 +370,7 @@ export default function AdminPage() {
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 16 }}>予約一覧 - {currentStore.name}</h2>
             <div style={{ marginBottom: 16 }}>
-              <input type="date" onChange={e => { const d = new Date(e.target.value); setSelectedDate(d); fetchBookings(d); }} style={{ padding: "10px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: "#3a5a3a" }} />
+              <input type="date" value={selectedDate ? formatDate(selectedDate) : ""} onChange={e => { const d = new Date(e.target.value + "T00:00:00"); setSelectedDate(d); fetchBookings(d); }} style={{ padding: "10px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: "#3a5a3a" }} />
             </div>
             {loading ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div> : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
