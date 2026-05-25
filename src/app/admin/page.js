@@ -63,6 +63,7 @@ export default function AdminPage() {
   const [newPlanName, setNewPlanName] = useState("");
   const [applyPlanModal, setApplyPlanModal] = useState(null);
   const [applyWeekStart, setApplyWeekStart] = useState("");
+const [applyWeekEnd, setApplyWeekEnd] = useState("");
   const popoverRef = useRef(null);
 
   const headers = {
@@ -207,24 +208,25 @@ export default function AdminPage() {
     await fetchShiftPlans();
   };
 
-  const applyPlan = async (plan, weekStartDate) => {
-    const start = new Date(weekStartDate + "T00:00:00");
-    const planData = plan.plan_data || {};
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(start);
-      d.setDate(start.getDate() + i);
-      const dayOfWeek = d.getDay();
-      const dateStr = formatDate(d);
-      for (const staffId of Object.keys(planData)) {
-        const dayData = planData[staffId]?.[dayOfWeek];
-        if (dayData?.enabled) {
-          await saveShift(staffId, dateStr, dayData.start || "10:00", dayData.end || "19:00", "出勤");
-        }
+  const applyPlan = async (plan, startDate, endDate) => {
+  const start = new Date(startDate + "T00:00:00");
+  const end = new Date(endDate + "T00:00:00");
+  const planData = plan.plan_data || {};
+  const d = new Date(start);
+  while (d <= end) {
+    const dayOfWeek = d.getDay();
+    const dateStr = formatDate(d);
+    for (const staffId of Object.keys(planData)) {
+      const dayData = planData[staffId]?.[dayOfWeek];
+      if (dayData?.enabled) {
+        await saveShift(staffId, dateStr, dayData.start || "10:00", dayData.end || "19:00", "出勤");
       }
     }
-    setApplyPlanModal(null);
-    await fetchMonthShifts();
-  };
+    d.setDate(d.getDate() + 1);
+  }
+  setApplyPlanModal(null);
+  await fetchMonthShifts();
+};
 
   const updatePlanData = (staffId, dayOfWeek, field, value) => {
     const current = editingPlan?.plan_data || {};
@@ -492,11 +494,13 @@ export default function AdminPage() {
               <button onClick={() => setApplyPlanModal(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
             </div>
             <div style={{ marginBottom: 24 }}>
-              <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>適用する週の開始日（日曜日）</label>
-              <input type="date" value={applyWeekStart} onChange={e => setApplyWeekStart(e.target.value)} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
-            </div>
-            <div style={{ fontSize: 12, color: "#aaa", marginBottom: 20 }}>選択した日から7日間にテンプレートを適用します。既存のシフトは上書きされます。</div>
-            <button onClick={() => applyWeekStart && applyPlan(applyPlanModal, applyWeekStart)} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: applyWeekStart ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: applyWeekStart ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: applyWeekStart ? "pointer" : "not-allowed" }}>適用する</button>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>開始日</label>
+<input type="date" value={applyWeekStart} onChange={e => setApplyWeekStart(e.target.value)} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", marginBottom: 12 }} />
+<label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>終了日</label>
+<input type="date" value={applyWeekEnd} onChange={e => setApplyWeekEnd(e.target.value)} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+</div>
+<div style={{ fontSize: 12, color: "#aaa", marginBottom: 20 }}>指定した期間にテンプレートを適用します。既存のシフトは上書きされます。</div>
+<button onClick={() => applyWeekStart && applyWeekEnd && applyPlan(applyPlanModal, applyWeekStart, applyWeekEnd)} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: applyWeekStart ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: applyWeekStart ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: applyWeekStart ? "pointer" : "not-allowed" }}>適用する</button>
           </div>
         </div>
       )}
