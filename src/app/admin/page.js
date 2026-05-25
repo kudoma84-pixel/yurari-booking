@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const SUPABASE_URL = "https://pbjekdzmvjqhqbbrzbfk.supabase.co";
 const SUPABASE_KEY = "sb_publishable_I_98PawL-eNS__SZa0DlPA_80VwFUZc";
@@ -56,8 +56,9 @@ export default function AdminPage() {
   const [shiftMonth, setShiftMonth] = useState(new Date());
   const [monthShifts, setMonthShifts] = useState([]);
   const [shiftPlans, setShiftPlans] = useState([]);
-  const [editingShift, setEditingShift] = useState(null);
-  const [closedDays, setClosedDays] = useState([]);
+  const [popover, setPopover] = useState(null);
+  const [selectedStaff, setSelectedStaff] = useState(null);
+  const popoverRef = useRef(null);
 
   const headers = {
     "apikey": SUPABASE_KEY,
@@ -132,7 +133,8 @@ export default function AdminPage() {
     const year = shiftMonth.getFullYear();
     const month = String(shiftMonth.getMonth()+1).padStart(2,"0");
     const from = `${year}-${month}-01`;
-    const to = `${year}-${month}-31`;
+    const lastDay = new Date(year, shiftMonth.getMonth()+1, 0).getDate();
+    const to = `${year}-${month}-${lastDay}`;
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&work_date=gte.${from}&work_date=lte.${to}`,
       { headers }
@@ -163,6 +165,65 @@ export default function AdminPage() {
   useEffect(() => {
     if (loggedIn && tab === "shifts") fetchMonthShifts();
   }, [shiftMonth]);
+
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) {
+        setPopover(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const saveShift = async (staffId, date, startTime, endTime, type) => {
+    const existing = monthShifts.find(s => s.staff_id === staffId && s.work_date === date);
+    const existingClosed = monthShifts.find(s => s.staff_id === "closed" && s.work_date === date);
+
+    if (type === "休み") {
+      if (existing) {
+        await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${existing.id}`, { method: "DELETE", headers });
+      }
+    } else if (type === "休院") {
+      if (!existingClosed) {
+        await fetch(`${SUPABASE_URL}/rest/v1/shifts`, {
+          method: "POST", headers,
+          body: JSON.stringify({ store_id: currentStore.id, staff_id: "closed", work_date: date, start_time: "00:00", end_time: "00:00" }),
+        });
+      }
+    } else if (type === "休院解除") {
+      if (existingClosed) {
+        await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${existingClosed.id}`, { method: "DELETE", headers });
+      }
+    } else {
+      if (existing) {
+        await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${existing.id}`, {
+          method: "PATCH", headers,
+          body: JSON.stringify({ start_time: startTime, end_time: endTime }),
+        });
+      } else {
+        await fetch(`${SUPABASE_URL}/rest/v1/shifts`, {
+          method: "POST", headers,
+          body: JSON.stringify({ store_id: currentStore.id, staff_id: staffId, work_date: date, start_time: startTime, end_time: endTime }),
+        });
+      }
+    }
+    await fetchMonthShifts();
+  };
+
+  const getShiftForCell = (staffId, date) => monthShifts.find(s => s.staff_id === staffId && s.work_date === date);
+  const isClosedDay = (date) => monthShifts.some(s => s.staff_id === "closed" && s.work_date === date);
+
+  const getDaysInMonth = (month) => {
+    const year = month.getFullYear();
+    const m = month.getMonth();
+    const firstDay = new Date(year, m, 1).getDay();
+    const daysInMonth = new Date(year, m + 1, 0).getDate();
+    const days = [];
+    for (let i = 0; i < firstDay; i++) days.push(null);
+    for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, m, i));
+    return days;
+  };
 
   const toggleExtension = async (type) => {
     const d = formatDate(selectedDate);
@@ -202,90 +263,6 @@ export default function AdminPage() {
     if (selectedBooking?.id === id) setSelectedBooking({ ...selectedBooking, status });
   };
 
-  const saveShift = async (staffId, date, startTime, endTime, isOff, isClosed) => {
-    const existing = monthShifts.find(s => s.staff_id === staffId && s.work_date === date);
-    if (isClosed || isOff) {
-      if (existing) {
-        await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${existing.id}`, { method: "DELETE", headers });
-      }
-      if (isClosed) {
-        const closedExists = monthShifts.find(s => s.staff_id === "closed" && s.work_date === date);
-        if (!closedExists) {
-          await fetch(`${SUPABASE_URL}/rest/v1/shifts`, {
-            method: "POST", headers,
-            body: JSON.stringify({ store_id: currentStore.id, staff_id: "closed", work_date: date, start_time: "00:00", end_time: "00:00" }),
-          });
-        }
-      }
-    } else {
-      if (existing) {
-        await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${existing.id}`, {
-          method: "PATCH", headers,
-          body: JSON.stringify({ start_time: startTime, end_time: endTime }),
-        });
-      } else {
-        await fetch(`${SUPABASE_URL}/rest/v1/shifts`, {
-          method: "POST", headers,
-          body: JSON.stringify({ store_id: currentStore.id, staff_id: staffId, work_date: date, start_time: startTime, end_time: endTime }),
-        });
-      }
-    }
-    fetchMonthShifts();
-  };
-
-  const saveShiftPlan = async (planName, planData) => {
-    await fetch(`${SUPABASE_URL}/rest/v1/shift_plans`, {
-      method: "POST", headers,
-      body: JSON.stringify({ store_id: currentStore.id, plan_name: planName, plan_data: planData }),
-    });
-    fetchShiftPlans();
-  };
-
-  const applyShiftPlan = async (plan, weekDates) => {
-    const planData = plan.plan_data;
-    for (const staffId of Object.keys(planData)) {
-      for (const date of weekDates) {
-        const dayOfWeek = new Date(date).getDay();
-        const dayData = planData[staffId]?.[dayOfWeek];
-        if (dayData) {
-          await saveShift(staffId, date, dayData.start, dayData.end, false, false);
-        }
-      }
-    }
-    fetchMonthShifts();
-  };
-
-  const getShiftForCell = (staffId, date) => {
-    return monthShifts.find(s => s.staff_id === staffId && s.work_date === date);
-  };
-
-  const isClosedDay = (date) => {
-    return monthShifts.some(s => s.staff_id === "closed" && s.work_date === date);
-  };
-
-  const getDaysInMonth = (month) => {
-    const year = month.getFullYear();
-    const m = month.getMonth();
-    const firstDay = new Date(year, m, 1).getDay();
-    const daysInMonth = new Date(year, m + 1, 0).getDate();
-    const days = [];
-    for (let i = 0; i < firstDay; i++) days.push(null);
-    for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, m, i));
-    return days;
-  };
-
-  const getWeeksInMonth = (month) => {
-    const days = getDaysInMonth(month).filter(d => d);
-    const weeks = [];
-    let week = [];
-    days.forEach(d => {
-      if (d.getDay() === 0 && week.length > 0) { weeks.push(week); week = []; }
-      week.push(d);
-    });
-    if (week.length > 0) weeks.push(week);
-    return weeks;
-  };
-
   const statusLabel = (s) => ({ confirmed: "確認済", cancelled: "キャンセル", completed: "完了", pending: "未確認" }[s] || s);
   const statusColor = (s) => ({ confirmed: "#5a9e7a", cancelled: "#e07070", completed: "#7090e0", pending: "#e0a040" }[s] || "#aaa");
 
@@ -301,6 +278,46 @@ export default function AdminPage() {
   const getBookingForCell = (staffId, time) => bookings.find(b => b.staff_id === staffId && b.booking_time === time);
   const isBlocked = (staffId, time) => blocks.some(b => (b.staff_id === staffId || b.staff_id === "all") && b.block_time === time);
   const isOnShift = (staffId) => { if (shifts.length === 0) return true; return shifts.some(s => s.staff_id === staffId); };
+
+  // ポップオーバーコンポーネント
+  const ShiftPopover = ({ staffId, staffName, date, shift, closed }) => {
+    const [startTime, setStartTime] = useState(shift?.start_time?.slice(0,5) || "10:00");
+    const [endTime, setEndTime] = useState(shift?.end_time?.slice(0,5) || "19:00");
+    const [showTime, setShowTime] = useState(!!shift);
+
+    return (
+      <div ref={popoverRef} style={{ position: "absolute", zIndex: 100, background: "white", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", padding: 16, minWidth: 220, top: "100%", left: 0 }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>{staffName} / {date}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <button onClick={async () => { setShowTime(true); }} style={{ padding: "8px 12px", borderRadius: 8, border: `2px solid ${showTime ? "#5a9e7a" : "#e8ddd0"}`, background: showTime ? "#eaf5ec" : "white", color: showTime ? "#3a5a3a" : "#888", fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>〇 出勤</button>
+          {showTime && (
+            <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "4px 0" }}>
+              <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} style={{ flex: 1, padding: "6px 8px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 12 }} />
+              <span style={{ color: "#aaa", fontSize: 12 }}>〜</span>
+              <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} style={{ flex: 1, padding: "6px 8px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 12 }} />
+            </div>
+          )}
+          {showTime && (
+            <button onClick={async () => { await saveShift(staffId, date, startTime, endTime, "出勤"); setPopover(null); }} style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>保存</button>
+          )}
+          <button onClick={async () => { await saveShift(staffId, date, "", "", "休み"); setPopover(null); }} style={{ padding: "8px 12px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>　 休み</button>
+        </div>
+      </div>
+    );
+  };
+
+  const ClosedPopover = ({ date, closed }) => {
+    return (
+      <div ref={popoverRef} style={{ position: "absolute", zIndex: 100, background: "white", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", padding: 16, minWidth: 180, top: "100%", left: 0 }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>休院日設定 / {date}</div>
+        {closed ? (
+          <button onClick={async () => { await saveShift("closed", date, "", "", "休院解除"); setPopover(null); }} style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "2px solid #e07070", background: "white", color: "#e07070", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>休院を解除する</button>
+        ) : (
+          <button onClick={async () => { await saveShift("closed", date, "", "", "休院"); setPopover(null); }} style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "2px solid #e0a040", background: "#fdf5f0", color: "#e0a040", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>ー 休院日に設定する</button>
+        )}
+      </div>
+    );
+  };
 
   if (!loggedIn) {
     return (
@@ -331,7 +348,6 @@ export default function AdminPage() {
   const timeSlots = getTimeSlots();
   const staffList = STAFFS[currentStore.id] || [];
   const ext = extensions[0] || {};
-  const weeks = getWeeksInMonth(shiftMonth);
 
   return (
     <div style={{ minHeight: "100vh", background: "#f5f5f5", fontFamily: "'Noto Sans JP', sans-serif" }}>
@@ -404,52 +420,6 @@ export default function AdminPage() {
                 </div>
               ))}
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* シフト編集モーダル */}
-      {editingShift && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setEditingShift(null)}>
-          <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 400, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>シフト設定</div>
-              <button onClick={() => setEditingShift(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
-            </div>
-            <div style={{ fontSize: 14, color: "#3a5a3a", marginBottom: 20 }}>
-              <strong>{editingShift.staffName}</strong> / {editingShift.date}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
-              <div style={{ display: "flex", gap: 8 }}>
-                {["出勤", "休み", "休院"].map(type => (
-                  <button key={type} onClick={() => setEditingShift({ ...editingShift, type })} style={{ flex: 1, padding: "10px", borderRadius: 10, border: `2px solid ${editingShift.type === type ? "#5a9e7a" : "#e8ddd0"}`, background: editingShift.type === type ? "#eaf5ec" : "white", color: editingShift.type === type ? "#3a5a3a" : "#aaa", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>{type === "出勤" ? "〇" : type === "休み" ? "　" : "ー"} {type}</button>
-                ))}
-              </div>
-              {editingShift.type === "出勤" && (
-                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: 11, color: "#7a9a7a", fontWeight: 700, display: "block", marginBottom: 4 }}>出勤時間</label>
-                    <input type="time" value={editingShift.startTime || "10:00"} onChange={e => setEditingShift({ ...editingShift, startTime: e.target.value })} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
-                  </div>
-                  <div style={{ fontSize: 14, color: "#aaa", marginTop: 16 }}>〜</div>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: 11, color: "#7a9a7a", fontWeight: 700, display: "block", marginBottom: 4 }}>退勤時間</label>
-                    <input type="time" value={editingShift.endTime || "19:00"} onChange={e => setEditingShift({ ...editingShift, endTime: e.target.value })} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
-                  </div>
-                </div>
-              )}
-            </div>
-            <button onClick={async () => {
-              await saveShift(
-                editingShift.staffId,
-                editingShift.date,
-                editingShift.startTime || "10:00",
-                editingShift.endTime || "19:00",
-                editingShift.type === "休み",
-                editingShift.type === "休院"
-              );
-              setEditingShift(null);
-            }} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>保存</button>
           </div>
         </div>
       )}
@@ -595,14 +565,9 @@ export default function AdminPage() {
                 <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>{shiftMonth.getFullYear()}年{shiftMonth.getMonth()+1}月 シフト</div>
                 <button onClick={() => setShiftMonth(new Date(shiftMonth.getFullYear(), shiftMonth.getMonth()+1, 1))} style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#5a9e7a" }}>›</button>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                {shiftPlans.map(plan => (
-                  <button key={plan.id} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                    📋 {plan.plan_name}
-                  </button>
-                ))}
-              </div>
             </div>
+
+            <div style={{ fontSize: 12, color: "#aaa", marginBottom: 12 }}>💡 セルをクリックしてシフトを設定。スタッフ行の最下行で休院日を設定できます。</div>
 
             <div style={{ background: "white", borderRadius: 16, overflow: "auto", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
               <table style={{ borderCollapse: "collapse", width: "100%" }}>
@@ -614,7 +579,7 @@ export default function AdminPage() {
                       const dateStr = formatDate(d);
                       const closed = isClosedDay(dateStr);
                       return (
-                        <th key={dateStr} style={{ padding: "8px 4px", textAlign: "center", fontSize: 11, minWidth: 52, borderLeft: "1px solid #f0ebe4", background: closed ? "#f5f0eb" : "#f5f5f5" }}>
+                        <th key={dateStr} style={{ padding: "8px 4px", textAlign: "center", fontSize: 11, minWidth: 52, borderLeft: "1px solid #f0ebe4", background: closed ? "#fdf5f0" : "#f5f5f5" }}>
                           <div style={{ color: dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : "#7a9a7a", fontWeight: 700 }}>{d.getDate()}</div>
                           <div style={{ color: "#aaa", fontSize: 10 }}>{DAYS_JP[dayIdx]}</div>
                           {closed && <div style={{ color: "#e0a040", fontSize: 9 }}>休院</div>}
@@ -631,32 +596,40 @@ export default function AdminPage() {
                         const dateStr = formatDate(d);
                         const shift = getShiftForCell(s.id, dateStr);
                         const closed = isClosedDay(dateStr);
+                        const isOpen = popover?.staffId === s.id && popover?.date === dateStr;
                         return (
-                          <td key={dateStr} onClick={() => setEditingShift({ staffId: s.id, staffName: s.name, date: dateStr, type: closed ? "休院" : shift ? "出勤" : "休み", startTime: shift?.start_time?.slice(0,5) || "10:00", endTime: shift?.end_time?.slice(0,5) || "19:00" })} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", cursor: "pointer", background: closed ? "#f5f0eb" : "white", minWidth: 52 }}>
-                            {closed ? (
-                              <div style={{ fontSize: 12, color: "#ccc" }}>ー</div>
-                            ) : shift ? (
-                              <div>
-                                <div style={{ fontSize: 13, color: "#5a9e7a", fontWeight: 700 }}>〇</div>
-                                <div style={{ fontSize: 9, color: "#aaa" }}>{shift.start_time?.slice(0,5)}</div>
-                                <div style={{ fontSize: 9, color: "#aaa" }}>{shift.end_time?.slice(0,5)}</div>
-                              </div>
-                            ) : (
-                              <div style={{ fontSize: 12, color: "#eee" }}>+</div>
-                            )}
+                          <td key={dateStr} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: closed ? "#fdf5f0" : "white", minWidth: 52, position: "relative" }}>
+                            <div onClick={() => setPopover(isOpen ? null : { staffId: s.id, staffName: s.name, date: dateStr, shift, closed })} style={{ cursor: "pointer", minHeight: 40, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                              {closed ? (
+                                <div style={{ fontSize: 12, color: "#ccc" }}>ー</div>
+                              ) : shift ? (
+                                <div>
+                                  <div style={{ fontSize: 13, color: "#5a9e7a", fontWeight: 700 }}>〇</div>
+                                  <div style={{ fontSize: 9, color: "#aaa" }}>{shift.start_time?.slice(0,5)}</div>
+                                  <div style={{ fontSize: 9, color: "#aaa" }}>{shift.end_time?.slice(0,5)}</div>
+                                </div>
+                              ) : (
+                                <div style={{ fontSize: 18, color: "#eee" }}>+</div>
+                              )}
+                            </div>
+                            {isOpen && <ShiftPopover staffId={s.id} staffName={s.name} date={dateStr} shift={shift} closed={closed} />}
                           </td>
                         );
                       })}
                     </tr>
                   ))}
-                  <tr style={{ borderTop: "2px solid #e8ddd0" }}>
-                    <td style={{ padding: "10px 16px", fontSize: 11, fontWeight: 700, color: "#e0a040", position: "sticky", left: 0, background: "white" }}>休院日設定</td>
+                  <tr style={{ borderTop: "2px solid #e8ddd0", background: "#fdf9f4" }}>
+                    <td style={{ padding: "10px 16px", fontSize: 11, fontWeight: 700, color: "#e0a040", position: "sticky", left: 0, background: "#fdf9f4" }}>🏥 休院日</td>
                     {getDaysInMonth(shiftMonth).filter(d => d).map(d => {
                       const dateStr = formatDate(d);
                       const closed = isClosedDay(dateStr);
+                      const isOpen = popover?.type === "closed" && popover?.date === dateStr;
                       return (
-                        <td key={dateStr} onClick={() => saveShift("closed", dateStr, "00:00", "00:00", false, !closed)} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", cursor: "pointer", minWidth: 52 }}>
-                          <div style={{ fontSize: 12, color: closed ? "#e0a040" : "#eee", fontWeight: closed ? 700 : 400 }}>{closed ? "ー" : "+"}</div>
+                        <td key={dateStr} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: closed ? "#fdf5f0" : "white", minWidth: 52, position: "relative" }}>
+                          <div onClick={() => setPopover(isOpen ? null : { type: "closed", date: dateStr, closed })} style={{ cursor: "pointer", minHeight: 40, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <div style={{ fontSize: 14, color: closed ? "#e0a040" : "#ddd", fontWeight: closed ? 700 : 400 }}>{closed ? "ー" : "+"}</div>
+                          </div>
+                          {isOpen && <ClosedPopover date={dateStr} closed={closed} />}
                         </td>
                       );
                     })}
