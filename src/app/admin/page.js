@@ -34,6 +34,7 @@ const MORNING_EXT = ["09:00","09:30"];
 const EVENING_EXT = ["20:00","20:30"];
 const BREAK_SLOTS = ["13:30","14:00","14:30"];
 const DAYS_JP = ["日","月","火","水","木","金","土"];
+const DAYS_FULL = ["日曜","月曜","火曜","水曜","木曜","金曜","土曜"];
 
 export default function AdminPage() {
   const [loggedIn, setLoggedIn] = useState(false);
@@ -57,7 +58,11 @@ export default function AdminPage() {
   const [monthShifts, setMonthShifts] = useState([]);
   const [shiftPlans, setShiftPlans] = useState([]);
   const [popover, setPopover] = useState(null);
-  const [selectedStaff, setSelectedStaff] = useState(null);
+  const [shiftSubTab, setShiftSubTab] = useState("monthly");
+  const [editingPlan, setEditingPlan] = useState(null);
+  const [newPlanName, setNewPlanName] = useState("");
+  const [applyPlanModal, setApplyPlanModal] = useState(null);
+  const [applyWeekStart, setApplyWeekStart] = useState("");
   const popoverRef = useRef(null);
 
   const headers = {
@@ -79,10 +84,7 @@ export default function AdminPage() {
     if (!date) return;
     setLoading(true);
     const d = formatDate(date);
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${d}&select=*,customers(name,tel,kana,email,line_user_id)`,
-      { headers }
-    );
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${d}&select=*,customers(name,tel,kana,email,line_user_id)`, { headers });
     const data = await res.json();
     setBookings(Array.isArray(data) ? data : []);
     setLoading(false);
@@ -97,10 +99,7 @@ export default function AdminPage() {
   };
 
   const fetchCustomerHistory = async (customerId) => {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/bookings?customer_id=eq.${customerId}&order=booking_date.desc&select=*`,
-      { headers }
-    );
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?customer_id=eq.${customerId}&order=booking_date.desc&select=*`, { headers });
     const data = await res.json();
     setCustomerHistory(Array.isArray(data) ? data : []);
   };
@@ -135,16 +134,13 @@ export default function AdminPage() {
     const from = `${year}-${month}-01`;
     const lastDay = new Date(year, shiftMonth.getMonth()+1, 0).getDate();
     const to = `${year}-${month}-${lastDay}`;
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&work_date=gte.${from}&work_date=lte.${to}`,
-      { headers }
-    );
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&work_date=gte.${from}&work_date=lte.${to}`, { headers });
     const data = await res.json();
     setMonthShifts(Array.isArray(data) ? data : []);
   };
 
   const fetchShiftPlans = async () => {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/shift_plans?store_id=eq.${currentStore.id}`, { headers });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/shift_plans?store_id=eq.${currentStore.id}&order=created_at.asc`, { headers });
     const data = await res.json();
     setShiftPlans(Array.isArray(data) ? data : []);
   };
@@ -168,9 +164,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     const handleClick = (e) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target)) {
-        setPopover(null);
-      }
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) setPopover(null);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -179,41 +173,77 @@ export default function AdminPage() {
   const saveShift = async (staffId, date, startTime, endTime, type) => {
     const existing = monthShifts.find(s => s.staff_id === staffId && s.work_date === date);
     const existingClosed = monthShifts.find(s => s.staff_id === "closed" && s.work_date === date);
-
     if (type === "休み") {
-      if (existing) {
-        await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${existing.id}`, { method: "DELETE", headers });
-      }
+      if (existing) await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${existing.id}`, { method: "DELETE", headers });
     } else if (type === "休院") {
-      if (!existingClosed) {
-        await fetch(`${SUPABASE_URL}/rest/v1/shifts`, {
-          method: "POST", headers,
-          body: JSON.stringify({ store_id: currentStore.id, staff_id: "closed", work_date: date, start_time: "00:00", end_time: "00:00" }),
-        });
-      }
+      if (!existingClosed) await fetch(`${SUPABASE_URL}/rest/v1/shifts`, { method: "POST", headers, body: JSON.stringify({ store_id: currentStore.id, staff_id: "closed", work_date: date, start_time: "00:00", end_time: "00:00" }) });
     } else if (type === "休院解除") {
-      if (existingClosed) {
-        await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${existingClosed.id}`, { method: "DELETE", headers });
-      }
+      if (existingClosed) await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${existingClosed.id}`, { method: "DELETE", headers });
     } else {
       if (existing) {
-        await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${existing.id}`, {
-          method: "PATCH", headers,
-          body: JSON.stringify({ start_time: startTime, end_time: endTime }),
-        });
+        await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${existing.id}`, { method: "PATCH", headers, body: JSON.stringify({ start_time: startTime, end_time: endTime }) });
       } else {
-        await fetch(`${SUPABASE_URL}/rest/v1/shifts`, {
-          method: "POST", headers,
-          body: JSON.stringify({ store_id: currentStore.id, staff_id: staffId, work_date: date, start_time: startTime, end_time: endTime }),
-        });
+        await fetch(`${SUPABASE_URL}/rest/v1/shifts`, { method: "POST", headers, body: JSON.stringify({ store_id: currentStore.id, staff_id: staffId, work_date: date, start_time: startTime, end_time: endTime }) });
       }
     }
     await fetchMonthShifts();
   };
 
+  const savePlan = async () => {
+    if (!newPlanName.trim()) return;
+    const planData = editingPlan?.plan_data || {};
+    if (editingPlan?.id) {
+      await fetch(`${SUPABASE_URL}/rest/v1/shift_plans?id=eq.${editingPlan.id}`, { method: "PATCH", headers, body: JSON.stringify({ plan_name: newPlanName, plan_data: planData }) });
+    } else {
+      await fetch(`${SUPABASE_URL}/rest/v1/shift_plans`, { method: "POST", headers, body: JSON.stringify({ store_id: currentStore.id, plan_name: newPlanName, plan_data: planData }) });
+    }
+    await fetchShiftPlans();
+    setEditingPlan(null);
+    setNewPlanName("");
+  };
+
+  const deletePlan = async (id) => {
+    await fetch(`${SUPABASE_URL}/rest/v1/shift_plans?id=eq.${id}`, { method: "DELETE", headers });
+    await fetchShiftPlans();
+  };
+
+  const applyPlan = async (plan, weekStartDate) => {
+    const start = new Date(weekStartDate + "T00:00:00");
+    const planData = plan.plan_data || {};
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      const dayOfWeek = d.getDay();
+      const dateStr = formatDate(d);
+      for (const staffId of Object.keys(planData)) {
+        const dayData = planData[staffId]?.[dayOfWeek];
+        if (dayData?.enabled) {
+          await saveShift(staffId, dateStr, dayData.start || "10:00", dayData.end || "19:00", "出勤");
+        }
+      }
+    }
+    setApplyPlanModal(null);
+    await fetchMonthShifts();
+  };
+
+  const updatePlanData = (staffId, dayOfWeek, field, value) => {
+    const current = editingPlan?.plan_data || {};
+    const staffData = current[staffId] || {};
+    const dayData = staffData[dayOfWeek] || {};
+    setEditingPlan({
+      ...editingPlan,
+      plan_data: {
+        ...current,
+        [staffId]: {
+          ...staffData,
+          [dayOfWeek]: { ...dayData, [field]: value }
+        }
+      }
+    });
+  };
+
   const getShiftForCell = (staffId, date) => monthShifts.find(s => s.staff_id === staffId && s.work_date === date);
   const isClosedDay = (date) => monthShifts.some(s => s.staff_id === "closed" && s.work_date === date);
-
   const getDaysInMonth = (month) => {
     const year = month.getFullYear();
     const m = month.getMonth();
@@ -229,14 +259,9 @@ export default function AdminPage() {
     const d = formatDate(selectedDate);
     const ext = extensions[0];
     if (ext) {
-      await fetch(`${SUPABASE_URL}/rest/v1/time_extensions?id=eq.${ext.id}`, {
-        method: "PATCH", headers, body: JSON.stringify({ [type]: !ext[type] }),
-      });
+      await fetch(`${SUPABASE_URL}/rest/v1/time_extensions?id=eq.${ext.id}`, { method: "PATCH", headers, body: JSON.stringify({ [type]: !ext[type] }) });
     } else {
-      await fetch(`${SUPABASE_URL}/rest/v1/time_extensions`, {
-        method: "POST", headers,
-        body: JSON.stringify({ store_id: currentStore.id, extension_date: d, [type]: true }),
-      });
+      await fetch(`${SUPABASE_URL}/rest/v1/time_extensions`, { method: "POST", headers, body: JSON.stringify({ store_id: currentStore.id, extension_date: d, [type]: true }) });
     }
     fetchExtensions(selectedDate);
   };
@@ -247,18 +272,13 @@ export default function AdminPage() {
     if (existing) {
       await fetch(`${SUPABASE_URL}/rest/v1/blocks?id=eq.${existing.id}`, { method: "DELETE", headers });
     } else {
-      await fetch(`${SUPABASE_URL}/rest/v1/blocks`, {
-        method: "POST", headers,
-        body: JSON.stringify({ store_id: currentStore.id, staff_id: staffId, block_date: d, block_time: time, block_type: staffId === "all" ? "store" : "staff" }),
-      });
+      await fetch(`${SUPABASE_URL}/rest/v1/blocks`, { method: "POST", headers, body: JSON.stringify({ store_id: currentStore.id, staff_id: staffId, block_date: d, block_time: time, block_type: "staff" }) });
     }
     fetchBlocks(selectedDate);
   };
 
   const updateBookingStatus = async (id, status) => {
-    await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${id}`, {
-      method: "PATCH", headers, body: JSON.stringify({ status }),
-    });
+    await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${id}`, { method: "PATCH", headers, body: JSON.stringify({ status }) });
     fetchBookings(selectedDate);
     if (selectedBooking?.id === id) setSelectedBooking({ ...selectedBooking, status });
   };
@@ -279,26 +299,24 @@ export default function AdminPage() {
   const isBlocked = (staffId, time) => blocks.some(b => (b.staff_id === staffId || b.staff_id === "all") && b.block_time === time);
   const isOnShift = (staffId) => { if (shifts.length === 0) return true; return shifts.some(s => s.staff_id === staffId); };
 
-  // ポップオーバーコンポーネント
   const ShiftPopover = ({ staffId, staffName, date, shift, closed }) => {
     const [startTime, setStartTime] = useState(shift?.start_time?.slice(0,5) || "10:00");
     const [endTime, setEndTime] = useState(shift?.end_time?.slice(0,5) || "19:00");
     const [showTime, setShowTime] = useState(!!shift);
-
     return (
       <div ref={popoverRef} style={{ position: "absolute", zIndex: 100, background: "white", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", padding: 16, minWidth: 220, top: "100%", left: 0 }} onClick={e => e.stopPropagation()}>
         <div style={{ fontSize: 12, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>{staffName} / {date}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <button onClick={async () => { setShowTime(true); }} style={{ padding: "8px 12px", borderRadius: 8, border: `2px solid ${showTime ? "#5a9e7a" : "#e8ddd0"}`, background: showTime ? "#eaf5ec" : "white", color: showTime ? "#3a5a3a" : "#888", fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>〇 出勤</button>
+          <button onClick={() => setShowTime(true)} style={{ padding: "8px 12px", borderRadius: 8, border: `2px solid ${showTime ? "#5a9e7a" : "#e8ddd0"}`, background: showTime ? "#eaf5ec" : "white", color: showTime ? "#3a5a3a" : "#888", fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>〇 出勤</button>
           {showTime && (
-            <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "4px 0" }}>
-              <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} style={{ flex: 1, padding: "6px 8px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 12 }} />
-              <span style={{ color: "#aaa", fontSize: 12 }}>〜</span>
-              <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} style={{ flex: 1, padding: "6px 8px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 12 }} />
-            </div>
-          )}
-          {showTime && (
-            <button onClick={async () => { await saveShift(staffId, date, startTime, endTime, "出勤"); setPopover(null); }} style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>保存</button>
+            <>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} style={{ flex: 1, padding: "6px 8px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 12 }} />
+                <span style={{ color: "#aaa", fontSize: 12 }}>〜</span>
+                <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} style={{ flex: 1, padding: "6px 8px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 12 }} />
+              </div>
+              <button onClick={async () => { await saveShift(staffId, date, startTime, endTime, "出勤"); setPopover(null); }} style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>保存</button>
+            </>
           )}
           <button onClick={async () => { await saveShift(staffId, date, "", "", "休み"); setPopover(null); }} style={{ padding: "8px 12px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>　 休み</button>
         </div>
@@ -306,18 +324,16 @@ export default function AdminPage() {
     );
   };
 
-  const ClosedPopover = ({ date, closed }) => {
-    return (
-      <div ref={popoverRef} style={{ position: "absolute", zIndex: 100, background: "white", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", padding: 16, minWidth: 180, top: "100%", left: 0 }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>休院日設定 / {date}</div>
-        {closed ? (
-          <button onClick={async () => { await saveShift("closed", date, "", "", "休院解除"); setPopover(null); }} style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "2px solid #e07070", background: "white", color: "#e07070", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>休院を解除する</button>
-        ) : (
-          <button onClick={async () => { await saveShift("closed", date, "", "", "休院"); setPopover(null); }} style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "2px solid #e0a040", background: "#fdf5f0", color: "#e0a040", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>ー 休院日に設定する</button>
-        )}
-      </div>
-    );
-  };
+  const ClosedPopover = ({ date, closed }) => (
+    <div ref={popoverRef} style={{ position: "absolute", zIndex: 100, background: "white", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", padding: 16, minWidth: 180, top: "100%", left: 0 }} onClick={e => e.stopPropagation()}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>休院日設定 / {date}</div>
+      {closed ? (
+        <button onClick={async () => { await saveShift("closed", date, "", "", "休院解除"); setPopover(null); }} style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "2px solid #e07070", background: "white", color: "#e07070", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>休院を解除する</button>
+      ) : (
+        <button onClick={async () => { await saveShift("closed", date, "", "", "休院"); setPopover(null); }} style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "2px solid #e0a040", background: "#fdf5f0", color: "#e0a040", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>ー 休院日に設定する</button>
+      )}
+    </div>
+  );
 
   if (!loggedIn) {
     return (
@@ -424,6 +440,67 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* テンプレート編集モーダル */}
+      {editingPlan !== null && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setEditingPlan(null)}>
+          <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 700, maxHeight: "85vh", overflow: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>{editingPlan?.id ? "テンプレート編集" : "新しいテンプレート"}</div>
+              <button onClick={() => setEditingPlan(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>テンプレート名</label>
+              <input value={newPlanName} onChange={e => setNewPlanName(e.target.value)} placeholder="例：通常週パターン" style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>スタッフ別・曜日別設定</div>
+            {staffList.map(s => (
+              <div key={s.id} style={{ marginBottom: 20, background: "#f9f6f2", borderRadius: 12, padding: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a", marginBottom: 10 }}>{s.name}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {[1,2,3,4,5,6,0].map(dayOfWeek => {
+                    const dayData = editingPlan?.plan_data?.[s.id]?.[dayOfWeek] || {};
+                    return (
+                      <div key={dayOfWeek} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ width: 40, fontSize: 12, color: dayOfWeek === 0 ? "#e07070" : dayOfWeek === 6 ? "#7090e0" : "#3a5a3a", fontWeight: 600 }}>{DAYS_FULL[dayOfWeek]}</div>
+                        <button onClick={() => updatePlanData(s.id, dayOfWeek, "enabled", !dayData.enabled)} style={{ padding: "4px 12px", borderRadius: 8, border: `2px solid ${dayData.enabled ? "#5a9e7a" : "#e8ddd0"}`, background: dayData.enabled ? "#eaf5ec" : "white", color: dayData.enabled ? "#3a5a3a" : "#aaa", fontSize: 13, fontWeight: 600, cursor: "pointer", minWidth: 50 }}>
+                          {dayData.enabled ? "〇" : "休み"}
+                        </button>
+                        {dayData.enabled && (
+                          <>
+                            <input type="time" value={dayData.start || "10:00"} onChange={e => updatePlanData(s.id, dayOfWeek, "start", e.target.value)} style={{ padding: "4px 8px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 12, width: 90 }} />
+                            <span style={{ color: "#aaa", fontSize: 12 }}>〜</span>
+                            <input type="time" value={dayData.end || "19:00"} onChange={e => updatePlanData(s.id, dayOfWeek, "end", e.target.value)} style={{ padding: "4px 8px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 12, width: 90 }} />
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            <button onClick={savePlan} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>保存</button>
+          </div>
+        </div>
+      )}
+
+      {/* テンプレート適用モーダル */}
+      {applyPlanModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setApplyPlanModal(null)}>
+          <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 400, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>「{applyPlanModal.plan_name}」を適用</div>
+              <button onClick={() => setApplyPlanModal(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+            </div>
+            <div style={{ marginBottom: 24 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>適用する週の開始日（日曜日）</label>
+              <input type="date" value={applyWeekStart} onChange={e => setApplyWeekStart(e.target.value)} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+            </div>
+            <div style={{ fontSize: 12, color: "#aaa", marginBottom: 20 }}>選択した日から7日間にテンプレートを適用します。既存のシフトは上書きされます。</div>
+            <button onClick={() => applyWeekStart && applyPlan(applyPlanModal, applyWeekStart)} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: applyWeekStart ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: applyWeekStart ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: applyWeekStart ? "pointer" : "not-allowed" }}>適用する</button>
+          </div>
+        </div>
+      )}
+
       <div style={{ background: "white", borderBottom: "1px solid #e8ddd0", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ fontSize: 24 }}>🌿</div>
@@ -473,27 +550,18 @@ export default function AdminPage() {
                 })}
               </div>
             </div>
-
             {selectedDate && (
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ background: "white", borderRadius: 16, padding: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>
-                      {selectedDate.getMonth()+1}月{selectedDate.getDate()}日（{DAYS_JP[selectedDate.getDay()]}）
-                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>{selectedDate.getMonth()+1}月{selectedDate.getDate()}日（{DAYS_JP[selectedDate.getDay()]}）</div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <button onClick={() => toggleExtension("morning_extended")} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${ext.morning_extended ? "#5a9e7a" : "#e8ddd0"}`, background: ext.morning_extended ? "#eaf5ec" : "white", color: ext.morning_extended ? "#3a5a3a" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                        {ext.morning_extended ? "✓" : ""} 早朝拡張(9:00〜)
-                      </button>
-                      <button onClick={() => toggleExtension("evening_extended")} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${ext.evening_extended ? "#5a9e7a" : "#e8ddd0"}`, background: ext.evening_extended ? "#eaf5ec" : "white", color: ext.evening_extended ? "#3a5a3a" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                        {ext.evening_extended ? "✓" : ""} 夜間拡張(〜20:30)
-                      </button>
+                      <button onClick={() => toggleExtension("morning_extended")} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${ext.morning_extended ? "#5a9e7a" : "#e8ddd0"}`, background: ext.morning_extended ? "#eaf5ec" : "white", color: ext.morning_extended ? "#3a5a3a" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{ext.morning_extended ? "✓" : ""} 早朝拡張(9:00〜)</button>
+                      <button onClick={() => toggleExtension("evening_extended")} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${ext.evening_extended ? "#5a9e7a" : "#e8ddd0"}`, background: ext.evening_extended ? "#eaf5ec" : "white", color: ext.evening_extended ? "#3a5a3a" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{ext.evening_extended ? "✓" : ""} 夜間拡張(〜20:30)</button>
                     </div>
                   </div>
                 </div>
-                {loading ? (
-                  <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div>
-                ) : (
+                {loading ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div> : (
                   <div style={{ background: "white", borderRadius: 16, overflow: "auto", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                     <table style={{ borderCollapse: "collapse", minWidth: "100%" }}>
                       <thead>
@@ -502,23 +570,14 @@ export default function AdminPage() {
                           {timeSlots.map(time => {
                             const isBreak = BREAK_SLOTS.includes(time);
                             const isExt = MORNING_EXT.includes(time) || EVENING_EXT.includes(time);
-                            return (
-                              <th key={time} style={{ padding: "10px 8px", textAlign: "center", fontSize: 11, fontWeight: 700, color: isBreak ? "#e0a040" : isExt ? "#5a9e7a" : "#7a9a7a", minWidth: 70, borderLeft: "1px solid #f0ebe4", background: isBreak ? "#fdf5f0" : isExt ? "#f0f8f4" : "#f5f5f5" }}>
-                                {time}
-                                {isBreak && <div style={{ fontSize: 9, color: "#e0a040" }}>休憩</div>}
-                                {isExt && <div style={{ fontSize: 9, color: "#5a9e7a" }}>拡張</div>}
-                              </th>
-                            );
+                            return <th key={time} style={{ padding: "10px 8px", textAlign: "center", fontSize: 11, fontWeight: 700, color: isBreak ? "#e0a040" : isExt ? "#5a9e7a" : "#7a9a7a", minWidth: 70, borderLeft: "1px solid #f0ebe4", background: isBreak ? "#fdf5f0" : isExt ? "#f0f8f4" : "#f5f5f5" }}>{time}{isBreak && <div style={{ fontSize: 9, color: "#e0a040" }}>休憩</div>}{isExt && <div style={{ fontSize: 9, color: "#5a9e7a" }}>拡張</div>}</th>;
                           })}
                         </tr>
                       </thead>
                       <tbody>
                         {staffList.map(s => (
                           <tr key={s.id} style={{ borderTop: "1px solid #f0ebe4" }}>
-                            <td style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, color: isOnShift(s.id) ? "#3a5a3a" : "#ccc", position: "sticky", left: 0, background: "white", zIndex: 1, minWidth: 100 }}>
-                              {s.name}
-                              {!isOnShift(s.id) && <div style={{ fontSize: 10, color: "#ccc" }}>休み</div>}
-                            </td>
+                            <td style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, color: isOnShift(s.id) ? "#3a5a3a" : "#ccc", position: "sticky", left: 0, background: "white", zIndex: 1, minWidth: 100 }}>{s.name}{!isOnShift(s.id) && <div style={{ fontSize: 10, color: "#ccc" }}>休み</div>}</td>
                             {timeSlots.map(time => {
                               const isBreak = BREAK_SLOTS.includes(time);
                               const isExt = MORNING_EXT.includes(time) || EVENING_EXT.includes(time);
@@ -527,19 +586,11 @@ export default function AdminPage() {
                               const onShift = isOnShift(s.id);
                               return (
                                 <td key={time} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: isBreak ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", minWidth: 70 }}>
-                                  {isBreak ? (
-                                    <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
-                                  ) : !onShift ? (
-                                    <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
-                                  ) : booking ? (
-                                    <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "3px 6px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => setSelectedBooking(booking)}>
-                                      {booking.customers?.name || "予約あり"}
-                                    </div>
-                                  ) : blocked ? (
-                                    <div onClick={() => toggleBlock(s.id, time)} style={{ background: "#f0ebe4", color: "#bbb", borderRadius: 6, padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>🔒</div>
-                                  ) : (
-                                    <div onClick={() => toggleBlock(s.id, time)} style={{ color: "#ddd", fontSize: 16, cursor: "pointer", lineHeight: 1 }}>+</div>
-                                  )}
+                                  {isBreak ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
+                                  : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
+                                  : booking ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "3px 6px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => setSelectedBooking(booking)}>{booking.customers?.name || "予約あり"}</div>
+                                  : blocked ? <div onClick={() => toggleBlock(s.id, time)} style={{ background: "#f0ebe4", color: "#bbb", borderRadius: 6, padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>🔒</div>
+                                  : <div onClick={() => toggleBlock(s.id, time)} style={{ color: "#ddd", fontSize: 16, cursor: "pointer", lineHeight: 1 }}>+</div>}
                                 </td>
                               );
                             })}
@@ -551,92 +602,128 @@ export default function AdminPage() {
                 )}
               </div>
             )}
-            {!selectedDate && (
-              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#aaa", fontSize: 14 }}>← 日付を選択してください</div>
-            )}
+            {!selectedDate && <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#aaa", fontSize: 14 }}>← 日付を選択してください</div>}
           </div>
         )}
 
         {tab === "shifts" && (
           <div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <button onClick={() => setShiftMonth(new Date(shiftMonth.getFullYear(), shiftMonth.getMonth()-1, 1))} style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#5a9e7a" }}>‹</button>
-                <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>{shiftMonth.getFullYear()}年{shiftMonth.getMonth()+1}月 シフト</div>
-                <button onClick={() => setShiftMonth(new Date(shiftMonth.getFullYear(), shiftMonth.getMonth()+1, 1))} style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#5a9e7a" }}>›</button>
-              </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+              {[{ id: "monthly", label: "📅 月間シフト" }, { id: "templates", label: "📋 テンプレート" }].map(t => (
+                <button key={t.id} onClick={() => setShiftSubTab(t.id)} style={{ padding: "10px 20px", borderRadius: 10, border: `2px solid ${shiftSubTab === t.id ? "#5a9e7a" : "#e8ddd0"}`, background: shiftSubTab === t.id ? "#eaf5ec" : "white", color: shiftSubTab === t.id ? "#3a5a3a" : "#aaa", fontSize: 14, fontWeight: shiftSubTab === t.id ? 700 : 400, cursor: "pointer" }}>{t.label}</button>
+              ))}
             </div>
 
-            <div style={{ fontSize: 12, color: "#aaa", marginBottom: 12 }}>💡 セルをクリックしてシフトを設定。スタッフ行の最下行で休院日を設定できます。</div>
-
-            <div style={{ background: "white", borderRadius: 16, overflow: "auto", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-              <table style={{ borderCollapse: "collapse", width: "100%" }}>
-                <thead>
-                  <tr style={{ background: "#f5f5f5" }}>
-                    <th style={{ padding: "12px 16px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", minWidth: 100, position: "sticky", left: 0, background: "#f5f5f5" }}>スタッフ</th>
-                    {getDaysInMonth(shiftMonth).filter(d => d).map(d => {
-                      const dayIdx = d.getDay();
-                      const dateStr = formatDate(d);
-                      const closed = isClosedDay(dateStr);
-                      return (
-                        <th key={dateStr} style={{ padding: "8px 4px", textAlign: "center", fontSize: 11, minWidth: 52, borderLeft: "1px solid #f0ebe4", background: closed ? "#fdf5f0" : "#f5f5f5" }}>
-                          <div style={{ color: dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : "#7a9a7a", fontWeight: 700 }}>{d.getDate()}</div>
-                          <div style={{ color: "#aaa", fontSize: 10 }}>{DAYS_JP[dayIdx]}</div>
-                          {closed && <div style={{ color: "#e0a040", fontSize: 9 }}>休院</div>}
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-                <tbody>
-                  {staffList.map(s => (
-                    <tr key={s.id} style={{ borderTop: "1px solid #f0ebe4" }}>
-                      <td style={{ padding: "10px 16px", fontSize: 12, fontWeight: 700, color: "#3a5a3a", position: "sticky", left: 0, background: "white" }}>{s.name}</td>
-                      {getDaysInMonth(shiftMonth).filter(d => d).map(d => {
-                        const dateStr = formatDate(d);
-                        const shift = getShiftForCell(s.id, dateStr);
-                        const closed = isClosedDay(dateStr);
-                        const isOpen = popover?.staffId === s.id && popover?.date === dateStr;
-                        return (
-                          <td key={dateStr} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: closed ? "#fdf5f0" : "white", minWidth: 52, position: "relative" }}>
-                            <div onClick={() => setPopover(isOpen ? null : { staffId: s.id, staffName: s.name, date: dateStr, shift, closed })} style={{ cursor: "pointer", minHeight: 40, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                              {closed ? (
-                                <div style={{ fontSize: 12, color: "#ccc" }}>ー</div>
-                              ) : shift ? (
-                                <div>
-                                  <div style={{ fontSize: 13, color: "#5a9e7a", fontWeight: 700 }}>〇</div>
-                                  <div style={{ fontSize: 9, color: "#aaa" }}>{shift.start_time?.slice(0,5)}</div>
-                                  <div style={{ fontSize: 9, color: "#aaa" }}>{shift.end_time?.slice(0,5)}</div>
+            {shiftSubTab === "monthly" && (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+                  <button onClick={() => setShiftMonth(new Date(shiftMonth.getFullYear(), shiftMonth.getMonth()-1, 1))} style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#5a9e7a" }}>‹</button>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>{shiftMonth.getFullYear()}年{shiftMonth.getMonth()+1}月 シフト</div>
+                  <button onClick={() => setShiftMonth(new Date(shiftMonth.getFullYear(), shiftMonth.getMonth()+1, 1))} style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#5a9e7a" }}>›</button>
+                </div>
+                <div style={{ fontSize: 12, color: "#aaa", marginBottom: 12 }}>💡 セルをクリックしてシフトを設定できます</div>
+                <div style={{ background: "white", borderRadius: 16, overflow: "auto", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                    <thead>
+                      <tr style={{ background: "#f5f5f5" }}>
+                        <th style={{ padding: "12px 16px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", minWidth: 100, position: "sticky", left: 0, background: "#f5f5f5" }}>スタッフ</th>
+                        {getDaysInMonth(shiftMonth).filter(d => d).map(d => {
+                          const dayIdx = d.getDay();
+                          const dateStr = formatDate(d);
+                          const closed = isClosedDay(dateStr);
+                          return (
+                            <th key={dateStr} style={{ padding: "8px 4px", textAlign: "center", fontSize: 11, minWidth: 52, borderLeft: "1px solid #f0ebe4", background: closed ? "#fdf5f0" : "#f5f5f5" }}>
+                              <div style={{ color: dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : "#7a9a7a", fontWeight: 700 }}>{d.getDate()}</div>
+                              <div style={{ color: "#aaa", fontSize: 10 }}>{DAYS_JP[dayIdx]}</div>
+                              {closed && <div style={{ color: "#e0a040", fontSize: 9 }}>休院</div>}
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {staffList.map(s => (
+                        <tr key={s.id} style={{ borderTop: "1px solid #f0ebe4" }}>
+                          <td style={{ padding: "10px 16px", fontSize: 12, fontWeight: 700, color: "#3a5a3a", position: "sticky", left: 0, background: "white" }}>{s.name}</td>
+                          {getDaysInMonth(shiftMonth).filter(d => d).map(d => {
+                            const dateStr = formatDate(d);
+                            const shift = getShiftForCell(s.id, dateStr);
+                            const closed = isClosedDay(dateStr);
+                            const isOpen = popover?.staffId === s.id && popover?.date === dateStr;
+                            return (
+                              <td key={dateStr} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: closed ? "#fdf5f0" : "white", minWidth: 52, position: "relative" }}>
+                                <div onClick={() => setPopover(isOpen ? null : { staffId: s.id, staffName: s.name, date: dateStr, shift, closed })} style={{ cursor: "pointer", minHeight: 40, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                                  {closed ? <div style={{ fontSize: 12, color: "#ccc" }}>ー</div>
+                                  : shift ? <div><div style={{ fontSize: 13, color: "#5a9e7a", fontWeight: 700 }}>〇</div><div style={{ fontSize: 9, color: "#aaa" }}>{shift.start_time?.slice(0,5)}</div><div style={{ fontSize: 9, color: "#aaa" }}>{shift.end_time?.slice(0,5)}</div></div>
+                                  : <div style={{ fontSize: 18, color: "#eee" }}>+</div>}
                                 </div>
-                              ) : (
-                                <div style={{ fontSize: 18, color: "#eee" }}>+</div>
-                              )}
+                                {isOpen && <ShiftPopover staffId={s.id} staffName={s.name} date={dateStr} shift={shift} closed={closed} />}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                      <tr style={{ borderTop: "2px solid #e8ddd0", background: "#fdf9f4" }}>
+                        <td style={{ padding: "10px 16px", fontSize: 11, fontWeight: 700, color: "#e0a040", position: "sticky", left: 0, background: "#fdf9f4" }}>🏥 休院日</td>
+                        {getDaysInMonth(shiftMonth).filter(d => d).map(d => {
+                          const dateStr = formatDate(d);
+                          const closed = isClosedDay(dateStr);
+                          const isOpen = popover?.type === "closed" && popover?.date === dateStr;
+                          return (
+                            <td key={dateStr} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: closed ? "#fdf5f0" : "white", minWidth: 52, position: "relative" }}>
+                              <div onClick={() => setPopover(isOpen ? null : { type: "closed", date: dateStr, closed })} style={{ cursor: "pointer", minHeight: 40, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                <div style={{ fontSize: 14, color: closed ? "#e0a040" : "#ddd", fontWeight: closed ? 700 : 400 }}>{closed ? "ー" : "+"}</div>
+                              </div>
+                              {isOpen && <ClosedPopover date={dateStr} closed={closed} />}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {shiftSubTab === "templates" && (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>シフトテンプレート一覧</div>
+                  <button onClick={() => { setEditingPlan({}); setNewPlanName(""); }} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>＋ 新しいテンプレート</button>
+                </div>
+                {shiftPlans.length === 0 && (
+                  <div style={{ textAlign: "center", padding: 40, background: "white", borderRadius: 16, color: "#aaa" }}>
+                    テンプレートがまだありません。「新しいテンプレート」から作成してください。
+                  </div>
+                )}
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {shiftPlans.map(plan => (
+                    <div key={plan.id} style={{ background: "white", borderRadius: 16, padding: "20px 24px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>📋 {plan.plan_name}</div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button onClick={() => { setApplyPlanModal(plan); setApplyWeekStart(""); }} style={{ padding: "8px 16px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>適用する</button>
+                          <button onClick={() => { setEditingPlan(plan); setNewPlanName(plan.plan_name); }} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, cursor: "pointer" }}>編集</button>
+                          <button onClick={() => deletePlan(plan.id)} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #ffcccc", background: "white", color: "#e07070", fontSize: 12, cursor: "pointer" }}>削除</button>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        {staffList.map(s => {
+                          const staffData = plan.plan_data?.[s.id] || {};
+                          const workDays = [1,2,3,4,5,6,0].filter(d => staffData[d]?.enabled);
+                          return (
+                            <div key={s.id} style={{ background: "#f5f5f5", borderRadius: 8, padding: "6px 12px" }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: "#3a5a3a" }}>{s.name}</div>
+                              <div style={{ fontSize: 11, color: "#888" }}>{workDays.length > 0 ? workDays.map(d => DAYS_JP[d]).join("・") : "設定なし"}</div>
                             </div>
-                            {isOpen && <ShiftPopover staffId={s.id} staffName={s.name} date={dateStr} shift={shift} closed={closed} />}
-                          </td>
-                        );
-                      })}
-                    </tr>
+                          );
+                        })}
+                      </div>
+                    </div>
                   ))}
-                  <tr style={{ borderTop: "2px solid #e8ddd0", background: "#fdf9f4" }}>
-                    <td style={{ padding: "10px 16px", fontSize: 11, fontWeight: 700, color: "#e0a040", position: "sticky", left: 0, background: "#fdf9f4" }}>🏥 休院日</td>
-                    {getDaysInMonth(shiftMonth).filter(d => d).map(d => {
-                      const dateStr = formatDate(d);
-                      const closed = isClosedDay(dateStr);
-                      const isOpen = popover?.type === "closed" && popover?.date === dateStr;
-                      return (
-                        <td key={dateStr} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: closed ? "#fdf5f0" : "white", minWidth: 52, position: "relative" }}>
-                          <div onClick={() => setPopover(isOpen ? null : { type: "closed", date: dateStr, closed })} style={{ cursor: "pointer", minHeight: 40, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <div style={{ fontSize: 14, color: closed ? "#e0a040" : "#ddd", fontWeight: closed ? 700 : 400 }}>{closed ? "ー" : "+"}</div>
-                          </div>
-                          {isOpen && <ClosedPopover date={dateStr} closed={closed} />}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
