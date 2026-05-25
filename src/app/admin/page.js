@@ -338,9 +338,9 @@ export default function AdminPage() {
                                   ) : !onShift ? (
                                     <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
                                   ) : booking ? (
-                                    <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "3px 6px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => updateBookingStatus(booking.id, booking.status === "confirmed" ? "completed" : "confirmed")}>
-                                      {booking.customers?.name || "予約あり"}
-                                    </div>
+                                    <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "3px 6px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => setSelectedBooking(booking)}>
+  {booking.customers?.name || booking.notes || "予約あり"}
+</div>
                                   ) : blocked ? (
                                     <div onClick={() => toggleBlock(s.id, time)} style={{ background: "#f0ebe4", color: "#bbb", borderRadius: 6, padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>🔒</div>
                                   ) : (
