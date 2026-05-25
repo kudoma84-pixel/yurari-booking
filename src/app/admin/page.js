@@ -26,6 +26,14 @@ const STAFFS = {
   ],
 };
 
+const COURSES = [
+  { id: "c1", name: "全身調整コース", price: 6600 },
+  { id: "c2", name: "集中ケアコース", price: 9900 },
+  { id: "c3", name: "首・肩 集中コース", price: 4950 },
+  { id: "c4", name: "腰痛改善コース", price: 6600 },
+  { id: "c5", name: "初回体験コース", price: 3300 },
+];
+
 const BASE_SLOTS = [
   "10:00","10:30","11:00","11:30","12:00","12:30","13:00",
   "15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30"
@@ -35,6 +43,14 @@ const EVENING_EXT = ["20:00","20:30"];
 const BREAK_SLOTS = ["13:30","14:00","14:30"];
 const DAYS_JP = ["日","月","火","水","木","金","土"];
 const DAYS_FULL = ["日曜","月曜","火曜","水曜","木曜","金曜","土曜"];
+
+const PAYMENT_METHODS = [
+  { id: "cash", name: "現金", icon: "💴" },
+  { id: "card", name: "カード", icon: "💳" },
+  { id: "paypay", name: "PayPay", icon: "📱" },
+  { id: "linepay", name: "LINE Pay", icon: "💚" },
+  { id: "other", name: "その他", icon: "💰" },
+];
 
 export default function AdminPage() {
   const [loggedIn, setLoggedIn] = useState(false);
@@ -63,7 +79,16 @@ export default function AdminPage() {
   const [newPlanName, setNewPlanName] = useState("");
   const [applyPlanModal, setApplyPlanModal] = useState(null);
   const [applyWeekStart, setApplyWeekStart] = useState("");
-const [applyWeekEnd, setApplyWeekEnd] = useState("");
+  const [applyWeekEnd, setApplyWeekEnd] = useState("");
+  const [products, setProducts] = useState([]);
+  const [checkoutBooking, setCheckoutBooking] = useState(null);
+  const [checkoutItems, setCheckoutItems] = useState([]);
+  const [checkoutDiscount, setCheckoutDiscount] = useState(0);
+  const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState("cash");
+  const [checkoutNote, setCheckoutNote] = useState("");
+  const [checkoutComplete, setCheckoutComplete] = useState(false);
+  const [checkoutResult, setCheckoutResult] = useState(null);
+  const [todayBookings, setTodayBookings] = useState([]);
   const popoverRef = useRef(null);
 
   const headers = {
@@ -80,6 +105,7 @@ const [applyWeekEnd, setApplyWeekEnd] = useState("");
   };
 
   const formatDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const formatPrice = (p) => `¥${p.toLocaleString()}`;
 
   const fetchBookings = async (date) => {
     if (!date) return;
@@ -89,6 +115,13 @@ const [applyWeekEnd, setApplyWeekEnd] = useState("");
     const data = await res.json();
     setBookings(Array.isArray(data) ? data : []);
     setLoading(false);
+  };
+
+  const fetchTodayBookings = async () => {
+    const d = formatDate(new Date());
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${d}&select=*,customers(name,tel)&order=booking_time.asc`, { headers });
+    const data = await res.json();
+    setTodayBookings(Array.isArray(data) ? data : []);
   };
 
   const fetchCustomers = async () => {
@@ -146,6 +179,12 @@ const [applyWeekEnd, setApplyWeekEnd] = useState("");
     setShiftPlans(Array.isArray(data) ? data : []);
   };
 
+  const fetchProducts = async () => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/products?store_id=eq.${currentStore.id}&is_active=eq.true&order=category.asc`, { headers });
+    const data = await res.json();
+    setProducts(Array.isArray(data) ? data : []);
+  };
+
   const fetchAll = async (date) => {
     await Promise.all([fetchBookings(date), fetchBlocks(date), fetchShifts(date), fetchExtensions(date)]);
   };
@@ -153,6 +192,7 @@ const [applyWeekEnd, setApplyWeekEnd] = useState("");
   useEffect(() => {
     if (loggedIn && tab === "customers") fetchCustomers();
     if (loggedIn && tab === "shifts") { fetchMonthShifts(); fetchShiftPlans(); }
+    if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchProducts(); }
   }, [loggedIn, tab]);
 
   useEffect(() => {
@@ -170,6 +210,74 @@ const [applyWeekEnd, setApplyWeekEnd] = useState("");
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
+
+  const startCheckout = (booking) => {
+    const course = COURSES.find(c => c.id === booking.course_id) || { name: booking.course_name, price: 0 };
+    setCheckoutBooking(booking);
+    setCheckoutItems([{ type: "course", name: course.name, price: course.price, quantity: 1 }]);
+    setCheckoutDiscount(0);
+    setCheckoutPaymentMethod("cash");
+    setCheckoutNote("");
+    setCheckoutComplete(false);
+    setCheckoutResult(null);
+  };
+
+  const addProduct = (product) => {
+    const existing = checkoutItems.find(i => i.id === product.id);
+    if (existing) {
+      setCheckoutItems(checkoutItems.map(i => i.id === product.id ? { ...i, quantity: i.quantity + 1 } : i));
+    } else {
+      setCheckoutItems([...checkoutItems, { id: product.id, type: "product", name: product.name, price: product.price, quantity: 1 }]);
+    }
+  };
+
+  const removeItem = (index) => {
+    setCheckoutItems(checkoutItems.filter((_, i) => i !== index));
+  };
+
+  const updateQuantity = (index, qty) => {
+    if (qty <= 0) { removeItem(index); return; }
+    setCheckoutItems(checkoutItems.map((item, i) => i === index ? { ...item, quantity: qty } : item));
+  };
+
+  const subtotal = checkoutItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const total = Math.max(0, subtotal - checkoutDiscount);
+
+  const savePayment = async () => {
+    const paymentRes = await fetch(`${SUPABASE_URL}/rest/v1/payments`, {
+      method: "POST", headers,
+      body: JSON.stringify({
+        store_id: currentStore.id,
+        customer_id: checkoutBooking?.customer_id || null,
+        booking_id: checkoutBooking?.id || null,
+        subtotal, discount: checkoutDiscount, total,
+        payment_method: checkoutPaymentMethod,
+        payment_status: "paid",
+        notes: checkoutNote,
+      }),
+    });
+    const paymentData = await paymentRes.json();
+    const paymentId = paymentData[0]?.id;
+
+    if (paymentId) {
+      for (const item of checkoutItems) {
+        await fetch(`${SUPABASE_URL}/rest/v1/payment_items`, {
+          method: "POST", headers,
+          body: JSON.stringify({ payment_id: paymentId, item_type: item.type, item_name: item.name, price: item.price, quantity: item.quantity }),
+        });
+      }
+    }
+
+    if (checkoutBooking) {
+      await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${checkoutBooking.id}`, {
+        method: "PATCH", headers, body: JSON.stringify({ status: "completed" }),
+      });
+    }
+
+    setCheckoutResult({ paymentId, total, paymentMethod: checkoutPaymentMethod, customerName: checkoutBooking?.customers?.name || "お客様" });
+    setCheckoutComplete(true);
+    fetchTodayBookings();
+  };
 
   const saveShift = async (staffId, date, startTime, endTime, type) => {
     const existing = monthShifts.find(s => s.staff_id === staffId && s.work_date === date);
@@ -209,39 +317,30 @@ const [applyWeekEnd, setApplyWeekEnd] = useState("");
   };
 
   const applyPlan = async (plan, startDate, endDate) => {
-  const start = new Date(startDate + "T00:00:00");
-  const end = new Date(endDate + "T00:00:00");
-  const planData = plan.plan_data || {};
-  const d = new Date(start);
-  while (d <= end) {
-    const dayOfWeek = d.getDay();
-    const dateStr = formatDate(d);
-    for (const staffId of Object.keys(planData)) {
-      const dayData = planData[staffId]?.[dayOfWeek];
-      if (dayData?.enabled) {
-        await saveShift(staffId, dateStr, dayData.start || "10:00", dayData.end || "19:00", "出勤");
+    const start = new Date(startDate + "T00:00:00");
+    const end = new Date(endDate + "T00:00:00");
+    const planData = plan.plan_data || {};
+    const d = new Date(start);
+    while (d <= end) {
+      const dayOfWeek = d.getDay();
+      const dateStr = formatDate(d);
+      for (const staffId of Object.keys(planData)) {
+        const dayData = planData[staffId]?.[dayOfWeek];
+        if (dayData?.enabled) {
+          await saveShift(staffId, dateStr, dayData.start || "10:00", dayData.end || "19:00", "出勤");
+        }
       }
+      d.setDate(d.getDate() + 1);
     }
-    d.setDate(d.getDate() + 1);
-  }
-  setApplyPlanModal(null);
-  await fetchMonthShifts();
-};
+    setApplyPlanModal(null);
+    await fetchMonthShifts();
+  };
 
   const updatePlanData = (staffId, dayOfWeek, field, value) => {
     const current = editingPlan?.plan_data || {};
     const staffData = current[staffId] || {};
     const dayData = staffData[dayOfWeek] || {};
-    setEditingPlan({
-      ...editingPlan,
-      plan_data: {
-        ...current,
-        [staffId]: {
-          ...staffData,
-          [dayOfWeek]: { ...dayData, [field]: value }
-        }
-      }
-    });
+    setEditingPlan({ ...editingPlan, plan_data: { ...current, [staffId]: { ...staffData, [dayOfWeek]: { ...dayData, [field]: value } } } });
   };
 
   const getShiftForCell = (staffId, date) => monthShifts.find(s => s.staff_id === staffId && s.work_date === date);
@@ -493,14 +592,16 @@ const [applyWeekEnd, setApplyWeekEnd] = useState("");
               <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>「{applyPlanModal.plan_name}」を適用</div>
               <button onClick={() => setApplyPlanModal(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
             </div>
-            <div style={{ marginBottom: 24 }}>
+            <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>開始日</label>
-<input type="date" value={applyWeekStart} onChange={e => setApplyWeekStart(e.target.value)} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", marginBottom: 12 }} />
-<label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>終了日</label>
-<input type="date" value={applyWeekEnd} onChange={e => setApplyWeekEnd(e.target.value)} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
-</div>
-<div style={{ fontSize: 12, color: "#aaa", marginBottom: 20 }}>指定した期間にテンプレートを適用します。既存のシフトは上書きされます。</div>
-<button onClick={() => applyWeekStart && applyWeekEnd && applyPlan(applyPlanModal, applyWeekStart, applyWeekEnd)} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: applyWeekStart ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: applyWeekStart ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: applyWeekStart ? "pointer" : "not-allowed" }}>適用する</button>
+              <input type="date" value={applyWeekStart} onChange={e => setApplyWeekStart(e.target.value)} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+            </div>
+            <div style={{ marginBottom: 24 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>終了日</label>
+              <input type="date" value={applyWeekEnd} onChange={e => setApplyWeekEnd(e.target.value)} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+            </div>
+            <div style={{ fontSize: 12, color: "#aaa", marginBottom: 20 }}>指定した期間にテンプレートを適用します。既存のシフトは上書きされます。</div>
+            <button onClick={() => applyWeekStart && applyWeekEnd && applyPlan(applyPlanModal, applyWeekStart, applyWeekEnd)} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: applyWeekStart && applyWeekEnd ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: applyWeekStart && applyWeekEnd ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: applyWeekStart && applyWeekEnd ? "pointer" : "not-allowed" }}>適用する</button>
           </div>
         </div>
       )}
@@ -520,6 +621,7 @@ const [applyWeekEnd, setApplyWeekEnd] = useState("");
         {[
           { id: "calendar", label: "📅 カレンダー" },
           { id: "bookings", label: "📋 予約一覧" },
+          { id: "checkout", label: "💴 会計" },
           { id: "shifts", label: "👤 シフト管理" },
           { id: "customers", label: "👥 顧客管理" },
         ].map(t => (
@@ -528,6 +630,126 @@ const [applyWeekEnd, setApplyWeekEnd] = useState("");
       </div>
 
       <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto" }}>
+
+        {tab === "checkout" && (
+          <div>
+            {!checkoutBooking ? (
+              <div>
+                <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 16 }}>会計 - 本日の予約</h2>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {todayBookings.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#aaa", background: "white", borderRadius: 16 }}>本日の予約はありません</div>}
+                  {todayBookings.map(b => (
+                    <div key={b.id} style={{ background: "white", borderRadius: 16, padding: "20px 24px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a" }}>{b.customers?.name || "未登録"}</div>
+                          <div style={{ fontSize: 12, background: statusColor(b.status), color: "white", borderRadius: 20, padding: "2px 8px" }}>{statusLabel(b.status)}</div>
+                        </div>
+                        <div style={{ fontSize: 12, color: "#888" }}>{b.booking_time} / {b.course_name} / {b.staff_name}</div>
+                      </div>
+                      {b.status !== "completed" && b.status !== "cancelled" && (
+                        <button onClick={() => startCheckout(b)} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>会計する</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : checkoutComplete ? (
+              <div style={{ maxWidth: 480, margin: "0 auto", textAlign: "center", paddingTop: 40 }}>
+                <div style={{ fontSize: 64, marginBottom: 16 }}>✅</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "#3a5a3a", marginBottom: 8 }}>会計完了！</div>
+                <div style={{ fontSize: 14, color: "#7a9a7a", marginBottom: 32 }}>{checkoutResult?.customerName} 様</div>
+                <div style={{ background: "linear-gradient(135deg, #eaf5ec, #e0f0e8)", borderRadius: 16, padding: "24px", marginBottom: 24 }}>
+                  <div style={{ fontSize: 13, color: "#7a9a7a", marginBottom: 4 }}>お支払い金額</div>
+                  <div style={{ fontSize: 32, fontWeight: 700, color: "#3a5a3a" }}>{formatPrice(checkoutResult?.total || 0)}</div>
+                  <div style={{ fontSize: 13, color: "#7a9a7a", marginTop: 8 }}>{PAYMENT_METHODS.find(m => m.id === checkoutResult?.paymentMethod)?.name}</div>
+                </div>
+                <div style={{ display: "flex", gap: 12 }}>
+                  <button onClick={() => { setCheckoutBooking(null); setCheckoutComplete(false); }} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>戻る</button>
+                  <button onClick={() => window.print()} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>🖨️ 領収書印刷</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+                <div style={{ flex: 1, minWidth: 300 }}>
+                  <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a", marginBottom: 16 }}>
+                      {checkoutBooking.customers?.name || "お客様"} 様の会計
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+                      {checkoutItems.map((item, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "#f9f6f2", borderRadius: 10 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{item.name}</div>
+                            <div style={{ fontSize: 11, color: "#aaa" }}>{formatPrice(item.price)} × {item.quantity}</div>
+                          </div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginRight: 12 }}>{formatPrice(item.price * item.quantity)}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <button onClick={() => updateQuantity(i, item.quantity - 1)} style={{ width: 24, height: 24, borderRadius: "50%", border: "1px solid #e8ddd0", background: "white", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>－</button>
+                            <span style={{ fontSize: 13, minWidth: 16, textAlign: "center" }}>{item.quantity}</span>
+                            <button onClick={() => updateQuantity(i, item.quantity + 1)} style={{ width: 24, height: 24, borderRadius: "50%", border: "1px solid #e8ddd0", background: "white", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>＋</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ borderTop: "1px solid #f0ebe4", paddingTop: 12 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                        <span style={{ fontSize: 13, color: "#888" }}>小計</span>
+                        <span style={{ fontSize: 13, color: "#3a5a3a" }}>{formatPrice(subtotal)}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <span style={{ fontSize: 13, color: "#888" }}>割引</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 13, color: "#888" }}>¥</span>
+                          <input type="number" value={checkoutDiscount} onChange={e => setCheckoutDiscount(parseInt(e.target.value) || 0)} style={{ width: 80, padding: "4px 8px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, textAlign: "right" }} />
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, borderTop: "2px solid #e8ddd0" }}>
+                        <span style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>合計</span>
+                        <span style={{ fontSize: 20, fontWeight: 700, color: "#5a9e7a" }}>{formatPrice(total)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>支払い方法</div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {PAYMENT_METHODS.map(m => (
+                        <button key={m.id} onClick={() => setCheckoutPaymentMethod(m.id)} style={{ padding: "10px 16px", borderRadius: 10, border: `2px solid ${checkoutPaymentMethod === m.id ? "#5a9e7a" : "#e8ddd0"}`, background: checkoutPaymentMethod === m.id ? "#eaf5ec" : "white", color: checkoutPaymentMethod === m.id ? "#3a5a3a" : "#888", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{m.icon} {m.name}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <button onClick={() => setCheckoutBooking(null)} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>戻る</button>
+                    <button onClick={savePayment} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>✓ 会計を確定する</button>
+                  </div>
+                </div>
+
+                <div style={{ width: 320 }}>
+                  <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>物販を追加</div>
+                    {products.length === 0 ? (
+                      <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", padding: 20 }}>商品が登録されていません</div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {products.map(p => (
+                          <div key={p.id} onClick={() => addProduct(p)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "#f9f6f2", borderRadius: 10, cursor: "pointer" }}>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{p.name}</div>
+                              <div style={{ fontSize: 11, color: "#aaa" }}>{p.category}</div>
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#5a9e7a" }}>{formatPrice(p.price)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {tab === "calendar" && (
           <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
@@ -584,10 +806,10 @@ const [applyWeekEnd, setApplyWeekEnd] = useState("");
                             <td style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, color: isOnShift(s.id) ? "#3a5a3a" : "#ccc", position: "sticky", left: 0, background: "white", zIndex: 1, minWidth: 100 }}>{s.name}{!isOnShift(s.id) && <div style={{ fontSize: 10, color: "#ccc" }}>休み</div>}</td>
                             {timeSlots.map(time => {
                               const isBreak = BREAK_SLOTS.includes(time);
-                              const isExt = MORNING_EXT.includes(time) || EVENING_EXT.includes(time);
                               const booking = getBookingForCell(s.id, time);
                               const blocked = isBlocked(s.id, time);
                               const onShift = isOnShift(s.id);
+                              const isExt = MORNING_EXT.includes(time) || EVENING_EXT.includes(time);
                               return (
                                 <td key={time} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: isBreak ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", minWidth: 70 }}>
                                   {isBreak ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
@@ -696,9 +918,7 @@ const [applyWeekEnd, setApplyWeekEnd] = useState("");
                   <button onClick={() => { setEditingPlan({}); setNewPlanName(""); }} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>＋ 新しいテンプレート</button>
                 </div>
                 {shiftPlans.length === 0 && (
-                  <div style={{ textAlign: "center", padding: 40, background: "white", borderRadius: 16, color: "#aaa" }}>
-                    テンプレートがまだありません。「新しいテンプレート」から作成してください。
-                  </div>
+                  <div style={{ textAlign: "center", padding: 40, background: "white", borderRadius: 16, color: "#aaa" }}>テンプレートがまだありません。「新しいテンプレート」から作成してください。</div>
                 )}
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                   {shiftPlans.map(plan => (
@@ -706,7 +926,7 @@ const [applyWeekEnd, setApplyWeekEnd] = useState("");
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                         <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>📋 {plan.plan_name}</div>
                         <div style={{ display: "flex", gap: 8 }}>
-                          <button onClick={() => { setApplyPlanModal(plan); setApplyWeekStart(""); }} style={{ padding: "8px 16px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>適用する</button>
+                          <button onClick={() => { setApplyPlanModal(plan); setApplyWeekStart(""); setApplyWeekEnd(""); }} style={{ padding: "8px 16px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>適用する</button>
                           <button onClick={() => { setEditingPlan(plan); setNewPlanName(plan.plan_name); }} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, cursor: "pointer" }}>編集</button>
                           <button onClick={() => deletePlan(plan.id)} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #ffcccc", background: "white", color: "#e07070", fontSize: 12, cursor: "pointer" }}>削除</button>
                         </div>
