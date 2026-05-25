@@ -105,7 +105,7 @@ export default function App() {
       };
 
       const searchRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/customers?tel=eq.${encodeURIComponent(form.tel)}&select=id`,
+        `${SUPABASE_URL}/rest/v1/customers?tel=eq.${form.tel}&select=id`,
         { headers }
       );
       const customers = await searchRes.json();
