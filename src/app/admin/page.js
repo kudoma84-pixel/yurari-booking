@@ -142,7 +142,7 @@ export default function AdminPage() {
 
   const toggleBlock = async (staffId, time) => {
     const d = formatDate(selectedDate);
-    const existing = blocks.find(b => b.staff_id === staffId && b.block_time === time + ":00");
+    const existing = blocks.find(b => b.staff_id === staffId && b.block_time === time);
     if (existing) {
       await fetch(`${SUPABASE_URL}/rest/v1/blocks?id=eq.${existing.id}`, { method: "DELETE", headers });
     } else {
@@ -175,7 +175,7 @@ export default function AdminPage() {
   };
 
   const getBookingForCell = (staffId, time) => {
-    return bookings.find(b => b.staff_id === staffId && b.booking_time === time + ":00");
+    return bookings.find(b => b.staff_id === staffId && b.booking_time === time);
   };
 
   const isBlocked = (staffId, time) => {
