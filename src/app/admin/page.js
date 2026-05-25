@@ -14,80 +14,194 @@ const ADMIN_USERS = [
   { id: "toda", name: "戸田店", password: "yurari-toda" },
 ];
 
+const STAFFS = {
+  minamiurawa: [
+    { id: "s1", name: "田中 恵子" },
+    { id: "s2", name: "鈴木 大輔" },
+    { id: "s3", name: "山田 さくら" },
+  ],
+  toda: [
+    { id: "s4", name: "佐藤 健一" },
+    { id: "s5", name: "中村 美咲" },
+  ],
+};
+
+const BASE_SLOTS = [
+  "10:00","10:30","11:00","11:30","12:00","12:30","13:00",
+  "15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30"
+];
+const MORNING_EXT = ["09:00","09:30"];
+const EVENING_EXT = ["20:00","20:30"];
+const BREAK_SLOTS = ["13:30","14:00","14:30"];
+const DAYS_JP = ["日","月","火","水","木","金","土"];
+
 export default function AdminPage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [currentStore, setCurrentStore] = useState(null);
   const [password, setPassword] = useState("");
   const [selectedStore, setSelectedStore] = useState("minamiurawa");
   const [error, setError] = useState("");
-  const [tab, setTab] = useState("bookings");
+  const [tab, setTab] = useState("calendar");
   const [bookings, setBookings] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [blocks, setBlocks] = useState([]);
+  const [shifts, setShifts] = useState([]);
+  const [extensions, setExtensions] = useState([]);
+  const [showShiftModal, setShowShiftModal] = useState(false);
+  const [shiftWeekStart, setShiftWeekStart] = useState(null);
 
   const headers = {
     "apikey": SUPABASE_KEY,
     "Authorization": `Bearer ${SUPABASE_KEY}`,
     "Content-Type": "application/json",
+    "Prefer": "return=representation",
   };
 
   const handleLogin = () => {
     const user = ADMIN_USERS.find(u => u.id === selectedStore && u.password === password);
-    if (user) {
-      setLoggedIn(true);
-      setCurrentStore(user);
-      setError("");
-    } else {
-      setError("パスワードが違います");
-    }
+    if (user) { setLoggedIn(true); setCurrentStore(user); setError(""); }
+    else setError("パスワードが違います");
   };
 
-  const fetchBookings = async () => {
+  const fetchBookings = async (date) => {
+    if (!date) return;
     setLoading(true);
+    const d = formatDate(date);
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&order=booking_date.desc&select=*,customers(name,tel,kana)`,
+      `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${d}&select=*,customers(name,tel,kana)`,
       { headers }
     );
     const data = await res.json();
-    setBookings(data);
+    setBookings(Array.isArray(data) ? data : []);
     setLoading(false);
   };
 
   const fetchCustomers = async () => {
     setLoading(true);
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/customers?order=created_at.desc`,
-      { headers }
-    );
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?order=created_at.desc`, { headers });
     const data = await res.json();
-    setCustomers(data);
+    setCustomers(Array.isArray(data) ? data : []);
     setLoading(false);
   };
 
+  const fetchBlocks = async (date) => {
+    if (!date) return;
+    const d = formatDate(date);
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/blocks?store_id=eq.${currentStore.id}&block_date=eq.${d}`, { headers });
+    const data = await res.json();
+    setBlocks(Array.isArray(data) ? data : []);
+  };
+
+  const fetchShifts = async (date) => {
+    if (!date) return;
+    const d = formatDate(date);
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&work_date=eq.${d}`, { headers });
+    const data = await res.json();
+    setShifts(Array.isArray(data) ? data : []);
+  };
+
+  const fetchExtensions = async (date) => {
+    if (!date) return;
+    const d = formatDate(date);
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/time_extensions?store_id=eq.${currentStore.id}&extension_date=eq.${d}`, { headers });
+    const data = await res.json();
+    setExtensions(Array.isArray(data) ? data : []);
+  };
+
+  const fetchAll = async (date) => {
+    await Promise.all([fetchBookings(date), fetchBlocks(date), fetchShifts(date), fetchExtensions(date)]);
+  };
+
   useEffect(() => {
-    if (loggedIn) {
-      if (tab === "bookings") fetchBookings();
-      if (tab === "customers") fetchCustomers();
-    }
+    if (loggedIn && tab === "customers") fetchCustomers();
   }, [loggedIn, tab]);
+
+  useEffect(() => {
+    if (loggedIn && selectedDate) fetchAll(selectedDate);
+  }, [selectedDate]);
+
+  const formatDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+
+  const toggleExtension = async (type) => {
+    const d = formatDate(selectedDate);
+    const ext = extensions[0];
+    if (ext) {
+      await fetch(`${SUPABASE_URL}/rest/v1/time_extensions?id=eq.${ext.id}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ [type]: !ext[type] }),
+      });
+    } else {
+      await fetch(`${SUPABASE_URL}/rest/v1/time_extensions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ store_id: currentStore.id, extension_date: d, [type]: true }),
+      });
+    }
+    fetchExtensions(selectedDate);
+  };
+
+  const toggleBlock = async (staffId, time) => {
+    const d = formatDate(selectedDate);
+    const existing = blocks.find(b => b.staff_id === staffId && b.block_time === time + ":00");
+    if (existing) {
+      await fetch(`${SUPABASE_URL}/rest/v1/blocks?id=eq.${existing.id}`, { method: "DELETE", headers });
+    } else {
+      await fetch(`${SUPABASE_URL}/rest/v1/blocks`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ store_id: currentStore.id, staff_id: staffId, block_date: d, block_time: time, block_type: staffId === "all" ? "store" : "staff" }),
+      });
+    }
+    fetchBlocks(selectedDate);
+  };
 
   const updateBookingStatus = async (id, status) => {
     await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${id}`, {
       method: "PATCH",
-      headers: { ...headers, "Prefer": "return=representation" },
+      headers,
       body: JSON.stringify({ status }),
     });
-    fetchBookings();
+    fetchBookings(selectedDate);
   };
 
-  const statusLabel = (status) => {
-    const map = { confirmed: "確認済", cancelled: "キャンセル", completed: "完了", pending: "未確認" };
-    return map[status] || status;
+  const statusLabel = (s) => ({ confirmed: "確認済", cancelled: "キャンセル", completed: "完了", pending: "未確認" }[s] || s);
+  const statusColor = (s) => ({ confirmed: "#5a9e7a", cancelled: "#e07070", completed: "#7090e0", pending: "#e0a040" }[s] || "#aaa");
+
+  const getTimeSlots = () => {
+    const ext = extensions[0] || {};
+    const slots = [];
+    if (ext.morning_extended) slots.push(...MORNING_EXT);
+    slots.push(...BASE_SLOTS);
+    if (ext.evening_extended) slots.push(...EVENING_EXT);
+    return slots;
   };
 
-  const statusColor = (status) => {
-    const map = { confirmed: "#5a9e7a", cancelled: "#e07070", completed: "#7090e0", pending: "#e0a040" };
-    return map[status] || "#aaa";
+  const getBookingForCell = (staffId, time) => {
+    return bookings.find(b => b.staff_id === staffId && b.booking_time === time + ":00");
+  };
+
+  const isBlocked = (staffId, time) => {
+    return blocks.some(b => (b.staff_id === staffId || b.staff_id === "all") && b.block_time === time + ":00");
+  };
+
+  const isOnShift = (staffId) => {
+    if (shifts.length === 0) return true;
+    return shifts.some(s => s.staff_id === staffId);
+  };
+
+  const getDaysInMonth = () => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const days = [];
+    for (let i = 0; i < firstDay; i++) days.push(null);
+    for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, month, i));
+    return days;
   };
 
   if (!loggedIn) {
@@ -116,6 +230,10 @@ export default function AdminPage() {
     );
   }
 
+  const timeSlots = getTimeSlots();
+  const staffList = STAFFS[currentStore.id] || [];
+  const ext = extensions[0] || {};
+
   return (
     <div style={{ minHeight: "100vh", background: "#f5f5f5", fontFamily: "'Noto Sans JP', sans-serif" }}>
       <div style={{ background: "white", borderBottom: "1px solid #e8ddd0", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -129,19 +247,137 @@ export default function AdminPage() {
         <button onClick={() => { setLoggedIn(false); setPassword(""); }} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 13, cursor: "pointer" }}>ログアウト</button>
       </div>
 
-      <div style={{ display: "flex", borderBottom: "1px solid #e8ddd0", background: "white", padding: "0 24px" }}>
+      <div style={{ display: "flex", borderBottom: "1px solid #e8ddd0", background: "white", padding: "0 24px", overflowX: "auto" }}>
         {[
-          { id: "bookings", label: "📅 予約管理" },
+          { id: "calendar", label: "📅 カレンダー" },
+          { id: "bookings", label: "📋 予約一覧" },
           { id: "customers", label: "👥 顧客管理" },
         ].map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "14px 20px", border: "none", background: "none", fontSize: 14, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? "#3a5a3a" : "#aaa", borderBottom: tab === t.id ? "3px solid #5a9e7a" : "3px solid transparent", cursor: "pointer" }}>{t.label}</button>
+          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "14px 20px", border: "none", background: "none", fontSize: 14, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? "#3a5a3a" : "#aaa", borderBottom: tab === t.id ? "3px solid #5a9e7a" : "3px solid transparent", cursor: "pointer", whiteSpace: "nowrap" }}>{t.label}</button>
         ))}
       </div>
 
-      <div style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
+      <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto" }}>
+
+        {tab === "calendar" && (
+          <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+            <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", minWidth: 320 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth()-1, 1))} style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#5a9e7a" }}>‹</button>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>{currentMonth.getFullYear()}年{currentMonth.getMonth()+1}月</div>
+                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 1))} style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#5a9e7a" }}>›</button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 8 }}>
+                {DAYS_JP.map(d => <div key={d} style={{ textAlign: "center", fontSize: 11, color: "#aaa", padding: "4px 0" }}>{d}</div>)}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+                {getDaysInMonth().map((d, i) => {
+                  if (!d) return <div key={i} />;
+                  const isSelected = selectedDate && d.toDateString() === selectedDate.toDateString();
+                  const isToday = d.toDateString() === new Date().toDateString();
+                  const dayIdx = d.getDay();
+                  return (
+                    <div key={i} onClick={() => setSelectedDate(d)} style={{ textAlign: "center", padding: "8px 4px", borderRadius: 8, cursor: "pointer", background: isSelected ? "#3a5a3a" : isToday ? "#eaf5ec" : "white", color: isSelected ? "white" : dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : "#3a5a3a", fontWeight: isToday ? 700 : 400, fontSize: 13, border: isToday && !isSelected ? "2px solid #5a9e7a" : "2px solid transparent" }}>
+                      {d.getDate()}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {selectedDate && (
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ background: "white", borderRadius: 16, padding: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>
+                      {selectedDate.getMonth()+1}月{selectedDate.getDate()}日（{DAYS_JP[selectedDate.getDay()]}）
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <button onClick={() => toggleExtension("morning_extended")} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${ext.morning_extended ? "#5a9e7a" : "#e8ddd0"}`, background: ext.morning_extended ? "#eaf5ec" : "white", color: ext.morning_extended ? "#3a5a3a" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                        {ext.morning_extended ? "✓" : ""} 早朝拡張(9:00〜)
+                      </button>
+                      <button onClick={() => toggleExtension("evening_extended")} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${ext.evening_extended ? "#5a9e7a" : "#e8ddd0"}`, background: ext.evening_extended ? "#eaf5ec" : "white", color: ext.evening_extended ? "#3a5a3a" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                        {ext.evening_extended ? "✓" : ""} 夜間拡張(〜20:30)
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {loading ? (
+                  <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div>
+                ) : (
+                  <div style={{ background: "white", borderRadius: 16, overflow: "auto", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                    <table style={{ borderCollapse: "collapse", minWidth: "100%" }}>
+                      <thead>
+                        <tr style={{ background: "#f5f5f5" }}>
+                          <th style={{ padding: "10px 16px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", minWidth: 80, position: "sticky", left: 0, background: "#f5f5f5", zIndex: 1 }}>時間</th>
+                          {staffList.map(s => (
+                            <th key={s.id} style={{ padding: "10px 16px", textAlign: "center", fontSize: 12, fontWeight: 700, color: isOnShift(s.id) ? "#3a5a3a" : "#ccc", minWidth: 120, borderLeft: "1px solid #f0ebe4" }}>
+                              {s.name}
+                              {!isOnShift(s.id) && <div style={{ fontSize: 10, color: "#ccc" }}>休み</div>}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {timeSlots.map(time => {
+                          const isBreak = BREAK_SLOTS.includes(time);
+                          const isMorningExt = MORNING_EXT.includes(time);
+                          const isEveningExt = EVENING_EXT.includes(time);
+                          const isExt = isMorningExt || isEveningExt;
+                          return (
+                            <tr key={time} style={{ borderTop: "1px solid #f0ebe4", background: isBreak ? "#fdf5f0" : isExt ? "#f0f8f4" : "white" }}>
+                              <td style={{ padding: "8px 16px", fontSize: 12, fontWeight: 600, color: isBreak ? "#e0a040" : isExt ? "#5a9e7a" : "#3a5a3a", position: "sticky", left: 0, background: isBreak ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", zIndex: 1 }}>
+                                {time}
+                                {isBreak && <span style={{ fontSize: 10, color: "#e0a040", marginLeft: 4 }}>休憩</span>}
+                                {isExt && <span style={{ fontSize: 10, color: "#5a9e7a", marginLeft: 4 }}>拡張</span>}
+                              </td>
+                              {staffList.map(s => {
+                                const booking = getBookingForCell(s.id, time);
+                                const blocked = isBlocked(s.id, time);
+                                const onShift = isOnShift(s.id);
+                                return (
+                                  <td key={s.id} style={{ padding: "6px 8px", textAlign: "center", borderLeft: "1px solid #f0ebe4", minWidth: 120 }}>
+                                    {isBreak ? (
+                                      <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
+                                    ) : !onShift ? (
+                                      <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
+                                    ) : booking ? (
+                                      <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 8, padding: "4px 8px", fontSize: 12, fontWeight: 600, cursor: "pointer" }} onClick={() => updateBookingStatus(booking.id, booking.status === "confirmed" ? "completed" : "confirmed")}>
+                                        {booking.customers?.name || "予約あり"}
+                                      </div>
+                                    ) : blocked ? (
+                                      <div onClick={() => toggleBlock(s.id, time)} style={{ background: "#f0ebe4", color: "#bbb", borderRadius: 8, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>🔒 ブロック</div>
+                                    ) : (
+                                      <div onClick={() => toggleBlock(s.id, time)} style={{ color: "#ddd", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>+</div>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!selectedDate && (
+              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#aaa", fontSize: 14 }}>
+                ← 日付を選択してください
+              </div>
+            )}
+          </div>
+        )}
+
         {tab === "bookings" && (
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 16 }}>予約一覧 - {currentStore.name}</h2>
+            <div style={{ marginBottom: 16 }}>
+              <input type="date" onChange={e => { const d = new Date(e.target.value); setSelectedDate(d); fetchBookings(d); }} style={{ padding: "10px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: "#3a5a3a" }} />
+            </div>
             {loading ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div> : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 {bookings.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#aaa", background: "white", borderRadius: 16 }}>予約がありません</div>}
@@ -155,7 +391,7 @@ export default function AdminPage() {
                       <div style={{ fontSize: 12, color: "#aaa" }}>{b.booking_date} {b.booking_time}</div>
                     </div>
                     <div style={{ display: "flex", gap: 24, marginBottom: 12, flexWrap: "wrap" }}>
-                  <div><span style={{ fontSize: 11, color: "#7a9a7a" }}>お名前</span><div style={{ fontSize: 14, color: "#3a5a3a", fontWeight: 600 }}>{b.customers?.name || "未登録"}</div></div>
+                      <div><span style={{ fontSize: 11, color: "#7a9a7a" }}>お名前</span><div style={{ fontSize: 14, color: "#3a5a3a", fontWeight: 600 }}>{b.customers?.name || "未登録"}</div></div>
                       <div><span style={{ fontSize: 11, color: "#7a9a7a" }}>コース</span><div style={{ fontSize: 14, color: "#3a5a3a", fontWeight: 600 }}>{b.course_name}</div></div>
                       <div><span style={{ fontSize: 11, color: "#7a9a7a" }}>担当</span><div style={{ fontSize: 14, color: "#3a5a3a", fontWeight: 600 }}>{b.staff_name}</div></div>
                       {b.notes && <div><span style={{ fontSize: 11, color: "#7a9a7a" }}>メモ</span><div style={{ fontSize: 13, color: "#888" }}>{b.notes}</div></div>}
@@ -176,22 +412,20 @@ export default function AdminPage() {
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 16 }}>顧客一覧</h2>
             {loading ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div> : (
-              <div style={{ background: "white", borderRadius: 16, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+              <div style={{ background: "white", borderRadius: 16, overflow: "auto", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ background: "#f5f5f5" }}>
-                      {["顧客番号", "氏名", "電話番号", "メール", "LINE"].map(h => (
+                      {["顧客番号","氏名","電話番号","メール","LINE"].map(h => (
                         <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a" }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {customers.length === 0 && (
-                      <tr><td colSpan={5} style={{ textAlign: "center", padding: 40, color: "#aaa" }}>顧客がいません</td></tr>
-                    )}
+                    {customers.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", padding: 40, color: "#aaa" }}>顧客がいません</td></tr>}
                     {customers.map((c, i) => (
                       <tr key={c.id} style={{ borderTop: "1px solid #f0ebe4" }}>
-                        <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.customer_number || i + 1}</td>
+                        <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.customer_number || i+1}</td>
                         <td style={{ padding: "12px 16px", fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{c.name}</td>
                         <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.tel}</td>
                         <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.email}</td>
