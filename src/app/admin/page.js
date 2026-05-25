@@ -155,6 +155,7 @@ export default function AdminPage() {
                       <div style={{ fontSize: 12, color: "#aaa" }}>{b.booking_date} {b.booking_time}</div>
                     </div>
                     <div style={{ display: "flex", gap: 24, marginBottom: 12, flexWrap: "wrap" }}>
+                  <div><span style={{ fontSize: 11, color: "#7a9a7a" }}>お名前</span><div style={{ fontSize: 14, color: "#3a5a3a", fontWeight: 600 }}>{b.customers?.name || "未登録"}</div></div>
                       <div><span style={{ fontSize: 11, color: "#7a9a7a" }}>コース</span><div style={{ fontSize: 14, color: "#3a5a3a", fontWeight: 600 }}>{b.course_name}</div></div>
                       <div><span style={{ fontSize: 11, color: "#7a9a7a" }}>担当</span><div style={{ fontSize: 14, color: "#3a5a3a", fontWeight: 600 }}>{b.staff_name}</div></div>
                       {b.notes && <div><span style={{ fontSize: 11, color: "#7a9a7a" }}>メモ</span><div style={{ fontSize: 13, color: "#888" }}>{b.notes}</div></div>}
