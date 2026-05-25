@@ -53,6 +53,11 @@ export default function AdminPage() {
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [customerHistory, setCustomerHistory] = useState([]);
+  const [shiftMonth, setShiftMonth] = useState(new Date());
+  const [monthShifts, setMonthShifts] = useState([]);
+  const [shiftPlans, setShiftPlans] = useState([]);
+  const [editingShift, setEditingShift] = useState(null);
+  const [closedDays, setClosedDays] = useState([]);
 
   const headers = {
     "apikey": SUPABASE_KEY,
@@ -123,25 +128,48 @@ export default function AdminPage() {
     setExtensions(Array.isArray(data) ? data : []);
   };
 
+  const fetchMonthShifts = async () => {
+    const year = shiftMonth.getFullYear();
+    const month = String(shiftMonth.getMonth()+1).padStart(2,"0");
+    const from = `${year}-${month}-01`;
+    const to = `${year}-${month}-31`;
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&work_date=gte.${from}&work_date=lte.${to}`,
+      { headers }
+    );
+    const data = await res.json();
+    setMonthShifts(Array.isArray(data) ? data : []);
+  };
+
+  const fetchShiftPlans = async () => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/shift_plans?store_id=eq.${currentStore.id}`, { headers });
+    const data = await res.json();
+    setShiftPlans(Array.isArray(data) ? data : []);
+  };
+
   const fetchAll = async (date) => {
     await Promise.all([fetchBookings(date), fetchBlocks(date), fetchShifts(date), fetchExtensions(date)]);
   };
 
   useEffect(() => {
     if (loggedIn && tab === "customers") fetchCustomers();
+    if (loggedIn && tab === "shifts") { fetchMonthShifts(); fetchShiftPlans(); }
   }, [loggedIn, tab]);
 
   useEffect(() => {
     if (loggedIn && selectedDate) fetchAll(selectedDate);
   }, [selectedDate]);
 
+  useEffect(() => {
+    if (loggedIn && tab === "shifts") fetchMonthShifts();
+  }, [shiftMonth]);
+
   const toggleExtension = async (type) => {
     const d = formatDate(selectedDate);
     const ext = extensions[0];
     if (ext) {
       await fetch(`${SUPABASE_URL}/rest/v1/time_extensions?id=eq.${ext.id}`, {
-        method: "PATCH", headers,
-        body: JSON.stringify({ [type]: !ext[type] }),
+        method: "PATCH", headers, body: JSON.stringify({ [type]: !ext[type] }),
       });
     } else {
       await fetch(`${SUPABASE_URL}/rest/v1/time_extensions`, {
@@ -168,11 +196,94 @@ export default function AdminPage() {
 
   const updateBookingStatus = async (id, status) => {
     await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${id}`, {
-      method: "PATCH", headers,
-      body: JSON.stringify({ status }),
+      method: "PATCH", headers, body: JSON.stringify({ status }),
     });
     fetchBookings(selectedDate);
     if (selectedBooking?.id === id) setSelectedBooking({ ...selectedBooking, status });
+  };
+
+  const saveShift = async (staffId, date, startTime, endTime, isOff, isClosed) => {
+    const existing = monthShifts.find(s => s.staff_id === staffId && s.work_date === date);
+    if (isClosed || isOff) {
+      if (existing) {
+        await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${existing.id}`, { method: "DELETE", headers });
+      }
+      if (isClosed) {
+        const closedExists = monthShifts.find(s => s.staff_id === "closed" && s.work_date === date);
+        if (!closedExists) {
+          await fetch(`${SUPABASE_URL}/rest/v1/shifts`, {
+            method: "POST", headers,
+            body: JSON.stringify({ store_id: currentStore.id, staff_id: "closed", work_date: date, start_time: "00:00", end_time: "00:00" }),
+          });
+        }
+      }
+    } else {
+      if (existing) {
+        await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${existing.id}`, {
+          method: "PATCH", headers,
+          body: JSON.stringify({ start_time: startTime, end_time: endTime }),
+        });
+      } else {
+        await fetch(`${SUPABASE_URL}/rest/v1/shifts`, {
+          method: "POST", headers,
+          body: JSON.stringify({ store_id: currentStore.id, staff_id: staffId, work_date: date, start_time: startTime, end_time: endTime }),
+        });
+      }
+    }
+    fetchMonthShifts();
+  };
+
+  const saveShiftPlan = async (planName, planData) => {
+    await fetch(`${SUPABASE_URL}/rest/v1/shift_plans`, {
+      method: "POST", headers,
+      body: JSON.stringify({ store_id: currentStore.id, plan_name: planName, plan_data: planData }),
+    });
+    fetchShiftPlans();
+  };
+
+  const applyShiftPlan = async (plan, weekDates) => {
+    const planData = plan.plan_data;
+    for (const staffId of Object.keys(planData)) {
+      for (const date of weekDates) {
+        const dayOfWeek = new Date(date).getDay();
+        const dayData = planData[staffId]?.[dayOfWeek];
+        if (dayData) {
+          await saveShift(staffId, date, dayData.start, dayData.end, false, false);
+        }
+      }
+    }
+    fetchMonthShifts();
+  };
+
+  const getShiftForCell = (staffId, date) => {
+    return monthShifts.find(s => s.staff_id === staffId && s.work_date === date);
+  };
+
+  const isClosedDay = (date) => {
+    return monthShifts.some(s => s.staff_id === "closed" && s.work_date === date);
+  };
+
+  const getDaysInMonth = (month) => {
+    const year = month.getFullYear();
+    const m = month.getMonth();
+    const firstDay = new Date(year, m, 1).getDay();
+    const daysInMonth = new Date(year, m + 1, 0).getDate();
+    const days = [];
+    for (let i = 0; i < firstDay; i++) days.push(null);
+    for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, m, i));
+    return days;
+  };
+
+  const getWeeksInMonth = (month) => {
+    const days = getDaysInMonth(month).filter(d => d);
+    const weeks = [];
+    let week = [];
+    days.forEach(d => {
+      if (d.getDay() === 0 && week.length > 0) { weeks.push(week); week = []; }
+      week.push(d);
+    });
+    if (week.length > 0) weeks.push(week);
+    return weeks;
   };
 
   const statusLabel = (s) => ({ confirmed: "確認済", cancelled: "キャンセル", completed: "完了", pending: "未確認" }[s] || s);
@@ -187,29 +298,9 @@ export default function AdminPage() {
     return slots;
   };
 
-  const getBookingForCell = (staffId, time) => {
-    return bookings.find(b => b.staff_id === staffId && b.booking_time === time);
-  };
-
-  const isBlocked = (staffId, time) => {
-    return blocks.some(b => (b.staff_id === staffId || b.staff_id === "all") && b.block_time === time);
-  };
-
-  const isOnShift = (staffId) => {
-    if (shifts.length === 0) return true;
-    return shifts.some(s => s.staff_id === staffId);
-  };
-
-  const getDaysInMonth = () => {
-    const year = currentMonth.getFullYear();
-    const month = currentMonth.getMonth();
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const days = [];
-    for (let i = 0; i < firstDay; i++) days.push(null);
-    for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, month, i));
-    return days;
-  };
+  const getBookingForCell = (staffId, time) => bookings.find(b => b.staff_id === staffId && b.booking_time === time);
+  const isBlocked = (staffId, time) => blocks.some(b => (b.staff_id === staffId || b.staff_id === "all") && b.block_time === time);
+  const isOnShift = (staffId) => { if (shifts.length === 0) return true; return shifts.some(s => s.staff_id === staffId); };
 
   if (!loggedIn) {
     return (
@@ -240,6 +331,7 @@ export default function AdminPage() {
   const timeSlots = getTimeSlots();
   const staffList = STAFFS[currentStore.id] || [];
   const ext = extensions[0] || {};
+  const weeks = getWeeksInMonth(shiftMonth);
 
   return (
     <div style={{ minHeight: "100vh", background: "#f5f5f5", fontFamily: "'Noto Sans JP', sans-serif" }}>
@@ -316,6 +408,52 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* シフト編集モーダル */}
+      {editingShift && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setEditingShift(null)}>
+          <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 400, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>シフト設定</div>
+              <button onClick={() => setEditingShift(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+            </div>
+            <div style={{ fontSize: 14, color: "#3a5a3a", marginBottom: 20 }}>
+              <strong>{editingShift.staffName}</strong> / {editingShift.date}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                {["出勤", "休み", "休院"].map(type => (
+                  <button key={type} onClick={() => setEditingShift({ ...editingShift, type })} style={{ flex: 1, padding: "10px", borderRadius: 10, border: `2px solid ${editingShift.type === type ? "#5a9e7a" : "#e8ddd0"}`, background: editingShift.type === type ? "#eaf5ec" : "white", color: editingShift.type === type ? "#3a5a3a" : "#aaa", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>{type === "出勤" ? "〇" : type === "休み" ? "　" : "ー"} {type}</button>
+                ))}
+              </div>
+              {editingShift.type === "出勤" && (
+                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 11, color: "#7a9a7a", fontWeight: 700, display: "block", marginBottom: 4 }}>出勤時間</label>
+                    <input type="time" value={editingShift.startTime || "10:00"} onChange={e => setEditingShift({ ...editingShift, startTime: e.target.value })} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+                  </div>
+                  <div style={{ fontSize: 14, color: "#aaa", marginTop: 16 }}>〜</div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 11, color: "#7a9a7a", fontWeight: 700, display: "block", marginBottom: 4 }}>退勤時間</label>
+                    <input type="time" value={editingShift.endTime || "19:00"} onChange={e => setEditingShift({ ...editingShift, endTime: e.target.value })} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+                  </div>
+                </div>
+              )}
+            </div>
+            <button onClick={async () => {
+              await saveShift(
+                editingShift.staffId,
+                editingShift.date,
+                editingShift.startTime || "10:00",
+                editingShift.endTime || "19:00",
+                editingShift.type === "休み",
+                editingShift.type === "休院"
+              );
+              setEditingShift(null);
+            }} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>保存</button>
+          </div>
+        </div>
+      )}
+
       <div style={{ background: "white", borderBottom: "1px solid #e8ddd0", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ fontSize: 24 }}>🌿</div>
@@ -331,6 +469,7 @@ export default function AdminPage() {
         {[
           { id: "calendar", label: "📅 カレンダー" },
           { id: "bookings", label: "📋 予約一覧" },
+          { id: "shifts", label: "👤 シフト管理" },
           { id: "customers", label: "👥 顧客管理" },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "14px 20px", border: "none", background: "none", fontSize: 14, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? "#3a5a3a" : "#aaa", borderBottom: tab === t.id ? "3px solid #5a9e7a" : "3px solid transparent", cursor: "pointer", whiteSpace: "nowrap" }}>{t.label}</button>
@@ -351,7 +490,7 @@ export default function AdminPage() {
                 {DAYS_JP.map(d => <div key={d} style={{ textAlign: "center", fontSize: 11, color: "#aaa", padding: "4px 0" }}>{d}</div>)}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
-                {getDaysInMonth().map((d, i) => {
+                {getDaysInMonth(currentMonth).map((d, i) => {
                   if (!d) return <div key={i} />;
                   const isSelected = selectedDate && d.toDateString() === selectedDate.toDateString();
                   const isToday = d.toDateString() === new Date().toDateString();
@@ -382,7 +521,6 @@ export default function AdminPage() {
                     </div>
                   </div>
                 </div>
-
                 {loading ? (
                   <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div>
                 ) : (
@@ -443,12 +581,89 @@ export default function AdminPage() {
                 )}
               </div>
             )}
-
             {!selectedDate && (
-              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#aaa", fontSize: 14 }}>
-                ← 日付を選択してください
-              </div>
+              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#aaa", fontSize: 14 }}>← 日付を選択してください</div>
             )}
+          </div>
+        )}
+
+        {tab === "shifts" && (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <button onClick={() => setShiftMonth(new Date(shiftMonth.getFullYear(), shiftMonth.getMonth()-1, 1))} style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#5a9e7a" }}>‹</button>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>{shiftMonth.getFullYear()}年{shiftMonth.getMonth()+1}月 シフト</div>
+                <button onClick={() => setShiftMonth(new Date(shiftMonth.getFullYear(), shiftMonth.getMonth()+1, 1))} style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#5a9e7a" }}>›</button>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {shiftPlans.map(plan => (
+                  <button key={plan.id} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                    📋 {plan.plan_name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ background: "white", borderRadius: 16, overflow: "auto", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+              <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                <thead>
+                  <tr style={{ background: "#f5f5f5" }}>
+                    <th style={{ padding: "12px 16px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", minWidth: 100, position: "sticky", left: 0, background: "#f5f5f5" }}>スタッフ</th>
+                    {getDaysInMonth(shiftMonth).filter(d => d).map(d => {
+                      const dayIdx = d.getDay();
+                      const dateStr = formatDate(d);
+                      const closed = isClosedDay(dateStr);
+                      return (
+                        <th key={dateStr} style={{ padding: "8px 4px", textAlign: "center", fontSize: 11, minWidth: 52, borderLeft: "1px solid #f0ebe4", background: closed ? "#f5f0eb" : "#f5f5f5" }}>
+                          <div style={{ color: dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : "#7a9a7a", fontWeight: 700 }}>{d.getDate()}</div>
+                          <div style={{ color: "#aaa", fontSize: 10 }}>{DAYS_JP[dayIdx]}</div>
+                          {closed && <div style={{ color: "#e0a040", fontSize: 9 }}>休院</div>}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {staffList.map(s => (
+                    <tr key={s.id} style={{ borderTop: "1px solid #f0ebe4" }}>
+                      <td style={{ padding: "10px 16px", fontSize: 12, fontWeight: 700, color: "#3a5a3a", position: "sticky", left: 0, background: "white" }}>{s.name}</td>
+                      {getDaysInMonth(shiftMonth).filter(d => d).map(d => {
+                        const dateStr = formatDate(d);
+                        const shift = getShiftForCell(s.id, dateStr);
+                        const closed = isClosedDay(dateStr);
+                        return (
+                          <td key={dateStr} onClick={() => setEditingShift({ staffId: s.id, staffName: s.name, date: dateStr, type: closed ? "休院" : shift ? "出勤" : "休み", startTime: shift?.start_time?.slice(0,5) || "10:00", endTime: shift?.end_time?.slice(0,5) || "19:00" })} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", cursor: "pointer", background: closed ? "#f5f0eb" : "white", minWidth: 52 }}>
+                            {closed ? (
+                              <div style={{ fontSize: 12, color: "#ccc" }}>ー</div>
+                            ) : shift ? (
+                              <div>
+                                <div style={{ fontSize: 13, color: "#5a9e7a", fontWeight: 700 }}>〇</div>
+                                <div style={{ fontSize: 9, color: "#aaa" }}>{shift.start_time?.slice(0,5)}</div>
+                                <div style={{ fontSize: 9, color: "#aaa" }}>{shift.end_time?.slice(0,5)}</div>
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: 12, color: "#eee" }}>+</div>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                  <tr style={{ borderTop: "2px solid #e8ddd0" }}>
+                    <td style={{ padding: "10px 16px", fontSize: 11, fontWeight: 700, color: "#e0a040", position: "sticky", left: 0, background: "white" }}>休院日設定</td>
+                    {getDaysInMonth(shiftMonth).filter(d => d).map(d => {
+                      const dateStr = formatDate(d);
+                      const closed = isClosedDay(dateStr);
+                      return (
+                        <td key={dateStr} onClick={() => saveShift("closed", dateStr, "00:00", "00:00", false, !closed)} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", cursor: "pointer", minWidth: 52 }}>
+                          <div style={{ fontSize: 12, color: closed ? "#e0a040" : "#eee", fontWeight: closed ? 700 : 400 }}>{closed ? "ー" : "+"}</div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
