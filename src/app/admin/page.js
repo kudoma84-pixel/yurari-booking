@@ -50,6 +50,9 @@ export default function AdminPage() {
   const [blocks, setBlocks] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [extensions, setExtensions] = useState([]);
+  const [selectedBooking, setSelectedBooking] = useState(null);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [customerHistory, setCustomerHistory] = useState([]);
 
   const headers = {
     "apikey": SUPABASE_KEY,
@@ -71,7 +74,7 @@ export default function AdminPage() {
     setLoading(true);
     const d = formatDate(date);
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${d}&select=*,customers(name,tel,kana)`,
+      `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${d}&select=*,customers(name,tel,kana,email,line_user_id)`,
       { headers }
     );
     const data = await res.json();
@@ -85,6 +88,15 @@ export default function AdminPage() {
     const data = await res.json();
     setCustomers(Array.isArray(data) ? data : []);
     setLoading(false);
+  };
+
+  const fetchCustomerHistory = async (customerId) => {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/bookings?customer_id=eq.${customerId}&order=booking_date.desc&select=*`,
+      { headers }
+    );
+    const data = await res.json();
+    setCustomerHistory(Array.isArray(data) ? data : []);
   };
 
   const fetchBlocks = async (date) => {
@@ -160,6 +172,7 @@ export default function AdminPage() {
       body: JSON.stringify({ status }),
     });
     fetchBookings(selectedDate);
+    if (selectedBooking?.id === id) setSelectedBooking({ ...selectedBooking, status });
   };
 
   const statusLabel = (s) => ({ confirmed: "確認済", cancelled: "キャンセル", completed: "完了", pending: "未確認" }[s] || s);
@@ -179,7 +192,7 @@ export default function AdminPage() {
   };
 
   const isBlocked = (staffId, time) => {
-    return blocks.some(b => (b.staff_id === staffId || b.staff_id === "all") && b.block_time === time + ":00");
+    return blocks.some(b => (b.staff_id === staffId || b.staff_id === "all") && b.block_time === time);
   };
 
   const isOnShift = (staffId) => {
@@ -230,6 +243,79 @@ export default function AdminPage() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#f5f5f5", fontFamily: "'Noto Sans JP', sans-serif" }}>
+
+      {/* 予約詳細モーダル */}
+      {selectedBooking && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setSelectedBooking(null)}>
+          <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 480, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>予約詳細</div>
+              <button onClick={() => setSelectedBooking(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
+              {[
+                { label: "予約番号", value: selectedBooking.booking_number },
+                { label: "日時", value: `${selectedBooking.booking_date} ${selectedBooking.booking_time}` },
+                { label: "コース", value: selectedBooking.course_name },
+                { label: "担当", value: selectedBooking.staff_name },
+                { label: "お名前", value: selectedBooking.customers?.name || "未登録" },
+                { label: "電話番号", value: selectedBooking.customers?.tel || "-" },
+                { label: "メール", value: selectedBooking.customers?.email || "-" },
+                { label: "LINE", value: selectedBooking.customers?.line_user_id ? "連携済" : "未連携" },
+                { label: "メモ", value: selectedBooking.notes || "-" },
+              ].map((row, i) => (
+                <div key={i} style={{ display: "flex", borderBottom: "1px solid #f0ebe4", paddingBottom: 8 }}>
+                  <div style={{ fontSize: 12, color: "#7a9a7a", fontWeight: 700, width: 80, flexShrink: 0 }}>{row.label}</div>
+                  <div style={{ fontSize: 13, color: "#3a5a3a" }}>{row.value}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {["confirmed","completed","cancelled"].map(s => (
+                <button key={s} onClick={() => updateBookingStatus(selectedBooking.id, s)} style={{ flex: 1, padding: "10px", borderRadius: 10, border: `2px solid ${statusColor(s)}`, background: selectedBooking.status === s ? statusColor(s) : "white", color: selectedBooking.status === s ? "white" : statusColor(s), fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{statusLabel(s)}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 顧客詳細モーダル */}
+      {selectedCustomer && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setSelectedCustomer(null)}>
+          <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 560, maxHeight: "80vh", overflow: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>{selectedCustomer.name} 様</div>
+              <button onClick={() => setSelectedCustomer(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24, background: "#f9f6f2", borderRadius: 12, padding: 16 }}>
+              {[
+                { label: "電話番号", value: selectedCustomer.tel },
+                { label: "メール", value: selectedCustomer.email },
+                { label: "LINE", value: selectedCustomer.line_user_id ? "✓ 連携済" : "未連携" },
+              ].map((row, i) => (
+                <div key={i} style={{ display: "flex" }}>
+                  <div style={{ fontSize: 12, color: "#7a9a7a", fontWeight: 700, width: 80, flexShrink: 0 }}>{row.label}</div>
+                  <div style={{ fontSize: 13, color: "#3a5a3a" }}>{row.value}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>来院履歴（{customerHistory.length}件）</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {customerHistory.length === 0 && <div style={{ color: "#aaa", fontSize: 13 }}>来院履歴がありません</div>}
+              {customerHistory.map((b, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", background: "#f5f5f5", borderRadius: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{b.booking_date} {b.booking_time}</div>
+                    <div style={{ fontSize: 12, color: "#888" }}>{b.course_name} / {b.staff_name}</div>
+                  </div>
+                  <div style={{ fontSize: 11, background: statusColor(b.status), color: "white", borderRadius: 20, padding: "3px 10px" }}>{statusLabel(b.status)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ background: "white", borderBottom: "1px solid #e8ddd0", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ fontSize: 24 }}>🌿</div>
@@ -339,8 +425,8 @@ export default function AdminPage() {
                                     <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
                                   ) : booking ? (
                                     <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "3px 6px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => setSelectedBooking(booking)}>
-  {booking.customers?.name || booking.notes || "予約あり"}
-</div>
+                                      {booking.customers?.name || "予約あり"}
+                                    </div>
                                   ) : blocked ? (
                                     <div onClick={() => toggleBlock(s.id, time)} style={{ background: "#f0ebe4", color: "#bbb", borderRadius: 6, padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>🔒</div>
                                   ) : (
@@ -376,7 +462,7 @@ export default function AdminPage() {
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 {bookings.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#aaa", background: "white", borderRadius: 16 }}>予約がありません</div>}
                 {bookings.map(b => (
-                  <div key={b.id} style={{ background: "white", borderRadius: 16, padding: "20px 24px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <div key={b.id} style={{ background: "white", borderRadius: 16, padding: "20px 24px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", cursor: "pointer" }} onClick={() => setSelectedBooking(b)}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a" }}>{b.booking_number}</div>
@@ -384,16 +470,10 @@ export default function AdminPage() {
                       </div>
                       <div style={{ fontSize: 12, color: "#aaa" }}>{b.booking_date} {b.booking_time}</div>
                     </div>
-                    <div style={{ display: "flex", gap: 24, marginBottom: 12, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
                       <div><span style={{ fontSize: 11, color: "#7a9a7a" }}>お名前</span><div style={{ fontSize: 14, color: "#3a5a3a", fontWeight: 600 }}>{b.customers?.name || "未登録"}</div></div>
                       <div><span style={{ fontSize: 11, color: "#7a9a7a" }}>コース</span><div style={{ fontSize: 14, color: "#3a5a3a", fontWeight: 600 }}>{b.course_name}</div></div>
                       <div><span style={{ fontSize: 11, color: "#7a9a7a" }}>担当</span><div style={{ fontSize: 14, color: "#3a5a3a", fontWeight: 600 }}>{b.staff_name}</div></div>
-                      {b.notes && <div><span style={{ fontSize: 11, color: "#7a9a7a" }}>メモ</span><div style={{ fontSize: 13, color: "#888" }}>{b.notes}</div></div>}
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      {["confirmed","completed","cancelled"].map(s => (
-                        <button key={s} onClick={() => updateBookingStatus(b.id, s)} style={{ padding: "6px 14px", borderRadius: 8, border: `2px solid ${statusColor(s)}`, background: b.status === s ? statusColor(s) : "white", color: b.status === s ? "white" : statusColor(s), fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{statusLabel(s)}</button>
-                      ))}
                     </div>
                   </div>
                 ))}
@@ -418,9 +498,9 @@ export default function AdminPage() {
                   <tbody>
                     {customers.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", padding: 40, color: "#aaa" }}>顧客がいません</td></tr>}
                     {customers.map((c, i) => (
-                      <tr key={c.id} style={{ borderTop: "1px solid #f0ebe4" }}>
+                      <tr key={c.id} style={{ borderTop: "1px solid #f0ebe4", cursor: "pointer" }} onClick={() => { setSelectedCustomer(c); fetchCustomerHistory(c.id); }}>
                         <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.customer_number || i+1}</td>
-                        <td style={{ padding: "12px 16px", fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{c.name}</td>
+                        <td style={{ padding: "12px 16px", fontSize: 13, fontWeight: 600, color: "#5a9e7a" }}>{c.name}</td>
                         <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.tel}</td>
                         <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.email}</td>
                         <td style={{ padding: "12px 16px", fontSize: 13, color: c.line_user_id ? "#5a9e7a" : "#ccc" }}>{c.line_user_id ? "✓ 連携済" : "未連携"}</td>
