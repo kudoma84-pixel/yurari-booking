@@ -822,8 +822,10 @@ export default function AdminPage() {
                         <div style={{ fontSize: 12, color: "#888" }}>{c.duration} / ¥{c.price?.toLocaleString()}</div>
                       </div>
                       <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => setEditingCourse(c)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, cursor: "pointer" }}>編集</button>
-                        <button onClick={() => deleteCourse(c.id)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #ffcccc", background: "white", color: "#e07070", fontSize: 12, cursor: "pointer" }}>削除</button>
+  <button onClick={async () => { const idx = courseMenus.findIndex(x => x.id === c.id); if (idx > 0) { await fetch(`${SUPABASE_URL}/rest/v1/course_menus?id=eq.${c.id}`, { method: "PATCH", headers, body: JSON.stringify({ sort_order: courseMenus[idx-1].sort_order }) }); await fetch(`${SUPABASE_URL}/rest/v1/course_menus?id=eq.${courseMenus[idx-1].id}`, { method: "PATCH", headers, body: JSON.stringify({ sort_order: c.sort_order }) }); fetchCourseMenus(); } }} style={{ padding: "6px 10px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, cursor: "pointer" }}>↑</button>
+  <button onClick={async () => { const idx = courseMenus.findIndex(x => x.id === c.id); if (idx < courseMenus.length - 1) { await fetch(`${SUPABASE_URL}/rest/v1/course_menus?id=eq.${c.id}`, { method: "PATCH", headers, body: JSON.stringify({ sort_order: courseMenus[idx+1].sort_order }) }); await fetch(`${SUPABASE_URL}/rest/v1/course_menus?id=eq.${courseMenus[idx+1].id}`, { method: "PATCH", headers, body: JSON.stringify({ sort_order: c.sort_order }) }); fetchCourseMenus(); } }} style={{ padding: "6px 10px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, cursor: "pointer" }}>↓</button>
+  <button onClick={() => setEditingCourse(c)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, cursor: "pointer" }}>編集</button>
+  <button onClick={() => deleteCourse(c.id)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #ffcccc", background: "white", color: "#e07070", fontSize: 12, cursor: "pointer" }}>削除</button>
                       </div>
                     </div>
                   ))}
