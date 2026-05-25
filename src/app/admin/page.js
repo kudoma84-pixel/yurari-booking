@@ -496,9 +496,10 @@ const statusColor = (s) => ({ confirmed: "#5a9e7a", received: "#7090e0", treatme
               ))}
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              {["confirmed","completed","cancelled"].map(s => (
-                <button key={s} onClick={() => updateBookingStatus(selectedBooking.id, s)} style={{ flex: 1, padding: "10px", borderRadius: 10, border: `2px solid ${statusColor(s)}`, background: selectedBooking.status === s ? statusColor(s) : "white", color: selectedBooking.status === s ? "white" : statusColor(s), fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{statusLabel(s)}</button>
-              ))}
+              {["confirmed","received","treatment_done","cancelled"].map(s => (
+  <button key={s} onClick={() => updateBookingStatus(selectedBooking.id, s)} style={{ flex: 1, padding: "10px", borderRadius: 10, border: `2px solid ${statusColor(s)}`, background: selectedBooking.status === s ? statusColor(s) : "white", color: selectedBooking.status === s ? "white" : statusColor(s), fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{statusLabel(s)}</button>
+))}
+<button onClick={() => { setSelectedBooking(null); setTab("checkout"); }} style={{ width: "100%", marginTop: 8, padding: "10px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>💴 会計へ</button>
             </div>
           </div>
         </div>
