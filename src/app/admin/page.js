@@ -635,7 +635,10 @@ export default function AdminPage() {
           <div>
             {!checkoutBooking ? (
               <div>
-                <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 16 }}>会計 - 本日の予約</h2>
+                <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 8 }}>会計</h2>
+<div style={{ marginBottom: 16 }}>
+  <input type="date" defaultValue={formatDate(new Date())} onChange={e => { const d = new Date(e.target.value + "T00:00:00"); const fetchDate = async () => { const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${e.target.value}&select=*,customers(name,tel)&order=booking_time.asc`, { headers }); const data = await res.json(); setTodayBookings(Array.isArray(data) ? data : []); }; fetchDate(); }} style={{ padding: "10px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: "#3a5a3a" }} />
+</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                   {todayBookings.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#aaa", background: "white", borderRadius: 16 }}>本日の予約はありません</div>}
                   {todayBookings.map(b => (
