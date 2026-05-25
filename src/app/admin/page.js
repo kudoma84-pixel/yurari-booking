@@ -14,24 +14,12 @@ const ADMIN_USERS = [
   { id: "toda", name: "戸田店", password: "yurari-toda" },
 ];
 
-const STAFFS = {
-  minamiurawa: [
-    { id: "s1", name: "田中 恵子" },
-    { id: "s2", name: "鈴木 大輔" },
-    { id: "s3", name: "山田 さくら" },
-  ],
-  toda: [
-    { id: "s4", name: "佐藤 健一" },
-    { id: "s5", name: "中村 美咲" },
-  ],
-};
-
-const COURSES = [
-  { id: "c1", name: "全身調整コース", price: 6600 },
-  { id: "c2", name: "集中ケアコース", price: 9900 },
-  { id: "c3", name: "首・肩 集中コース", price: 4950 },
-  { id: "c4", name: "腰痛改善コース", price: 6600 },
-  { id: "c5", name: "初回体験コース", price: 3300 },
+const PAYMENT_METHODS = [
+  { id: "cash", name: "現金", icon: "💴" },
+  { id: "card", name: "カード", icon: "💳" },
+  { id: "paypay", name: "PayPay", icon: "📱" },
+  { id: "linepay", name: "LINE Pay", icon: "💚" },
+  { id: "other", name: "その他", icon: "💰" },
 ];
 
 const BASE_SLOTS = [
@@ -43,14 +31,6 @@ const EVENING_EXT = ["20:00","20:30"];
 const BREAK_SLOTS = ["13:30","14:00","14:30"];
 const DAYS_JP = ["日","月","火","水","木","金","土"];
 const DAYS_FULL = ["日曜","月曜","火曜","水曜","木曜","金曜","土曜"];
-
-const PAYMENT_METHODS = [
-  { id: "cash", name: "現金", icon: "💴" },
-  { id: "card", name: "カード", icon: "💳" },
-  { id: "paypay", name: "PayPay", icon: "📱" },
-  { id: "linepay", name: "LINE Pay", icon: "💚" },
-  { id: "other", name: "その他", icon: "💰" },
-];
 
 export default function AdminPage() {
   const [loggedIn, setLoggedIn] = useState(false);
@@ -89,6 +69,12 @@ export default function AdminPage() {
   const [checkoutComplete, setCheckoutComplete] = useState(false);
   const [checkoutResult, setCheckoutResult] = useState(null);
   const [todayBookings, setTodayBookings] = useState([]);
+  const [staffMembers, setStaffMembers] = useState([]);
+  const [courseMenus, setCourseMenus] = useState([]);
+  const [settingsSubTab, setSettingsSubTab] = useState("staff");
+  const [editingStaff, setEditingStaff] = useState(null);
+  const [editingCourse, setEditingCourse] = useState(null);
+  const [editingProduct, setEditingProduct] = useState(null);
   const popoverRef = useRef(null);
 
   const headers = {
@@ -117,8 +103,8 @@ export default function AdminPage() {
     setLoading(false);
   };
 
-  const fetchTodayBookings = async () => {
-    const d = formatDate(new Date());
+  const fetchTodayBookings = async (dateStr) => {
+    const d = dateStr || formatDate(new Date());
     const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${d}&select=*,customers(name,tel)&order=booking_time.asc`, { headers });
     const data = await res.json();
     setTodayBookings(Array.isArray(data) ? data : []);
@@ -180,9 +166,21 @@ export default function AdminPage() {
   };
 
   const fetchProducts = async () => {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/products?store_id=eq.${currentStore.id}&is_active=eq.true&order=category.asc`, { headers });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/products?store_id=eq.${currentStore.id}&order=category.asc`, { headers });
     const data = await res.json();
     setProducts(Array.isArray(data) ? data : []);
+  };
+
+  const fetchStaffMembers = async () => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/staff_members?store_id=eq.${currentStore.id}&order=sort_order.asc`, { headers });
+    const data = await res.json();
+    setStaffMembers(Array.isArray(data) ? data : []);
+  };
+
+  const fetchCourseMenus = async () => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/course_menus?order=sort_order.asc`, { headers });
+    const data = await res.json();
+    setCourseMenus(Array.isArray(data) ? data : []);
   };
 
   const fetchAll = async (date) => {
@@ -192,7 +190,8 @@ export default function AdminPage() {
   useEffect(() => {
     if (loggedIn && tab === "customers") fetchCustomers();
     if (loggedIn && tab === "shifts") { fetchMonthShifts(); fetchShiftPlans(); }
-    if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchProducts(); }
+    if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchProducts(); fetchCourseMenus(); }
+    if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); }
   }, [loggedIn, tab]);
 
   useEffect(() => {
@@ -211,10 +210,61 @@ export default function AdminPage() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
+  // スタッフ保存
+  const saveStaff = async () => {
+    if (!editingStaff?.name) return;
+    if (editingStaff.id) {
+      await fetch(`${SUPABASE_URL}/rest/v1/staff_members?id=eq.${editingStaff.id}`, { method: "PATCH", headers, body: JSON.stringify({ name: editingStaff.name, title: editingStaff.title, specialty: editingStaff.specialty, is_active: editingStaff.is_active }) });
+    } else {
+      await fetch(`${SUPABASE_URL}/rest/v1/staff_members`, { method: "POST", headers, body: JSON.stringify({ store_id: currentStore.id, name: editingStaff.name, title: editingStaff.title, specialty: editingStaff.specialty, is_active: true }) });
+    }
+    await fetchStaffMembers();
+    setEditingStaff(null);
+  };
+
+  const deleteStaff = async (id) => {
+    await fetch(`${SUPABASE_URL}/rest/v1/staff_members?id=eq.${id}`, { method: "DELETE", headers });
+    await fetchStaffMembers();
+  };
+
+  // コース保存
+  const saveCourse = async () => {
+    if (!editingCourse?.name) return;
+    if (editingCourse.id) {
+      await fetch(`${SUPABASE_URL}/rest/v1/course_menus?id=eq.${editingCourse.id}`, { method: "PATCH", headers, body: JSON.stringify({ name: editingCourse.name, duration: editingCourse.duration, price: parseInt(editingCourse.price), description: editingCourse.description, is_active: editingCourse.is_active, is_first_only: editingCourse.is_first_only }) });
+    } else {
+      await fetch(`${SUPABASE_URL}/rest/v1/course_menus`, { method: "POST", headers, body: JSON.stringify({ name: editingCourse.name, duration: editingCourse.duration, price: parseInt(editingCourse.price), description: editingCourse.description, is_active: true, is_first_only: editingCourse.is_first_only || false }) });
+    }
+    await fetchCourseMenus();
+    setEditingCourse(null);
+  };
+
+  const deleteCourse = async (id) => {
+    await fetch(`${SUPABASE_URL}/rest/v1/course_menus?id=eq.${id}`, { method: "DELETE", headers });
+    await fetchCourseMenus();
+  };
+
+  // 物販商品保存
+  const saveProduct = async () => {
+    if (!editingProduct?.name) return;
+    if (editingProduct.id) {
+      await fetch(`${SUPABASE_URL}/rest/v1/products?id=eq.${editingProduct.id}`, { method: "PATCH", headers, body: JSON.stringify({ name: editingProduct.name, price: parseInt(editingProduct.price), category: editingProduct.category, is_active: editingProduct.is_active }) });
+    } else {
+      await fetch(`${SUPABASE_URL}/rest/v1/products`, { method: "POST", headers, body: JSON.stringify({ store_id: currentStore.id, name: editingProduct.name, price: parseInt(editingProduct.price), category: editingProduct.category, is_active: true }) });
+    }
+    await fetchProducts();
+    setEditingProduct(null);
+  };
+
+  const deleteProduct = async (id) => {
+    await fetch(`${SUPABASE_URL}/rest/v1/products?id=eq.${id}`, { method: "DELETE", headers });
+    await fetchProducts();
+  };
+
   const startCheckout = (booking) => {
-    const course = COURSES.find(c => c.id === booking.course_id) || { name: booking.course_name, price: 0 };
+    const course = courseMenus.find(c => c.id === booking.course_id) || { name: booking.course_name, price: 0 };
     setCheckoutBooking(booking);
-    setCheckoutItems([{ type: "course", name: course.name, price: course.price, quantity: 1 }]);
+    setCheckoutItems([{ type: "course", name: course.name, price: course.price || 0, quantity: 1 }]);
     setCheckoutDiscount(0);
     setCheckoutPaymentMethod("cash");
     setCheckoutNote("");
@@ -231,9 +281,7 @@ export default function AdminPage() {
     }
   };
 
-  const removeItem = (index) => {
-    setCheckoutItems(checkoutItems.filter((_, i) => i !== index));
-  };
+  const removeItem = (index) => setCheckoutItems(checkoutItems.filter((_, i) => i !== index));
 
   const updateQuantity = (index, qty) => {
     if (qty <= 0) { removeItem(index); return; }
@@ -246,34 +294,18 @@ export default function AdminPage() {
   const savePayment = async () => {
     const paymentRes = await fetch(`${SUPABASE_URL}/rest/v1/payments`, {
       method: "POST", headers,
-      body: JSON.stringify({
-        store_id: currentStore.id,
-        customer_id: checkoutBooking?.customer_id || null,
-        booking_id: checkoutBooking?.id || null,
-        subtotal, discount: checkoutDiscount, total,
-        payment_method: checkoutPaymentMethod,
-        payment_status: "paid",
-        notes: checkoutNote,
-      }),
+      body: JSON.stringify({ store_id: currentStore.id, customer_id: checkoutBooking?.customer_id || null, booking_id: checkoutBooking?.id || null, subtotal, discount: checkoutDiscount, total, payment_method: checkoutPaymentMethod, payment_status: "paid", notes: checkoutNote }),
     });
     const paymentData = await paymentRes.json();
     const paymentId = paymentData[0]?.id;
-
     if (paymentId) {
       for (const item of checkoutItems) {
-        await fetch(`${SUPABASE_URL}/rest/v1/payment_items`, {
-          method: "POST", headers,
-          body: JSON.stringify({ payment_id: paymentId, item_type: item.type, item_name: item.name, price: item.price, quantity: item.quantity }),
-        });
+        await fetch(`${SUPABASE_URL}/rest/v1/payment_items`, { method: "POST", headers, body: JSON.stringify({ payment_id: paymentId, item_type: item.type, item_name: item.name, price: item.price, quantity: item.quantity }) });
       }
     }
-
     if (checkoutBooking) {
-      await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${checkoutBooking.id}`, {
-        method: "PATCH", headers, body: JSON.stringify({ status: "completed" }),
-      });
+      await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${checkoutBooking.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "completed" }) });
     }
-
     setCheckoutResult({ paymentId, total, paymentMethod: checkoutPaymentMethod, customerName: checkoutBooking?.customers?.name || "お客様" });
     setCheckoutComplete(true);
     fetchTodayBookings();
@@ -326,9 +358,7 @@ export default function AdminPage() {
       const dateStr = formatDate(d);
       for (const staffId of Object.keys(planData)) {
         const dayData = planData[staffId]?.[dayOfWeek];
-        if (dayData?.enabled) {
-          await saveShift(staffId, dateStr, dayData.start || "10:00", dayData.end || "19:00", "出勤");
-        }
+        if (dayData?.enabled) await saveShift(staffId, dateStr, dayData.start || "10:00", dayData.end || "19:00", "出勤");
       }
       d.setDate(d.getDate() + 1);
     }
@@ -345,6 +375,7 @@ export default function AdminPage() {
 
   const getShiftForCell = (staffId, date) => monthShifts.find(s => s.staff_id === staffId && s.work_date === date);
   const isClosedDay = (date) => monthShifts.some(s => s.staff_id === "closed" && s.work_date === date);
+
   const getDaysInMonth = (month) => {
     const year = month.getFullYear();
     const m = month.getMonth();
@@ -385,7 +416,7 @@ export default function AdminPage() {
   };
 
   const statusLabel = (s) => ({ confirmed: "確認済", received: "受付", treatment_done: "施術終了", cancelled: "キャンセル", completed: "会計済", pending: "未確認" }[s] || s);
-const statusColor = (s) => ({ confirmed: "#5a9e7a", received: "#7090e0", treatment_done: "#e0a040", cancelled: "#e07070", completed: "#aaa", pending: "#ccc" }[s] || "#aaa");
+  const statusColor = (s) => ({ confirmed: "#5a9e7a", received: "#7090e0", treatment_done: "#e0a040", cancelled: "#e07070", completed: "#aaa", pending: "#ccc" }[s] || "#aaa");
 
   const getTimeSlots = () => {
     const ext = extensions[0] || {};
@@ -398,7 +429,12 @@ const statusColor = (s) => ({ confirmed: "#5a9e7a", received: "#7090e0", treatme
 
   const getBookingForCell = (staffId, time) => bookings.find(b => b.staff_id === staffId && b.booking_time === time);
   const isBlocked = (staffId, time) => blocks.some(b => (b.staff_id === staffId || b.staff_id === "all") && b.block_time === time);
-  const isOnShift = (staffId) => { if (shifts.length === 0) return true; return shifts.some(s => s.staff_id === staffId); };
+  const isOnShift = (staffId) => {
+    if (shifts.length === 0) return true;
+    return shifts.some(s => s.staff_id === staffId);
+  };
+
+  const staffList = staffMembers.length > 0 ? staffMembers.filter(s => s.is_active) : [];
 
   const ShiftPopover = ({ staffId, staffName, date, shift, closed }) => {
     const [startTime, setStartTime] = useState(shift?.start_time?.slice(0,5) || "10:00");
@@ -463,7 +499,6 @@ const statusColor = (s) => ({ confirmed: "#5a9e7a", received: "#7090e0", treatme
   }
 
   const timeSlots = getTimeSlots();
-  const staffList = STAFFS[currentStore.id] || [];
   const ext = extensions[0] || {};
 
   return (
@@ -495,12 +530,12 @@ const statusColor = (s) => ({ confirmed: "#5a9e7a", received: "#7090e0", treatme
                 </div>
               ))}
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
               {["confirmed","received","treatment_done","cancelled"].map(s => (
-  <button key={s} onClick={() => updateBookingStatus(selectedBooking.id, s)} style={{ flex: 1, padding: "10px", borderRadius: 10, border: `2px solid ${statusColor(s)}`, background: selectedBooking.status === s ? statusColor(s) : "white", color: selectedBooking.status === s ? "white" : statusColor(s), fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{statusLabel(s)}</button>
-))}
-<button onClick={() => { setSelectedBooking(null); setTab("checkout"); }} style={{ width: "100%", marginTop: 8, padding: "10px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>💴 会計へ</button>
+                <button key={s} onClick={() => updateBookingStatus(selectedBooking.id, s)} style={{ flex: 1, padding: "10px", borderRadius: 10, border: `2px solid ${statusColor(s)}`, background: selectedBooking.status === s ? statusColor(s) : "white", color: selectedBooking.status === s ? "white" : statusColor(s), fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{statusLabel(s)}</button>
+              ))}
             </div>
+            <button onClick={() => { setSelectedBooking(null); setTab("checkout"); }} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>💴 会計へ</button>
           </div>
         </div>
       )}
@@ -607,6 +642,99 @@ const statusColor = (s) => ({ confirmed: "#5a9e7a", received: "#7090e0", treatme
         </div>
       )}
 
+      {/* スタッフ編集モーダル */}
+      {editingStaff !== null && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setEditingStaff(null)}>
+          <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 400, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>{editingStaff.id ? "スタッフ編集" : "スタッフ追加"}</div>
+              <button onClick={() => setEditingStaff(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 24 }}>
+              {[
+                { label: "氏名", key: "name", placeholder: "田中 恵子", required: true },
+                { label: "役職", key: "title", placeholder: "院長・施術師など" },
+                { label: "専門", key: "specialty", placeholder: "得意分野" },
+              ].map(f => (
+                <div key={f.key}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>{f.label}{f.required && <span style={{ color: "#e07070" }}> *</span>}</label>
+                  <input value={editingStaff[f.key] || ""} onChange={e => setEditingStaff({ ...editingStaff, [f.key]: e.target.value })} placeholder={f.placeholder} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+                </div>
+              ))}
+              {editingStaff.id && (
+                <div style={{ display: "flex", gap: 10 }}>
+                  {["active", "inactive"].map(v => (
+                    <div key={v} onClick={() => setEditingStaff({ ...editingStaff, is_active: v === "active" })} style={{ flex: 1, padding: "10px", borderRadius: 10, border: `2px solid ${(editingStaff.is_active ? "active" : "inactive") === v ? "#5a9e7a" : "#e8ddd0"}`, background: (editingStaff.is_active ? "active" : "inactive") === v ? "#eaf5ec" : "white", textAlign: "center", cursor: "pointer", fontSize: 13, fontWeight: 600, color: (editingStaff.is_active ? "active" : "inactive") === v ? "#3a5a3a" : "#aaa" }}>
+                      {v === "active" ? "在籍中" : "退職"}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button onClick={saveStaff} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>保存</button>
+          </div>
+        </div>
+      )}
+
+      {/* コース編集モーダル */}
+      {editingCourse !== null && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setEditingCourse(null)}>
+          <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 400, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>{editingCourse.id ? "コース編集" : "コース追加"}</div>
+              <button onClick={() => setEditingCourse(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 24 }}>
+              {[
+                { label: "コース名", key: "name", placeholder: "全身調整コース", required: true },
+                { label: "時間", key: "duration", placeholder: "60分" },
+                { label: "料金（円）", key: "price", placeholder: "6600", type: "number" },
+                { label: "説明", key: "description", placeholder: "コースの説明" },
+              ].map(f => (
+                <div key={f.key}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>{f.label}{f.required && <span style={{ color: "#e07070" }}> *</span>}</label>
+                  <input type={f.type || "text"} value={editingCourse[f.key] || ""} onChange={e => setEditingCourse({ ...editingCourse, [f.key]: e.target.value })} placeholder={f.placeholder} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+                </div>
+              ))}
+              <div style={{ display: "flex", gap: 10 }}>
+                <div onClick={() => setEditingCourse({ ...editingCourse, is_first_only: !editingCourse.is_first_only })} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                  <div style={{ width: 20, height: 20, borderRadius: 4, border: `2px solid ${editingCourse.is_first_only ? "#5a9e7a" : "#e8ddd0"}`, background: editingCourse.is_first_only ? "#5a9e7a" : "white", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {editingCourse.is_first_only && <span style={{ color: "white", fontSize: 12 }}>✓</span>}
+                  </div>
+                  <span style={{ fontSize: 13, color: "#3a5a3a" }}>初回限定コース</span>
+                </div>
+              </div>
+            </div>
+            <button onClick={saveCourse} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>保存</button>
+          </div>
+        </div>
+      )}
+
+      {/* 物販商品編集モーダル */}
+      {editingProduct !== null && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setEditingProduct(null)}>
+          <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 400, boxShadow: "0 8cx 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>{editingProduct.id ? "商品編集" : "商品追加"}</div>
+              <button onClick={() => setEditingProduct(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 24 }}>
+              {[
+                { label: "商品名", key: "name", placeholder: "ストレッチポール", required: true },
+                { label: "カテゴリ", key: "category", placeholder: "健康グッズ・サプリなど" },
+                { label: "価格（円）", key: "price", placeholder: "3300", type: "number" },
+              ].map(f => (
+                <div key={f.key}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>{f.label}{f.required && <span style={{ color: "#e07070" }}> *</span>}</label>
+                  <input type={f.type || "text"} value={editingProduct[f.key] || ""} onChange={e => setEditingProduct({ ...editingProduct, [f.key]: e.target.value })} placeholder={f.placeholder} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+                </div>
+              ))}
+            </div>
+            <button onClick={saveProduct} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>保存</button>
+          </div>
+        </div>
+      )}
+
       <div style={{ background: "white", borderBottom: "1px solid #e8ddd0", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ fontSize: 24 }}>🌿</div>
@@ -625,6 +753,7 @@ const statusColor = (s) => ({ confirmed: "#5a9e7a", received: "#7090e0", treatme
           { id: "checkout", label: "💴 会計" },
           { id: "shifts", label: "👤 シフト管理" },
           { id: "customers", label: "👥 顧客管理" },
+          { id: "settings", label: "⚙️ 設定" },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "14px 20px", border: "none", background: "none", fontSize: 14, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? "#3a5a3a" : "#aaa", borderBottom: tab === t.id ? "3px solid #5a9e7a" : "3px solid transparent", cursor: "pointer", whiteSpace: "nowrap" }}>{t.label}</button>
         ))}
@@ -632,16 +761,110 @@ const statusColor = (s) => ({ confirmed: "#5a9e7a", received: "#7090e0", treatme
 
       <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto" }}>
 
+        {tab === "settings" && (
+          <div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+              {[
+                { id: "staff", label: "👤 スタッフ管理" },
+                { id: "courses", label: "📋 メニュー管理" },
+                { id: "products", label: "🛍️ 物販商品管理" },
+              ].map(t => (
+                <button key={t.id} onClick={() => setSettingsSubTab(t.id)} style={{ padding: "10px 20px", borderRadius: 10, border: `2px solid ${settingsSubTab === t.id ? "#5a9e7a" : "#e8ddd0"}`, background: settingsSubTab === t.id ? "#eaf5ec" : "white", color: settingsSubTab === t.id ? "#3a5a3a" : "#aaa", fontSize: 14, fontWeight: settingsSubTab === t.id ? 700 : 400, cursor: "pointer" }}>{t.label}</button>
+              ))}
+            </div>
+
+            {settingsSubTab === "staff" && (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>スタッフ一覧 - {currentStore.name}</div>
+                  <button onClick={() => setEditingStaff({})} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>＋ スタッフ追加</button>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {staffMembers.length === 0 && <div style={{ textAlign: "center", padding: 40, background: "white", borderRadius: 16, color: "#aaa" }}>スタッフが登録されていません</div>}
+                  {staffMembers.map(s => (
+                    <div key={s.id} style={{ background: "white", borderRadius: 14, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ fontSize: 28 }}>👤</div>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: s.is_active ? "#3a5a3a" : "#aaa" }}>{s.name}</div>
+                          <div style={{ fontSize: 12, color: "#888" }}>{s.title} {s.specialty && `/ ${s.specialty}`}</div>
+                        </div>
+                        {!s.is_active && <div style={{ fontSize: 11, background: "#f0ebe4", color: "#aaa", borderRadius: 20, padding: "2px 8px" }}>退職</div>}
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => setEditingStaff(s)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, cursor: "pointer" }}>編集</button>
+                        <button onClick={() => deleteStaff(s.id)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #ffcccc", background: "white", color: "#e07070", fontSize: 12, cursor: "pointer" }}>削除</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {settingsSubTab === "courses" && (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>メニュー一覧</div>
+                  <button onClick={() => setEditingCourse({})} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>＋ コース追加</button>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {courseMenus.length === 0 && <div style={{ textAlign: "center", padding: 40, background: "white", borderRadius: 16, color: "#aaa" }}>コースが登録されていません</div>}
+                  {courseMenus.map(c => (
+                    <div key={c.id} style={{ background: "white", borderRadius: 14, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: c.is_active ? "#3a5a3a" : "#aaa" }}>{c.name}</div>
+                          {c.is_first_only && <div style={{ fontSize: 10, background: "#ff8c69", color: "white", borderRadius: 10, padding: "2px 8px" }}>初回限定</div>}
+                          {!c.is_active && <div style={{ fontSize: 10, background: "#f0ebe4", color: "#aaa", borderRadius: 10, padding: "2px 8px" }}>非公開</div>}
+                        </div>
+                        <div style={{ fontSize: 12, color: "#888" }}>{c.duration} / ¥{c.price?.toLocaleString()}</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => setEditingCourse(c)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, cursor: "pointer" }}>編集</button>
+                        <button onClick={() => deleteCourse(c.id)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #ffcccc", background: "white", color: "#e07070", fontSize: 12, cursor: "pointer" }}>削除</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {settingsSubTab === "products" && (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>物販商品一覧 - {currentStore.name}</div>
+                  <button onClick={() => setEditingProduct({})} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>＋ 商品追加</button>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {products.length === 0 && <div style={{ textAlign: "center", padding: 40, background: "white", borderRadius: 16, color: "#aaa" }}>商品が登録されていません</div>}
+                  {products.map(p => (
+                    <div key={p.id} style={{ background: "white", borderRadius: 14, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a" }}>{p.name}</div>
+                        <div style={{ fontSize: 12, color: "#888" }}>{p.category} / ¥{p.price?.toLocaleString()}</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => setEditingProduct(p)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, cursor: "pointer" }}>編集</button>
+                        <button onClick={() => deleteProduct(p.id)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #ffcccc", background: "white", color: "#e07070", fontSize: 12, cursor: "pointer" }}>削除</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {tab === "checkout" && (
           <div>
             {!checkoutBooking ? (
               <div>
                 <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 8 }}>会計</h2>
-<div style={{ marginBottom: 16 }}>
-  <input type="date" defaultValue={formatDate(new Date())} onChange={e => { const d = new Date(e.target.value + "T00:00:00"); const fetchDate = async () => { const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${e.target.value}&select=*,customers(name,tel)&order=booking_time.asc`, { headers }); const data = await res.json(); setTodayBookings(Array.isArray(data) ? data : []); }; fetchDate(); }} style={{ padding: "10px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: "#3a5a3a" }} />
-</div>
+                <div style={{ marginBottom: 16 }}>
+                  <input type="date" defaultValue={formatDate(new Date())} onChange={e => fetchTodayBookings(e.target.value)} style={{ padding: "10px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: "#3a5a3a" }} />
+                </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {todayBookings.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#aaa", background: "white", borderRadius: 16 }}>本日の予約はありません</div>}
+                  {todayBookings.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#aaa", background: "white", borderRadius: 16 }}>予約がありません</div>}
                   {todayBookings.map(b => (
                     <div key={b.id} style={{ background: "white", borderRadius: 16, padding: "20px 24px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div>
@@ -677,9 +900,7 @@ const statusColor = (s) => ({ confirmed: "#5a9e7a", received: "#7090e0", treatme
               <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
                 <div style={{ flex: 1, minWidth: 300 }}>
                   <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a", marginBottom: 16 }}>
-                      {checkoutBooking.customers?.name || "お客様"} 様の会計
-                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a", marginBottom: 16 }}>{checkoutBooking.customers?.name || "お客様"} 様の会計</div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
                       {checkoutItems.map((item, i) => (
                         <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "#f9f6f2", borderRadius: 10 }}>
@@ -689,9 +910,9 @@ const statusColor = (s) => ({ confirmed: "#5a9e7a", received: "#7090e0", treatme
                           </div>
                           <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginRight: 12 }}>{formatPrice(item.price * item.quantity)}</div>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <button onClick={() => updateQuantity(i, item.quantity - 1)} style={{ width: 24, height: 24, borderRadius: "50%", border: "1px solid #e8ddd0", background: "white", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>－</button>
+                            <button onClick={() => updateQuantity(i, item.quantity - 1)} style={{ width: 24, height: 24, borderRadius: "50%", border: "1px solid #e8ddd0", background: "white", cursor: "pointer", fontSize: 14 }}>－</button>
                             <span style={{ fontSize: 13, minWidth: 16, textAlign: "center" }}>{item.quantity}</span>
-                            <button onClick={() => updateQuantity(i, item.quantity + 1)} style={{ width: 24, height: 24, borderRadius: "50%", border: "1px solid #e8ddd0", background: "white", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>＋</button>
+                            <button onClick={() => updateQuantity(i, item.quantity + 1)} style={{ width: 24, height: 24, borderRadius: "50%", border: "1px solid #e8ddd0", background: "white", cursor: "pointer", fontSize: 14 }}>＋</button>
                           </div>
                         </div>
                       ))}
@@ -714,7 +935,6 @@ const statusColor = (s) => ({ confirmed: "#5a9e7a", received: "#7090e0", treatme
                       </div>
                     </div>
                   </div>
-
                   <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>支払い方法</div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -723,21 +943,19 @@ const statusColor = (s) => ({ confirmed: "#5a9e7a", received: "#7090e0", treatme
                       ))}
                     </div>
                   </div>
-
                   <div style={{ display: "flex", gap: 12 }}>
                     <button onClick={() => setCheckoutBooking(null)} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>戻る</button>
                     <button onClick={savePayment} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>✓ 会計を確定する</button>
                   </div>
                 </div>
-
                 <div style={{ width: 320 }}>
                   <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>物販を追加</div>
-                    {products.length === 0 ? (
+                    {products.filter(p => p.is_active).length === 0 ? (
                       <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", padding: 20 }}>商品が登録されていません</div>
                     ) : (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {products.map(p => (
+                        {products.filter(p => p.is_active).map(p => (
                           <div key={p.id} onClick={() => addProduct(p)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "#f9f6f2", borderRadius: 10, cursor: "pointer" }}>
                             <div>
                               <div style={{ fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{p.name}</div>
@@ -843,7 +1061,6 @@ const statusColor = (s) => ({ confirmed: "#5a9e7a", received: "#7090e0", treatme
                 <button key={t.id} onClick={() => setShiftSubTab(t.id)} style={{ padding: "10px 20px", borderRadius: 10, border: `2px solid ${shiftSubTab === t.id ? "#5a9e7a" : "#e8ddd0"}`, background: shiftSubTab === t.id ? "#eaf5ec" : "white", color: shiftSubTab === t.id ? "#3a5a3a" : "#aaa", fontSize: 14, fontWeight: shiftSubTab === t.id ? 700 : 400, cursor: "pointer" }}>{t.label}</button>
               ))}
             </div>
-
             {shiftSubTab === "monthly" && (
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
@@ -914,16 +1131,13 @@ const statusColor = (s) => ({ confirmed: "#5a9e7a", received: "#7090e0", treatme
                 </div>
               </div>
             )}
-
             {shiftSubTab === "templates" && (
               <div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
                   <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>シフトテンプレート一覧</div>
                   <button onClick={() => { setEditingPlan({}); setNewPlanName(""); }} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>＋ 新しいテンプレート</button>
                 </div>
-                {shiftPlans.length === 0 && (
-                  <div style={{ textAlign: "center", padding: 40, background: "white", borderRadius: 16, color: "#aaa" }}>テンプレートがまだありません。「新しいテンプレート」から作成してください。</div>
-                )}
+                {shiftPlans.length === 0 && <div style={{ textAlign: "center", padding: 40, background: "white", borderRadius: 16, color: "#aaa" }}>テンプレートがまだありません。</div>}
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                   {shiftPlans.map(plan => (
                     <div key={plan.id} style={{ background: "white", borderRadius: 16, padding: "20px 24px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
