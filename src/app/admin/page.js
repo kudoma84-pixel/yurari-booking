@@ -45,7 +45,7 @@ export default function AdminPage() {
   const fetchBookings = async () => {
     setLoading(true);
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&order=booking_date.desc`,
+      `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&order=booking_date.desc&select=*,customers(name,tel,kana)`,
       { headers }
     );
     const data = await res.json();
