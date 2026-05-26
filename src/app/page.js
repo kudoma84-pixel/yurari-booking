@@ -12,6 +12,7 @@ const STORES = [
 
 const TIME_SLOTS = ["10:00","10:30","11:00","11:30","12:00","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00"];
 const DAYS_JP = ["日","月","火","水","木","金","土"];
+const LOGO_URL = "https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp";
 
 const IMAGES = {
   hero: "https://seitai-yurari.com/wp-content/themes/lightning_child/img/top/mainimg.webp",
@@ -20,8 +21,13 @@ const IMAGES = {
   symptoms2: "https://seitai-yurari.com/wp-content/themes/lightning_child/img/top/symptoms2.png",
   message: "https://seitai-yurari.com/wp-content/themes/lightning_child/img/top/message.png",
   footer: "https://seitai-yurari.com/wp-content/themes/lightning_child/img/common/foot4.jpg",
-  flow: "https://seitai-yurari.com/wp-content/uploads/2024/06/flow07.png",
 };
+
+const GREEN = "#2d6a4f";
+const LIGHT_GREEN = "#52b788";
+const ORANGE = "#e07b39";
+const CREAM = "#fdf8f0";
+const DARK = "#1a1a1a";
 
 function generateDates() {
   const dates = [];
@@ -65,21 +71,11 @@ export default function App() {
     "Prefer": "return=representation",
   };
 
-  useEffect(() => {
-    fetchCourses();
-  }, []);
-
-  useEffect(() => {
-    if (store) fetchStaff(store.id);
-  }, [store]);
-
+  useEffect(() => { fetchCourses(); }, []);
+  useEffect(() => { if (store) fetchStaff(store.id); }, [store]);
   useEffect(() => {
     if (session) {
-      setForm(f => ({
-        ...f,
-        name: f.name || session?.user?.name || "",
-        email: f.email || session?.user?.email || "",
-      }));
+      setForm(f => ({ ...f, name: f.name || session?.user?.name || "", email: f.email || session?.user?.email || "" }));
     }
   }, [session]);
 
@@ -144,29 +140,26 @@ export default function App() {
     setSubmitted(false); setBookingNum(""); setError("");
   };
 
-  const GREEN = "#2d6a4f";
-  const LIGHT_GREEN = "#52b788";
-  const ORANGE = "#e07b39";
-  const CREAM = "#fdf8f0";
-  const DARK = "#1a1a1a";
+  const Header = ({ showBack }) => (
+    <div style={{ background: "white", borderBottom: `3px solid ${GREEN}`, padding: "12px 20px", position: "sticky", top: 0, zIndex: 100 }}>
+      <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div onClick={showBack ? reset : undefined} style={{ cursor: showBack ? "pointer" : "default" }}>
+          <img src={LOGO_URL} alt="癒楽里ロゴ" style={{ height: 44, width: "auto" }} />
+        </div>
+        {!showBack && (
+          <button onClick={() => session ? setStep(0) : signIn("line")} style={{ padding: "10px 20px", borderRadius: 25, border: "none", background: ORANGE, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: `0 3px 12px ${ORANGE}60` }}>
+            ご予約はこちら
+          </button>
+        )}
+      </div>
+    </div>
+  );
 
-  // トップページ
   if (step === -1) {
     return (
       <div style={{ fontFamily: "'Noto Sans JP', 'Hiragino Kaku Gothic ProN', sans-serif", background: CREAM, minHeight: "100vh" }}>
-        {/* ヘッダー */}
-        <div style={{ background: "white", borderBottom: `3px solid ${GREEN}`, padding: "12px 20px", position: "sticky", top: 0, zIndex: 100 }}>
-          <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <img src="https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp" alt="癒楽里ロゴ" style={{ height: 44, width: "auto" }} />
-            </div>
-            <button onClick={() => session ? setStep(0) : signIn("line")} style={{ padding: "10px 20px", borderRadius: 25, border: "none", background: ORANGE, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 3px 12px rgba(224,123,57,0.4)" }}>
-              ご予約はこちら
-            </button>
-          </div>
-        </div>
+        <Header showBack={false} />
 
-        {/* ヒーローセクション */}
         <div style={{ position: "relative", height: 420, overflow: "hidden" }}>
           <img src={IMAGES.hero} alt="癒楽里" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center" }} />
           <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.5) 100%)" }} />
@@ -189,19 +182,18 @@ export default function App() {
               </div>
               <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>多数のお喜びの声を頂いております！</div>
             </div>
-            <button onClick={() => session ? setStep(0) : signIn("line")} style={{ padding: "16px 40px", borderRadius: 30, border: "none", background: ORANGE, color: "white", fontSize: 16, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 20px rgba(224,123,57,0.5)" }}>
+            <button onClick={() => session ? setStep(0) : signIn("line")} style={{ padding: "16px 40px", borderRadius: 30, border: "none", background: ORANGE, color: "white", fontSize: 16, fontWeight: 700, cursor: "pointer", boxShadow: `0 4px 20px ${ORANGE}80` }}>
               今すぐ予約する →
             </button>
           </div>
         </div>
 
-        {/* 店舗情報 */}
-        <div style={{ background: GREEN, padding: "20px", color: "white" }}>
+        <div style={{ background: GREEN, padding: "20px" }}>
           <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", gap: 12, flexWrap: "wrap" }}>
             {STORES.map(s => (
               <div key={s.id} style={{ flex: 1, minWidth: 240, background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "14px 16px" }}>
                 <div style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", marginBottom: 4 }}>SHOP</div>
-                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>癒楽里 {s.name}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "white", marginBottom: 6 }}>癒楽里 {s.name}</div>
                 <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", marginBottom: 4 }}>📞 {s.tel}</div>
                 <div style={{ fontSize: 11, color: "rgba(255,255,255,0.7)" }}>🕐 {s.hours}</div>
               </div>
@@ -209,7 +201,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* 当院の特徴 */}
         <div style={{ maxWidth: 640, margin: "0 auto", padding: "40px 20px" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
             <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>FEATURES</div>
@@ -219,7 +210,6 @@ export default function App() {
           <img src={IMAGES.features} alt="特徴" style={{ width: "100%", borderRadius: 16, boxShadow: "0 4px 20px rgba(0,0,0,0.1)" }} />
         </div>
 
-        {/* 症状 */}
         <div style={{ background: "white", padding: "40px 20px" }}>
           <div style={{ maxWidth: 640, margin: "0 auto" }}>
             <div style={{ textAlign: "center", marginBottom: 24 }}>
@@ -234,7 +224,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* 院長メッセージ */}
         <div style={{ maxWidth: 640, margin: "0 auto", padding: "40px 20px" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
             <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>MESSAGE</div>
@@ -244,16 +233,14 @@ export default function App() {
           <img src={IMAGES.message} alt="メッセージ" style={{ width: "100%", borderRadius: 16, boxShadow: "0 4px 20px rgba(0,0,0,0.1)" }} />
         </div>
 
-        {/* 予約ボタン */}
         <div style={{ background: GREEN, padding: "40px 20px", textAlign: "center" }}>
           <div style={{ fontSize: 20, fontWeight: 700, color: "white", marginBottom: 8 }}>まずはお気軽にご予約ください</div>
           <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", marginBottom: 24 }}>初回体験コース ¥3,300〜</div>
-          <button onClick={() => session ? setStep(0) : signIn("line")} style={{ padding: "18px 48px", borderRadius: 30, border: "none", background: ORANGE, color: "white", fontSize: 18, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 20px rgba(224,123,57,0.5)" }}>
+          <button onClick={() => session ? setStep(0) : signIn("line")} style={{ padding: "18px 48px", borderRadius: 30, border: "none", background: ORANGE, color: "white", fontSize: 18, fontWeight: 700, cursor: "pointer", boxShadow: `0 4px 20px ${ORANGE}80` }}>
             オンライン予約する
           </button>
         </div>
 
-        {/* フッター */}
         <div style={{ background: DARK, padding: "30px 20px" }}>
           <div style={{ maxWidth: 640, margin: "0 auto" }}>
             <img src={IMAGES.footer} alt="フッター" style={{ width: "100%", borderRadius: 12, marginBottom: 20, opacity: 0.8 }} />
@@ -264,16 +251,12 @@ export default function App() {
     );
   }
 
-  // 予約完了ページ
   if (step === 5) {
     return (
       <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
-        <div style={{ background: "white", borderBottom: `3px solid ${GREEN}`, padding: "12px 20px" }}>
-          <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", alignItems: "center", gap: 10 }}>
-            <img src="https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp" alt="癒楽里ロゴ" style={{ height: 44, width: "auto" }} />
-          </div>
-        </div>
-        <img src="https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp" alt="癒楽里ロゴ" style={{ height: 44, width: "auto" }} />
+        <Header showBack={true} />
+        <div style={{ maxWidth: 640, margin: "0 auto", padding: "40px 20px", textAlign: "center" }}>
+          <div style={{ fontSize: 64, marginBottom: 16 }}>🌿</div>
           <div style={{ fontSize: 24, fontWeight: 700, color: GREEN, marginBottom: 8 }}>ご予約が完了しました！</div>
           <div style={{ fontSize: 14, color: "#888", marginBottom: 32 }}>ありがとうございます</div>
           <div style={{ background: "white", borderRadius: 20, padding: "24px", marginBottom: 24, boxShadow: "0 4px 20px rgba(0,0,0,0.08)", border: `2px solid ${LIGHT_GREEN}` }}>
@@ -308,18 +291,9 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', 'Hiragino Kaku Gothic ProN', sans-serif" }}>
-      {/* ヘッダー */}
-      <div style={{ background: "white", borderBottom: `3px solid ${GREEN}`, padding: "12px 20px", position: "sticky", top: 0, zIndex: 100 }}>
-        <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", alignItems: "center", gap: 10 }}>
-         <button onClick={reset} style={{ border: "none", background: "none", cursor: "pointer" }}>
-  <img src="https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp" alt="癒楽里ロゴ" style={{ height: 44, width: "auto" }} />
-</button>
-          </div>
-        </div>
-      </div>
+      <Header showBack={true} />
 
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 16px 100px" }}>
-        {/* ステッパー */}
         <div style={{ padding: "20px 0 8px" }}>
           <div style={{ display: "flex", alignItems: "center" }}>
             {steps.map((s, i) => (
@@ -334,7 +308,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Step 0: 店舗選択 */}
         {step === 0 && (
           <div style={{ paddingTop: 24 }}>
             <div style={{ marginBottom: 24 }}>
@@ -343,7 +316,7 @@ export default function App() {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {STORES.map(s => (
-                <div key={s.id} onClick={() => setStore(s)} style={{ background: store?.id === s.id ? `linear-gradient(135deg, ${GREEN}15, ${LIGHT_GREEN}20)` : "white", border: `2px solid ${store?.id === s.id ? GREEN : "#e8ddd0"}`, borderRadius: 16, padding: "20px 24px", cursor: "pointer", transition: "all 0.2s", boxShadow: store?.id === s.id ? `0 4px 20px ${GREEN}20` : "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <div key={s.id} onClick={() => setStore(s)} style={{ background: store?.id === s.id ? `${GREEN}15` : "white", border: `2px solid ${store?.id === s.id ? GREEN : "#e8ddd0"}`, borderRadius: 16, padding: "20px 24px", cursor: "pointer", transition: "all 0.2s", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     <div style={{ fontSize: 36 }}>🏥</div>
                     <div style={{ flex: 1 }}>
@@ -360,7 +333,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Step 1: コース選択 */}
         {step === 1 && (
           <div style={{ paddingTop: 24 }}>
             <div style={{ marginBottom: 24 }}>
@@ -372,7 +344,7 @@ export default function App() {
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 {courses.map(c => (
-                  <div key={c.id} onClick={() => setCourse(c)} style={{ background: course?.id === c.id ? `linear-gradient(135deg, ${GREEN}15, ${LIGHT_GREEN}20)` : "white", border: `2px solid ${course?.id === c.id ? GREEN : "#e8ddd0"}`, borderRadius: 16, padding: "18px 20px", cursor: "pointer", boxShadow: course?.id === c.id ? `0 4px 20px ${GREEN}20` : "0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <div key={c.id} onClick={() => setCourse(c)} style={{ background: course?.id === c.id ? `${GREEN}15` : "white", border: `2px solid ${course?.id === c.id ? GREEN : "#e8ddd0"}`, borderRadius: 16, padding: "18px 20px", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -393,7 +365,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Step 2: スタッフ・日時 */}
         {step === 2 && (
           <div style={{ paddingTop: 24 }}>
             <div style={{ marginBottom: 24 }}>
@@ -404,7 +375,7 @@ export default function App() {
               <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: `2px solid ${GREEN}20` }}>担当スタッフ</div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 {[{ id: "any", name: "指名なし", title: "おまかせ", specialty: "" }, ...staffList].map(s => (
-                  <div key={s.id} onClick={() => setStaff(s)} style={{ background: staff?.id === s.id ? `linear-gradient(135deg, ${GREEN}15, ${LIGHT_GREEN}20)` : "white", border: `2px solid ${staff?.id === s.id ? GREEN : "#e8ddd0"}`, borderRadius: 12, padding: "12px 16px", cursor: "pointer", textAlign: "center", minWidth: 90, boxShadow: staff?.id === s.id ? `0 4px 16px ${GREEN}20` : "0 2px 6px rgba(0,0,0,0.06)" }}>
+                  <div key={s.id} onClick={() => setStaff(s)} style={{ background: staff?.id === s.id ? `${GREEN}15` : "white", border: `2px solid ${staff?.id === s.id ? GREEN : "#e8ddd0"}`, borderRadius: 12, padding: "12px 16px", cursor: "pointer", textAlign: "center", minWidth: 90, boxShadow: "0 2px 6px rgba(0,0,0,0.06)" }}>
                     <div style={{ fontSize: 28 }}>👤</div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: GREEN, marginTop: 4 }}>{s.name}</div>
                     <div style={{ fontSize: 10, color: "#888" }}>{s.title}</div>
@@ -419,7 +390,7 @@ export default function App() {
                   const dayIdx = d.getDay();
                   const isSelected = date && d.toDateString() === date.toDateString();
                   return (
-                    <div key={i} onClick={() => setDate(d)} style={{ background: isSelected ? GREEN : "white", border: `2px solid ${isSelected ? GREEN : "#e8ddd0"}`, borderRadius: 12, padding: "10px 12px", cursor: "pointer", textAlign: "center", flexShrink: 0, minWidth: 52, boxShadow: isSelected ? `0 4px 16px ${GREEN}40` : "0 2px 6px rgba(0,0,0,0.06)" }}>
+                    <div key={i} onClick={() => setDate(d)} style={{ background: isSelected ? GREEN : "white", border: `2px solid ${isSelected ? GREEN : "#e8ddd0"}`, borderRadius: 12, padding: "10px 12px", cursor: "pointer", textAlign: "center", flexShrink: 0, minWidth: 52 }}>
                       <div style={{ fontSize: 10, color: isSelected ? "rgba(255,255,255,0.8)" : dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : "#aaa" }}>{DAYS_JP[dayIdx]}</div>
                       <div style={{ fontSize: 18, fontWeight: 700, color: isSelected ? "white" : DARK }}>{d.getDate()}</div>
                       <div style={{ fontSize: 10, color: isSelected ? "rgba(255,255,255,0.8)" : "#aaa" }}>{d.getMonth()+1}月</div>
@@ -435,7 +406,7 @@ export default function App() {
                   {TIME_SLOTS.map(t => {
                     const isSelected = time === t;
                     return (
-                      <div key={t} onClick={() => setTime(t)} style={{ background: isSelected ? GREEN : "white", border: `2px solid ${isSelected ? GREEN : "#e8ddd0"}`, borderRadius: 10, padding: "8px 14px", cursor: "pointer", fontSize: 13, fontWeight: 600, color: isSelected ? "white" : DARK, boxShadow: isSelected ? `0 4px 12px ${GREEN}40` : "0 1px 4px rgba(0,0,0,0.06)" }}>
+                      <div key={t} onClick={() => setTime(t)} style={{ background: isSelected ? GREEN : "white", border: `2px solid ${isSelected ? GREEN : "#e8ddd0"}`, borderRadius: 10, padding: "8px 14px", cursor: "pointer", fontSize: 13, fontWeight: 600, color: isSelected ? "white" : DARK }}>
                         {t}
                       </div>
                     );
@@ -446,7 +417,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Step 3: お客様情報 */}
         {step === 3 && (
           <div style={{ paddingTop: 24 }}>
             <div style={{ marginBottom: 24 }}>
@@ -463,7 +433,7 @@ export default function App() {
                 <div key={f.key}>
                   <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>{f.label} {f.required && <span style={{ color: ORANGE }}>*</span>}</label>
                   <input type={f.type || "text"} value={form[f.key]} onChange={e => setForm({ ...form, [f.key]: e.target.value })} placeholder={f.placeholder}
-                    style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: `2px solid #e8ddd0`, fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
+                    style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
                     onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
                 </div>
               ))}
@@ -485,7 +455,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Step 4: 確認 */}
         {step === 4 && (
           <div style={{ paddingTop: 24 }}>
             <div style={{ marginBottom: 24 }}>
@@ -514,19 +483,18 @@ export default function App() {
               キャンセル・変更は前日17時まで承ります。
             </div>
             {error && <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#cc4444" }}>{error}</div>}
-            <button onClick={handleSubmit} disabled={loading} style={{ width: "100%", padding: "18px", borderRadius: 14, border: "none", cursor: loading ? "not-allowed" : "pointer", background: loading ? "#aaa" : `linear-gradient(135deg, ${GREEN}, #1b4332)`, color: "white", fontSize: 16, fontWeight: 700, letterSpacing: "0.05em", boxShadow: `0 4px 20px ${GREEN}50` }}>
+            <button onClick={handleSubmit} disabled={loading} style={{ width: "100%", padding: "18px", borderRadius: 14, border: "none", cursor: loading ? "not-allowed" : "pointer", background: loading ? "#aaa" : GREEN, color: "white", fontSize: 16, fontWeight: 700, letterSpacing: "0.05em", boxShadow: `0 4px 20px ${GREEN}50` }}>
               {loading ? "送信中..." : "✓ この内容で予約を確定する"}
             </button>
           </div>
         )}
 
-        {/* ナビゲーション */}
         {step >= 0 && step <= 4 && (
           <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(12px)", borderTop: `3px solid ${GREEN}20`, padding: "12px 16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom))" }}>
             <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", gap: 12 }}>
               {step > 0 && <button onClick={() => setStep(step - 1)} style={{ flex: 1, padding: "14px", borderRadius: 14, border: `2px solid ${GREEN}40`, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>← 戻る</button>}
-              {step < 4 && <button onClick={() => canNext() && setStep(step + 1)} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: canNext() ? `linear-gradient(135deg, ${GREEN}, #1b4332)` : "#e8ddd0", color: canNext() ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: canNext() ? "pointer" : "not-allowed", boxShadow: canNext() ? `0 4px 16px ${GREEN}40` : "none" }}>次へ →</button>}
-              {step === 4 && <button onClick={() => canNext() && handleSubmit()} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: canNext() ? `linear-gradient(135deg, ${ORANGE}, #c4612a)` : "#e8ddd0", color: canNext() ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: canNext() ? "pointer" : "not-allowed" }}>予約を確定する ✓</button>}
+              {step < 4 && <button onClick={() => canNext() && setStep(step + 1)} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: canNext() ? GREEN : "#e8ddd0", color: canNext() ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: canNext() ? "pointer" : "not-allowed" }}>次へ →</button>}
+              {step === 4 && <button onClick={() => canNext() && handleSubmit()} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: canNext() ? ORANGE : "#e8ddd0", color: canNext() ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: canNext() ? "pointer" : "not-allowed" }}>予約を確定する ✓</button>}
             </div>
           </div>
         )}
