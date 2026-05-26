@@ -318,7 +318,7 @@ export default function App() {
               {STORES.map(s => (
                 <div key={s.id} onClick={() => setStore(s)} style={{ background: store?.id === s.id ? `${GREEN}15` : "white", border: `2px solid ${store?.id === s.id ? GREEN : "#e8ddd0"}`, borderRadius: 16, padding: "20px 24px", cursor: "pointer", transition: "all 0.2s", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ fontSize: 36 }}>🏥</div>
+                    <img src="https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp" alt="ロゴ" style={{ height: 36, width: "auto" }} />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 18, fontWeight: 700, color: GREEN }}>癒楽里 {s.name}</div>
                       <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{s.address}</div>
