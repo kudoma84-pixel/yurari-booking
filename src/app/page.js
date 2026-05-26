@@ -270,8 +270,7 @@ export default function App() {
       <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
         <div style={{ background: "white", borderBottom: `3px solid ${GREEN}`, padding: "12px 20px" }}>
           <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 40, height: 40, borderRadius: "50%", background: GREEN, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🌿</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: GREEN }}>整体院 癒楽里</div>
+            <img src="https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp" alt="癒楽里ロゴ" style={{ height: 44, width: "auto" }} />
           </div>
         </div>
         <img src="https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp" alt="癒楽里ロゴ" style={{ height: 44, width: "auto" }} />
