@@ -158,11 +158,7 @@ export default function App() {
         <div style={{ background: "white", borderBottom: `3px solid ${GREEN}`, padding: "12px 20px", position: "sticky", top: 0, zIndex: 100 }}>
           <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 40, height: 40, borderRadius: "50%", background: GREEN, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🌿</div>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: GREEN }}>整体院 癒楽里</div>
-                <div style={{ fontSize: 10, color: "#888", letterSpacing: "0.1em" }}>SEITAI-IN YURARI</div>
-              </div>
+              <img src="https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp" alt="癒楽里ロゴ" style={{ height: 44, width: "auto" }} />
             </div>
             <button onClick={() => session ? setStep(0) : signIn("line")} style={{ padding: "10px 20px", borderRadius: 25, border: "none", background: ORANGE, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 3px 12px rgba(224,123,57,0.4)" }}>
               ご予約はこちら
