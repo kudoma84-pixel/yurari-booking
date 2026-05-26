@@ -274,8 +274,7 @@ export default function App() {
             <div style={{ fontSize: 16, fontWeight: 700, color: GREEN }}>整体院 癒楽里</div>
           </div>
         </div>
-        <div style={{ maxWidth: 640, margin: "0 auto", padding: "40px 20px", textAlign: "center" }}>
-          <div style={{ fontSize: 64, marginBottom: 16 }}>🌿</div>
+        <img src="https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp" alt="癒楽里ロゴ" style={{ height: 44, width: "auto" }} />
           <div style={{ fontSize: 24, fontWeight: 700, color: GREEN, marginBottom: 8 }}>ご予約が完了しました！</div>
           <div style={{ fontSize: 14, color: "#888", marginBottom: 32 }}>ありがとうございます</div>
           <div style={{ background: "white", borderRadius: 20, padding: "24px", marginBottom: 24, boxShadow: "0 4px 20px rgba(0,0,0,0.08)", border: `2px solid ${LIGHT_GREEN}` }}>
