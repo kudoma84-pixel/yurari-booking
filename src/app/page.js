@@ -311,12 +311,9 @@ export default function App() {
       {/* ヘッダー */}
       <div style={{ background: "white", borderBottom: `3px solid ${GREEN}`, padding: "12px 20px", position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", alignItems: "center", gap: 10 }}>
-          <button onClick={reset} style={{ border: "none", background: "none", cursor: "pointer" }}>
-            <div style={{ width: 40, height: 40, borderRadius: "50%", background: GREEN, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🌿</div>
-          </button>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: GREEN }}>整体院 癒楽里</div>
-            <div style={{ fontSize: 10, color: "#888" }}>オンライン予約</div>
+         <button onClick={reset} style={{ border: "none", background: "none", cursor: "pointer" }}>
+  <img src="https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp" alt="癒楽里ロゴ" style={{ height: 44, width: "auto" }} />
+</button>
           </div>
         </div>
       </div>
