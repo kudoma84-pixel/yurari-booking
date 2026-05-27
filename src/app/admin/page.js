@@ -29,6 +29,7 @@ const BASE_SLOTS = [
 const MORNING_EXT = ["09:00","09:30"];
 const EVENING_EXT = ["20:00","20:30"];
 const BREAK_SLOTS = ["13:30","14:00","14:30"];
+const BREAK_RELEASED_SLOTS = ["13:30","14:00","14:30"];
 const DAYS_JP = ["日","月","火","水","木","金","土"];
 const DAYS_FULL = ["日曜","月曜","火曜","水曜","木曜","金曜","土曜"];
 
@@ -574,6 +575,19 @@ export default function AdminPage() {
     slots.push(...BASE_SLOTS);
     if (ext.evening_extended) slots.push(...EVENING_EXT);
     return slots;
+  };
+
+  const isBreakReleased = () => (extensions[0]?.break_released || false);
+
+  const toggleBreakRelease = async () => {
+    const d = formatDate(selectedDate);
+    const ext = extensions[0];
+    if (ext) {
+      await fetch(`${SUPABASE_URL}/rest/v1/time_extensions?id=eq.${ext.id}`, { method: "PATCH", headers, body: JSON.stringify({ break_released: !ext.break_released }) });
+    } else {
+      await fetch(`${SUPABASE_URL}/rest/v1/time_extensions`, { method: "POST", headers, body: JSON.stringify({ store_id: currentStore.id, extension_date: d, break_released: true }) });
+    }
+    fetchExtensions(selectedDate);
   };
 
   const getBookingForCell = (staffId, time) => bookings.find(b => b.staff_id === staffId && b.booking_time === time);
@@ -1310,6 +1324,7 @@ export default function AdminPage() {
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <button onClick={() => toggleExtension("morning_extended")} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${ext.morning_extended ? "#5a9e7a" : "#e8ddd0"}`, background: ext.morning_extended ? "#eaf5ec" : "white", color: ext.morning_extended ? "#3a5a3a" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{ext.morning_extended ? "✓" : ""} 早朝拡張(9:00〜)</button>
                       <button onClick={() => toggleExtension("evening_extended")} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${ext.evening_extended ? "#5a9e7a" : "#e8ddd0"}`, background: ext.evening_extended ? "#eaf5ec" : "white", color: ext.evening_extended ? "#3a5a3a" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{ext.evening_extended ? "✓" : ""} 夜間拡張(〜20:30)</button>
+                      <button onClick={toggleBreakRelease} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${ext.break_released ? "#e0a040" : "#e8ddd0"}`, background: ext.break_released ? "#fdf5f0" : "white", color: ext.break_released ? "#e0a040" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{ext.break_released ? "✓" : ""} 休憩解放(13:30〜15:00)</button>
                     </div>
                   </div>
                 </div>
@@ -1322,7 +1337,8 @@ export default function AdminPage() {
                           {timeSlots.map(time => {
                             const isBreak = BREAK_SLOTS.includes(time);
                             const isExt = MORNING_EXT.includes(time) || EVENING_EXT.includes(time);
-                            return <th key={time} style={{ padding: "10px 8px", textAlign: "center", fontSize: 11, fontWeight: 700, color: isBreak ? "#e0a040" : isExt ? "#5a9e7a" : "#7a9a7a", minWidth: 70, borderLeft: "1px solid #f0ebe4", background: isBreak ? "#fdf5f0" : isExt ? "#f0f8f4" : "#f5f5f5" }}>{time}{isBreak && <div style={{ fontSize: 9, color: "#e0a040" }}>休憩</div>}{isExt && <div style={{ fontSize: 9, color: "#5a9e7a" }}>拡張</div>}</th>;
+                            const breakActive = isBreak && !isBreakReleased();
+                            return <th key={time} style={{ padding: "10px 8px", textAlign: "center", fontSize: 11, fontWeight: 700, color: breakActive ? "#e0a040" : isExt ? "#5a9e7a" : "#7a9a7a", minWidth: 70, borderLeft: "1px solid #f0ebe4", background: breakActive ? "#fdf5f0" : isExt ? "#f0f8f4" : "#f5f5f5" }}>{time}{breakActive && <div style={{ fontSize: 9, color: "#e0a040" }}>休憩</div>}{isExt && <div style={{ fontSize: 9, color: "#5a9e7a" }}>拡張</div>}</th>;
                           })}
                         </tr>
                       </thead>
@@ -1337,8 +1353,8 @@ export default function AdminPage() {
                               const onShift = isOnShift(s.id);
                               const isExt = MORNING_EXT.includes(time) || EVENING_EXT.includes(time);
                               return (
-                                <td key={time} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: isBreak ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", minWidth: 70 }}>
-                                  {isBreak ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
+                                <td key={time} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: (isBreak && !isBreakReleased()) ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", minWidth: 70 }}>
+                                  {isBreak && !isBreakReleased() ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
                                   : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
                                   : booking && booking.status !== "cancelled" ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "3px 6px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => setSelectedBooking(booking)}>{booking.customers?.name || "予約あり"}</div>
                                   : blocked ? <div onClick={() => toggleBlock(s.id, time)} style={{ background: "#f0ebe4", color: "#bbb", borderRadius: 6, padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>🔒</div>
