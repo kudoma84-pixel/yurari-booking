@@ -1234,6 +1234,47 @@ export default function AdminPage() {
                     )}
                   </div>
                 </div>
+                <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>🎫 金券</div>
+                  {checkoutBooking?.customer_id ? (
+                    <>
+                      {customerTickets.length > 0 && (
+                        <div style={{ marginBottom: 16 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", marginBottom: 8 }}>所持中の金券</div>
+                          {customerTickets.map(t => (
+                            <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "#f0f8f4", borderRadius: 10, marginBottom: 6 }}>
+                              <div>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: "#3a5a3a" }}>{t.ticket_name}</div>
+                                <div style={{ fontSize: 11, color: "#888" }}>残高 {formatPrice(t.remaining_value)} / 期限 {t.expires_at}</div>
+                              </div>
+                              <button onClick={() => useGiftTicket(t, t.remaining_value)} disabled={selectedTicket?.id === t.id} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: selectedTicket?.id === t.id ? "#aaa" : "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 11, fontWeight: 700, cursor: selectedTicket?.id === t.id ? "not-allowed" : "pointer" }}>
+                                {selectedTicket?.id === t.id ? `使用済 -${formatPrice(selectedTicket.use_amount)}` : "使用する"}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", marginBottom: 8 }}>金券を新規発行</div>
+                      {giftTicketTemplates.filter(t => t.is_active).length === 0 ? (
+                        <div style={{ color: "#aaa", fontSize: 12, textAlign: "center", padding: 12 }}>金券テンプレートがありません</div>
+                      ) : (
+                        giftTicketTemplates.filter(t => t.is_active).map(t => (
+                          <div key={t.id} onClick={() => issueGiftTicket(t)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "#f9f6f2", borderRadius: 10, marginBottom: 6, cursor: "pointer" }}>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{t.name}</div>
+                              <div style={{ fontSize: 11, color: "#aaa" }}>有効期限 {t.valid_days}日間</div>
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#5a9e7a" }}>{formatPrice(t.face_value)}</div>
+                          </div>
+                        ))
+                      )}
+                    </>
+                  ) : (
+                    <div style={{ color: "#aaa", fontSize: 12, textAlign: "center", padding: 12 }}>顧客情報がある予約のみ金券を利用できます</div>
+                  )}
+                </div>
+              </div>
+                </div>
               </div>
             )}
           </div>
