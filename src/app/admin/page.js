@@ -43,7 +43,7 @@ export default function AdminPage() {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(new Date());
   const [blocks, setBlocks] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [extensions, setExtensions] = useState([]);
@@ -340,6 +340,7 @@ export default function AdminPage() {
     if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchProducts(); fetchCourseMenus(); fetchGiftTicketTemplates(); }
     if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); fetchStoreSettings(); fetchGiftTicketTemplates(); }
     if (loggedIn && tab === "calendar") { fetchStaffMembers(); }
+    if (loggedIn && tab === "bookings") { fetchBookings(selectedDate || new Date()); }
   }, [loggedIn, tab]);
 
   useEffect(() => {
@@ -1476,7 +1477,7 @@ export default function AdminPage() {
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 16 }}>予約一覧 - {currentStore.name}</h2>
             <div style={{ marginBottom: 16 }}>
-              <input type="date" value={selectedDate ? formatDate(selectedDate) : ""} onChange={e => { const d = new Date(e.target.value + "T00:00:00"); setSelectedDate(d); fetchBookings(d); }} style={{ padding: "10px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: "#3a5a3a" }} />
+              <input type="date" value={selectedDate ? formatDate(selectedDate) : formatDate(new Date())} onChange={e => { const d = new Date(e.target.value + "T00:00:00"); setSelectedDate(d); fetchBookings(d); }} style={{ padding: "10px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: "#3a5a3a" }} />
             </div>
             {loading ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div> : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
