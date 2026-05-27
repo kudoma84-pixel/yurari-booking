@@ -131,25 +131,6 @@ export default function App() {
     setError("全ての項目を入力してください");
     return;
   }
-  if (notificationMethod === "email" && !profile.email) {
-    setError("メール登録の場合、メールアドレスは必須です");
-    return;
-  }
-  setScreen("booking");
-  setError("");
-};
-  if (!profile.name || !profile.kana || !profile.tel || !profile.email || !profile.address || !profile.birthday) {
-    setError("全ての項目を入力してください");
-    return;
-  }
-  setScreen("booking");
-  setError("");
-};
-  }
-  if (notificationMethod === "sms" && !profile.tel) {
-    setError("SMS登録の場合、携帯番号は必須です");
-    return;
-  }
   setScreen("booking");
   setError("");
 };
