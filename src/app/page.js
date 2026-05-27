@@ -367,11 +367,10 @@ export default function App() {
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {[
               { label: "お名前", key: "name", placeholder: "山田 花子", required: true },
-              { label: "フリガナ", key: "kana", placeholder: "ヤマダ ハナコ", required: true },
-              { label: "携帯番号", key: "tel", placeholder: "090-0000-0000", required: true, type: "tel" },
-              { label: "メールアドレス", key: "email", placeholder: "example@email.com", type: "email" },
-              { label: "住所", key: "address", placeholder: "さいたま市南区○○○" },
-              { label: "生年月日", key: "birthday", placeholder: "1980-01-01", type: "date" },
+{ label: "フリガナ", key: "kana", placeholder: "ヤマダ ハナコ", required: true },
+{ label: "携帯番号", key: "tel", placeholder: "090-0000-0000", required: true, type: "tel" },
+{ label: "メールアドレス", key: "email", placeholder: "example@email.com", required: true, type: "email" },
+{ label: "生年月日", key: "birthday", placeholder: "1980-01-01", required: true, type: "date" },
             ].map(f => (
               <div key={f.key}>
                 <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>
