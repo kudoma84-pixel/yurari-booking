@@ -314,9 +314,9 @@ export default function App() {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {[
-              { id: "line", icon: "💚", label: "LINEで予約する", desc: "LINEログインで簡単予約。確認・リマインドをLINEで受け取れます。", color: "#06C755" },
-              { id: "email", icon: "📧", label: "メールで予約する", desc: "メールアドレスで予約。確認・リマインドをメールで受け取れます。", color: GREEN },
-              { id: "sms", icon: "📱", label: "SMS（ショートメール）で予約する", desc: "携帯番号で予約。確認・リマインドをSMSで受け取れます。", color: ORANGE },
+              { id: "line", icon: "💚", label: "LINEで登録する", desc: "LINEログインで簡単登録。確認・リマインドをLINEで受け取れます。", color: "#06C755" },
+{ id: "email", icon: "📧", label: "メールで登録する", desc: "メールアドレスで登録。確認・リマインドをメールで受け取れます。", color: GREEN },
+{ id: "sms", icon: "📱", label: "SMS（ショートメール）で登録する", desc: "携帯番号で登録。確認・リマインドをSMSで受け取れます。", color: ORANGE },
             ].map(m => (
               <button key={m.id} onClick={() => handleAuthSelect(m.id)} style={{ display: "flex", alignItems: "center", gap: 16, padding: "20px 24px", borderRadius: 16, border: `2px solid ${m.color}20`, background: "white", cursor: "pointer", textAlign: "left", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", transition: "all 0.2s" }}>
                 <div style={{ fontSize: 36, flexShrink: 0 }}>{m.icon}</div>
