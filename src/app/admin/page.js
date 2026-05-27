@@ -202,6 +202,72 @@ export default function AdminPage() {
     const data = await res.json();
     if (data[0]) { setStoreSettings(data[0]); setLeadTime(data[0].same_day_lead_time); }
   };
+  const fetchGiftTicketTemplates = async () => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_ticket_templates?store_id=eq.${currentStore.id}&order=sort_order.asc`, { headers });
+    const data = await res.json();
+    setGiftTicketTemplates(Array.isArray(data) ? data : []);
+  };
+
+  const fetchCustomerTickets = async (customerId) => {
+    if (!customerId) return;
+    const today = formatDate(new Date());
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?customer_id=eq.${customerId}&status=eq.active&expires_at=gte.${today}&order=expires_at.asc`, { headers });
+    const data = await res.json();
+    setCustomerTickets(Array.isArray(data) ? data : []);
+  };
+
+  const issueGiftTicket = async (template) => {
+    if (!checkoutBooking?.customer_id) { alert("顧客情報がない場合は金券を発行できません"); return; }
+    const today = new Date();
+    const expires = new Date(today);
+    expires.setDate(expires.getDate() + (template.valid_days || 365));
+    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
+      method: "POST", headers,
+      body: JSON.stringify({
+        store_id: currentStore.id,
+        customer_id: checkoutBooking.customer_id,
+        ticket_name: template.name,
+        face_value: template.face_value,
+        remaining_value: template.face_value,
+        issued_at: formatDate(today),
+        expires_at: formatDate(expires),
+        status: "active",
+      }),
+    });
+    await fetchCustomerTickets(checkoutBooking?.customer_id);
+    const ticketItem = { type: "ticket_issue", name: `金券発行：${template.name}`, price: template.face_value, quantity: 1 };
+    setCheckoutItems(prev => [...prev, ticketItem]);
+  };
+
+  const useGiftTicket = async (ticket, useAmount) => {
+    const use = Math.min(useAmount, ticket.remaining_value, total);
+    if (use <= 0) return;
+    const newRemaining = ticket.remaining_value - use;
+    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${ticket.id}`, {
+      method: "PATCH", headers,
+      body: JSON.stringify({ remaining_value: newRemaining, status: newRemaining <= 0 ? "used" : "active" }),
+    });
+    setSelectedTicket({ ...ticket, use_amount: use });
+    setCheckoutDiscount(prev => prev + use);
+    setCustomerTickets(prev => prev.map(t => t.id === ticket.id ? { ...t, remaining_value: newRemaining } : t));
+  };
+
+  const saveGiftTicketTemplate = async () => {
+    if (!editingTicketTemplate?.name || !editingTicketTemplate?.face_value) return;
+    if (editingTicketTemplate.id) {
+      await fetch(`${SUPABASE_URL}/rest/v1/gift_ticket_templates?id=eq.${editingTicketTemplate.id}`, {
+        method: "PATCH", headers,
+        body: JSON.stringify({ name: editingTicketTemplate.name, face_value: parseInt(editingTicketTemplate.face_value), valid_days: parseInt(editingTicketTemplate.valid_days) || 365, is_active: editingTicketTemplate.is_active }),
+      });
+    } else {
+      await fetch(`${SUPABASE_URL}/rest/v1/gift_ticket_templates`, {
+        method: "POST", headers,
+        body: JSON.stringify({ store_id: currentStore.id, name: editingTicketTemplate.name, face_value: parseInt(editingTicketTemplate.face_value), valid_days: parseInt(editingTicketTemplate.valid_days) || 365, is_active: true, sort_order: giftTicketTemplates.length + 1 }),
+      });
+    }
+    await fetchGiftTicketTemplates();
+    setEditingTicketTemplate(null);
+  };
 
   const saveStoreSettings = async () => {
     await fetch(`${SUPABASE_URL}/rest/v1/store_settings?store_id=eq.${currentStore.id}`, {
