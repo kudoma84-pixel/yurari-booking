@@ -769,6 +769,7 @@ const saveStoreSettings = async () => {
                 { id: "staff", label: "👤 スタッフ管理" },
                 { id: "courses", label: "📋 メニュー管理" },
                 { id: "products", label: "🛍️ 物販商品管理" },
+                { id: "booking", label: "⏰ 予約設定" },
               ].map(t => (
                 <button key={t.id} onClick={() => setSettingsSubTab(t.id)} style={{ padding: "10px 20px", borderRadius: 10, border: `2px solid ${settingsSubTab === t.id ? "#5a9e7a" : "#e8ddd0"}`, background: settingsSubTab === t.id ? "#eaf5ec" : "white", color: settingsSubTab === t.id ? "#3a5a3a" : "#aaa", fontSize: 14, fontWeight: settingsSubTab === t.id ? 700 : 400, cursor: "pointer" }}>{t.label}</button>
               ))}
