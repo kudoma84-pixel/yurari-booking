@@ -48,7 +48,7 @@ const bookingSteps = ["店舗選択","コース選択","スタッフ・日時","
 
 export default function App() {
   const { data: session } = useSession();
-  const [screen, setScreen] = useState("top"); // top, auth, register, booking, complete
+  const [screen, setScreen] = useState("top");
   const [notificationMethod, setNotificationMethod] = useState(null);
   const [step, setStep] = useState(0);
   const [store, setStore] = useState(null);
@@ -56,7 +56,11 @@ export default function App() {
   const [staff, setStaff] = useState(null);
   const [date, setDate] = useState(null);
   const [time, setTime] = useState(null);
-  const [profile, setProfile] = useState({ name: "", kana: "", zipcode: "", address: "", tel: "", birthday: "", email: "", firstVisit: "初めて", notes: "" });
+  const [profile, setProfile] = useState({
+    name: "", kana: "", zipcode: "", address: "", tel: "",
+    birthYear: "", birthMonth: "", birthDay: "", birthday: "",
+    email: "", firstVisit: "初めて", notes: ""
+  });
   const [bookingNum, setBookingNum] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -75,7 +79,6 @@ export default function App() {
 
   useEffect(() => { fetchCourses(); }, []);
   useEffect(() => { if (store) fetchStaff(store.id); }, [store]);
-
   useEffect(() => {
     if (session && notificationMethod === "line") {
       checkExistingCustomer();
@@ -101,14 +104,11 @@ export default function App() {
     if (data && data.length > 0) {
       setExistingCustomer(data[0]);
       setProfile({
-        name: data[0].name || "",
-        kana: data[0].kana || "",
-        address: data[0].address || "",
-        tel: data[0].tel || "",
-        birthday: data[0].birthday || "",
-        email: data[0].email || "",
-        firstVisit: "2回目以降",
-        notes: "",
+        name: data[0].name || "", kana: data[0].kana || "",
+        zipcode: data[0].zipcode || "", address: data[0].address || "",
+        tel: data[0].tel || "", email: data[0].email || "",
+        birthYear: "", birthMonth: "", birthDay: "",
+        birthday: data[0].birthday || "", firstVisit: "2回目以降", notes: "",
       });
       setScreen("booking");
     } else {
@@ -126,14 +126,14 @@ export default function App() {
     }
   };
 
-  const handleRegisterSubmit = async () => {
-  if (!profile.name || !profile.kana || !profile.tel || !profile.email || !profile.address || !profile.zipcode || !profile.birthday) {
-    setError("全ての項目を入力してください");
-    return;
-  }
-  setScreen("booking");
-  setError("");
-};
+  const handleRegisterSubmit = () => {
+    if (!profile.name || !profile.kana || !profile.tel || !profile.email || !profile.address || !profile.zipcode || !profile.birthday) {
+      setError("全ての項目を入力してください");
+      return;
+    }
+    setScreen("booking");
+    setError("");
+  };
 
   const canNext = () => {
     if (step === 0) return !!store;
@@ -159,6 +159,7 @@ export default function App() {
             body: JSON.stringify({
               name: profile.name, kana: profile.kana, tel: profile.tel,
               email: profile.email, address: profile.address,
+              zipcode: profile.zipcode,
               birthday: profile.birthday || null,
               points: 0,
               line_user_id: session?.lineUserId || null,
@@ -193,8 +194,15 @@ export default function App() {
     setScreen("top"); setNotificationMethod(null); setStep(0);
     setStore(null); setCourse(null); setStaff(null);
     setDate(null); setTime(null);
-    setProfile({ name: "", kana: "", zipcode: "", address: "", tel: "", birthday: "", email: "", firstVisit: "初めて", notes: "" });
+    setProfile({ name: "", kana: "", zipcode: "", address: "", tel: "", birthYear: "", birthMonth: "", birthDay: "", birthday: "", email: "", firstVisit: "初めて", notes: "" });
     setBookingNum(""); setError(""); setExistingCustomer(null);
+  };
+
+  const updateBirthday = (year, month, day) => {
+    if (year && month && day) {
+      return `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+    }
+    return "";
   };
 
   const Header = ({ showBack }) => (
@@ -212,7 +220,6 @@ export default function App() {
     </div>
   );
 
-  // トップページ
   if (screen === "top") {
     return (
       <div style={{ fontFamily: "'Noto Sans JP', sans-serif", background: CREAM, minHeight: "100vh" }}>
@@ -301,7 +308,6 @@ export default function App() {
     );
   }
 
-  // 認証・通知方法選択
   if (screen === "auth") {
     return (
       <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
@@ -309,16 +315,16 @@ export default function App() {
         <div style={{ maxWidth: 480, margin: "0 auto", padding: "40px 20px" }}>
           <div style={{ textAlign: "center", marginBottom: 32 }}>
             <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 8 }}>STEP 0</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: GREEN, marginBottom: 8 }}>ご予約方法を選んでください</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: GREEN, marginBottom: 8 }}>ご登録方法を選んでください</div>
             <div style={{ fontSize: 13, color: "#888" }}>予約確認・リマインドの受け取り方法を選んでください</div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {[
               { id: "line", icon: "💚", label: "LINEで登録する", desc: "LINEログインで簡単登録。確認・リマインドをLINEで受け取れます。", color: "#06C755" },
-{ id: "email", icon: "📧", label: "メールで登録する", desc: "メールアドレスで登録。確認・リマインドをメールで受け取れます。", color: GREEN },
-{ id: "sms", icon: "📱", label: "SMS（ショートメール）で登録する", desc: "携帯番号で登録。確認・リマインドをSMSで受け取れます。", color: ORANGE },
+              { id: "email", icon: "📧", label: "メールで登録する", desc: "メールアドレスで登録。確認・リマインドをメールで受け取れます。", color: GREEN },
+              { id: "sms", icon: "📱", label: "SMS（ショートメール）で登録する", desc: "携帯番号で登録。確認・リマインドをSMSで受け取れます。", color: ORANGE },
             ].map(m => (
-              <button key={m.id} onClick={() => handleAuthSelect(m.id)} style={{ display: "flex", alignItems: "center", gap: 16, padding: "20px 24px", borderRadius: 16, border: `2px solid ${m.color}20`, background: "white", cursor: "pointer", textAlign: "left", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", transition: "all 0.2s" }}>
+              <button key={m.id} onClick={() => handleAuthSelect(m.id)} style={{ display: "flex", alignItems: "center", gap: 16, padding: "20px 24px", borderRadius: 16, border: `2px solid ${m.color}30`, background: "white", cursor: "pointer", textAlign: "left", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 36, flexShrink: 0 }}>{m.icon}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 15, fontWeight: 700, color: m.color, marginBottom: 4 }}>{m.label}</div>
@@ -333,7 +339,6 @@ export default function App() {
     );
   }
 
-  // 個人情報入力
   if (screen === "register") {
     return (
       <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
@@ -346,83 +351,96 @@ export default function App() {
           </div>
           {error && <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#cc4444" }}>{error}</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {[
-              { label: "お名前", key: "name", placeholder: "山田 花子", required: true },
-{ label: "フリガナ", key: "kana", placeholder: "ヤマダ ハナコ", required: true },
-{ label: "携帯番号", key: "tel", placeholder: "090-0000-0000", required: true, type: "tel" },
-{ label: "メールアドレス", key: "email", placeholder: "example@email.com", required: true, type: "email" },
-]}
-    {/* 生年月日 */}
-    <div>
-      <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>生年月日 <span style={{ color: ORANGE }}>*</span></label>
-      <div style={{ display: "flex", gap: 8 }}>
-        <select value={profile.birthYear || ""} onChange={e => setProfile({ ...profile, birthYear: e.target.value, birthday: `${e.target.value}-${String(profile.birthMonth || "").padStart(2,"0")}-${String(profile.birthDay || "").padStart(2,"0")}` })} style={{ flex: 2, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
-          <option value="">年</option>
-          {Array.from({ length: 80 }, (_, i) => new Date().getFullYear() - 10 - i).map(y => <option key={y} value={y}>{y}年</option>)}
-        </select>
-        <select value={profile.birthMonth || ""} onChange={e => setProfile({ ...profile, birthMonth: e.target.value, birthday: `${profile.birthYear || ""}-${String(e.target.value).padStart(2,"0")}-${String(profile.birthDay || "").padStart(2,"0")}` })} style={{ flex: 1, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
-          <option value="">月</option>
-          {Array.from({ length: 12 }, (_, i) => i + 1).map(m => <option key={m} value={m}>{m}月</option>)}
-        </select>
-        <select value={profile.birthDay || ""} onChange={e => setProfile({ ...profile, birthDay: e.target.value, birthday: `${profile.birthYear || ""}-${String(profile.birthMonth || "").padStart(2,"0")}-${String(e.target.value).padStart(2,"0")}` })} style={{ flex: 1, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
-          <option value="">日</option>
-          {Array.from({ length: 31 }, (_, i) => i + 1).map(d => <option key={d} value={d}>{d}日</option>)}
-        </select>
-      </div>
-    </div>
-    {[
-            ].map(f => (
-              <div key={f.key}>
-                <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>
-                  {f.label} {f.required && <span style={{ color: ORANGE }}>*</span>}
-                </label>
-                <input
-                  type={f.type || "text"}
-                  value={profile[f.key]}
-                  onChange={e => setProfile({ ...profile, [f.key]: e.target.value })}
-                  placeholder={f.placeholder}
-                  style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
-                  onFocus={e => e.target.style.borderColor = GREEN}
-                  onBlur={e => e.target.style.borderColor = "#e8ddd0"}
-                />
+
+            {/* お名前 */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>お名前 <span style={{ color: ORANGE }}>*</span></label>
+              <input type="text" value={profile.name} onChange={e => setProfile({ ...profile, name: e.target.value })} placeholder="山田 花子"
+                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
+                onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
+            </div>
+
+            {/* フリガナ */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>フリガナ <span style={{ color: ORANGE }}>*</span></label>
+              <input type="text" value={profile.kana} onChange={e => setProfile({ ...profile, kana: e.target.value })} placeholder="ヤマダ ハナコ"
+                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
+                onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
+            </div>
+
+            {/* 携帯番号 */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>携帯番号 <span style={{ color: ORANGE }}>*</span></label>
+              <input type="tel" value={profile.tel} onChange={e => setProfile({ ...profile, tel: e.target.value })} placeholder="090-0000-0000"
+                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
+                onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
+            </div>
+
+            {/* メールアドレス */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>メールアドレス <span style={{ color: ORANGE }}>*</span></label>
+              <input type="email" value={profile.email} onChange={e => setProfile({ ...profile, email: e.target.value })} placeholder="example@email.com"
+                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
+                onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
+            </div>
+
+            {/* 郵便番号 */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>郵便番号 <span style={{ color: ORANGE }}>*</span></label>
+              <input type="text" value={profile.zipcode} maxLength={7} placeholder="1234567（ハイフンなし）"
+                onChange={async (e) => {
+                  const zip = e.target.value.replace(/[^0-9]/g, "");
+                  setProfile({ ...profile, zipcode: zip });
+                  if (zip.length === 7) {
+                    const res = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${zip}`);
+                    const data = await res.json();
+                    if (data.results) {
+                      const r = data.results[0];
+                      setProfile(p => ({ ...p, zipcode: zip, address: `${r.address1}${r.address2}${r.address3}` }));
+                    }
+                  }
+                }}
+                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
+                onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
+            </div>
+
+            {/* 住所 */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>住所 <span style={{ color: ORANGE }}>*</span></label>
+              <input type="text" value={profile.address} onChange={e => setProfile({ ...profile, address: e.target.value })} placeholder="自動入力されます（番地・部屋番号を追加してください）"
+                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
+                onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
+            </div>
+
+            {/* 生年月日 */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>生年月日 <span style={{ color: ORANGE }}>*</span></label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <select value={profile.birthYear} onChange={e => {
+                  const y = e.target.value;
+                  setProfile({ ...profile, birthYear: y, birthday: updateBirthday(y, profile.birthMonth, profile.birthDay) });
+                }} style={{ flex: 2, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
+                  <option value="">年</option>
+                  {Array.from({ length: 80 }, (_, i) => new Date().getFullYear() - 10 - i).map(y => <option key={y} value={y}>{y}年</option>)}
+                </select>
+                <select value={profile.birthMonth} onChange={e => {
+                  const m = e.target.value;
+                  setProfile({ ...profile, birthMonth: m, birthday: updateBirthday(profile.birthYear, m, profile.birthDay) });
+                }} style={{ flex: 1, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
+                  <option value="">月</option>
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map(m => <option key={m} value={m}>{m}月</option>)}
+                </select>
+                <select value={profile.birthDay} onChange={e => {
+                  const d = e.target.value;
+                  setProfile({ ...profile, birthDay: d, birthday: updateBirthday(profile.birthYear, profile.birthMonth, d) });
+                }} style={{ flex: 1, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
+                  <option value="">日</option>
+                  {Array.from({ length: 31 }, (_, i) => i + 1).map(d => <option key={d} value={d}>{d}日</option>)}
+                </select>
               </div>
-            ))}
-              <div>
-          <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>郵便番号 <span style={{ color: ORANGE }}>*</span></label>
-          <input
-            type="text"
-            value={profile.zipcode}
-            onChange={async (e) => {
-              const zip = e.target.value.replace(/[^0-9]/g, "");
-              setProfile({ ...profile, zipcode: zip });
-              if (zip.length === 7) {
-                const res = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${zip}`);
-                const data = await res.json();
-                if (data.results) {
-                  const r = data.results[0];
-                  setProfile(p => ({ ...p, zipcode: zip, address: `${r.address1}${r.address2}${r.address3}` }));
-                }
-              }
-            }}
-            placeholder="1234567（ハイフンなし）"
-            maxLength={7}
-            style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
-            onFocus={e => e.target.style.borderColor = GREEN}
-            onBlur={e => e.target.style.borderColor = "#e8ddd0"}
-          />
-        </div>
-        <div>
-          <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>住所 <span style={{ color: ORANGE }}>*</span></label>
-          <input
-            type="text"
-            value={profile.address}
-            onChange={e => setProfile({ ...profile, address: e.target.value })}
-            placeholder="自動入力されます（番地・部屋番号を追加してください）"
-            style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
-            onFocus={e => e.target.style.borderColor = GREEN}
-            onBlur={e => e.target.style.borderColor = "#e8ddd0"}
-          />
-        </div>
+            </div>
+
+            {/* ご来院歴 */}
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>ご来院歴</label>
               <div style={{ display: "flex", gap: 10 }}>
@@ -431,12 +449,15 @@ export default function App() {
                 ))}
               </div>
             </div>
+
+            {/* お悩み・ご要望 */}
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>お悩み・ご要望（任意）</label>
               <textarea value={profile.notes} onChange={e => setProfile({ ...profile, notes: e.target.value })} placeholder="肩こりがひどく、特に右肩が気になります..." rows={3}
                 style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white", boxSizing: "border-box", outline: "none", resize: "none", fontFamily: "inherit" }}
                 onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
             </div>
+
           </div>
         </div>
         <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(12px)", borderTop: `3px solid ${GREEN}20`, padding: "12px 16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom))" }}>
@@ -450,7 +471,6 @@ export default function App() {
     );
   }
 
-  // 予約完了
   if (screen === "complete") {
     return (
       <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
@@ -489,7 +509,6 @@ export default function App() {
     );
   }
 
-  // 予約フォーム
   return (
     <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
       <Header showBack={true} />
@@ -644,7 +663,7 @@ export default function App() {
               キャンセル・変更は前日17時まで承ります。
             </div>
             {error && <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#cc4444" }}>{error}</div>}
-            <button onClick={handleSubmit} disabled={loading} style={{ width: "100%", padding: "18px", borderRadius: 14, border: "none", cursor: loading ? "not-allowed" : "pointer", background: loading ? "#aaa" : GREEN, color: "white", fontSize: 16, fontWeight: 700, boxShadow: `0 4px 20px ${GREEN}50` }}>
+            <button onClick={handleSubmit} disabled={loading} style={{ width: "100%", padding: "18px", borderRadius: 14, border: "none", cursor: loading ? "not-allowed" : "pointer", background: loading ? "#aaa" : GREEN, color: "white", fontSize: 16, fontWeight: 700 }}>
               {loading ? "送信中..." : "✓ この内容で予約を確定する"}
             </button>
           </div>
@@ -654,7 +673,7 @@ export default function App() {
           <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", gap: 12 }}>
             {step > 0 && <button onClick={() => setStep(step - 1)} style={{ flex: 1, padding: "14px", borderRadius: 14, border: `2px solid ${GREEN}40`, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>← 戻る</button>}
             {step < 3 && <button onClick={() => canNext() && setStep(step + 1)} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: canNext() ? GREEN : "#e8ddd0", color: canNext() ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: canNext() ? "pointer" : "not-allowed" }}>次へ →</button>}
-            {step === 3 && <button onClick={handleSubmit} disabled={loading} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: canNext() ? ORANGE : "#e8ddd0", color: canNext() ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: canNext() ? "pointer" : "not-allowed" }}>予約を確定する ✓</button>}
+            {step === 3 && <button onClick={handleSubmit} disabled={loading} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: ORANGE, color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>予約を確定する ✓</button>}
           </div>
         </div>
       </div>
