@@ -268,8 +268,7 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
-    useEffect(() => {
-  if (loggedIn && tab === "customers") fetchCustomers();
+   if (loggedIn && tab === "customers") fetchCustomers();
   if (loggedIn && tab === "shifts") { fetchMonthShifts(); fetchShiftPlans(); fetchStaffMembers(); }
   if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchProducts(); fetchCourseMenus(); }
   if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); fetchStoreSettings(); }
