@@ -352,6 +352,9 @@ export default function AdminPage() {
     setCheckoutNote("");
     setCheckoutComplete(false);
     setCheckoutResult(null);
+    setSelectedTicket(null);
+    setCustomerTickets([]);
+    if (booking.customer_id) fetchCustomerTickets(booking.customer_id);
   };
 
   const addProduct = (product) => {
