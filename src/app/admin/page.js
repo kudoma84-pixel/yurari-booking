@@ -76,8 +76,8 @@ export default function AdminPage() {
   const [editingCourse, setEditingCourse] = useState(null);
   const [editingProduct, setEditingProduct] = useState(null);
   const [storeSettings, setStoreSettings] = useState(null);
-const [editingSettings, setEditingSettings] = useState(false);
-const [leadTime, setLeadTime] = useState(60);
+  const [editingSettings, setEditingSettings] = useState(false);
+  const [leadTime, setLeadTime] = useState(60);
   const popoverRef = useRef(null);
 
   const headers = {
@@ -180,29 +180,25 @@ const [leadTime, setLeadTime] = useState(60);
     setStaffMembers(Array.isArray(data) ? data : []);
   };
 
- const fetchCourseMenus = async () => {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/course_menus?order=sort_order.asc`, { headers });
-  const data = await res.json();
-  setCourseMenus(Array.isArray(data) ? data : []);
-};
-
-const fetchStoreSettings = async () => {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/store_settings?store_id=eq.${currentStore.id}`, { headers });
-  const data = await res.json();
-  if (data[0]) { setStoreSettings(data[0]); setLeadTime(data[0].same_day_lead_time); }
-};
-
-const saveStoreSettings = async () => {
-  await fetch(`${SUPABASE_URL}/rest/v1/store_settings?store_id=eq.${currentStore.id}`, {
-    method: "PATCH", headers,
-    body: JSON.stringify({ same_day_lead_time: leadTime, updated_at: new Date().toISOString() }),
-  });
-  await fetchStoreSettings();
-  setEditingSettings(false);
-};
+  const fetchCourseMenus = async () => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/course_menus?order=sort_order.asc`, { headers });
     const data = await res.json();
     setCourseMenus(Array.isArray(data) ? data : []);
+  };
+
+  const fetchStoreSettings = async () => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/store_settings?store_id=eq.${currentStore.id}`, { headers });
+    const data = await res.json();
+    if (data[0]) { setStoreSettings(data[0]); setLeadTime(data[0].same_day_lead_time); }
+  };
+
+  const saveStoreSettings = async () => {
+    await fetch(`${SUPABASE_URL}/rest/v1/store_settings?store_id=eq.${currentStore.id}`, {
+      method: "PATCH", headers,
+      body: JSON.stringify({ same_day_lead_time: leadTime, updated_at: new Date().toISOString() }),
+    });
+    await fetchStoreSettings();
+    setEditingSettings(false);
   };
 
   const fetchAll = async (date) => {
@@ -865,9 +861,8 @@ const saveStoreSettings = async () => {
                 </div>
               </div>
             )}
-          </div>
-        )}
-{settingsSubTab === "booking" && (
+
+            {settingsSubTab === "booking" && (
               <div style={{ maxWidth: 480 }}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a", marginBottom: 20 }}>予約設定 - {currentStore.name}</div>
                 <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
