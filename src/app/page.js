@@ -54,7 +54,7 @@ export default function App() {
   const [staff, setStaff] = useState(null);
   const [date, setDate] = useState(null);
   const [time, setTime] = useState(null);
-  const [form, setForm] = useState({ name: "", kana: "", tel: "", email: "", firstVisit: "初めて", notes: "" });
+  const [form, setForm] = useState({ name: "", kana: "", tel: "", email: "", firstVisit: "初めて", notes: "", notificationMethod: "line" });
   const [submitted, setSubmitted] = useState(false);
   const [bookingNum, setBookingNum] = useState("");
   const [loading, setLoading] = useState(false);
@@ -136,7 +136,7 @@ export default function App() {
   const reset = () => {
     setStep(-1); setStore(null); setCourse(null); setStaff(null);
     setDate(null); setTime(null);
-    setForm({ name: "", kana: "", tel: "", email: "", firstVisit: "初めて", notes: "" });
+    setForm({ name: "", kana: "", tel: "", email: "", firstVisit: "初めて", notes: "", notificationMethod: "line" });
     setSubmitted(false); setBookingNum(""); setError("");
   };
 
@@ -445,6 +445,25 @@ export default function App() {
                   ))}
                 </div>
               </div>
+                  <div>
+  <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>通知方法 <span style={{ color: ORANGE }}>*</span></label>
+  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    {[
+      { id: "line", label: "LINE", desc: "LINEで予約確認・リマインドを受け取る", icon: "💚" },
+      { id: "email", label: "メール", desc: "メールで予約確認・リマインドを受け取る", icon: "📧" },
+      { id: "sms", label: "SMS（ショートメール）", desc: "携帯電話のショートメールで受け取る", icon: "📱" },
+    ].map(n => (
+      <div key={n.id} onClick={() => setForm({ ...form, notificationMethod: n.id })} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderRadius: 12, border: `2px solid ${form.notificationMethod === n.id ? GREEN : "#e8ddd0"}`, background: form.notificationMethod === n.id ? `${GREEN}10` : "white", cursor: "pointer" }}>
+        <div style={{ fontSize: 24 }}>{n.icon}</div>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: GREEN }}>{n.label}</div>
+          <div style={{ fontSize: 11, color: "#888" }}>{n.desc}</div>
+        </div>
+        {form.notificationMethod === n.id && <div style={{ marginLeft: "auto", color: GREEN, fontSize: 18 }}>✓</div>}
+      </div>
+    ))}
+  </div>
+</div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>お悩み・ご要望（任意）</label>
                 <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="肩こりがひどく、特に右肩が気になります..." rows={3}
