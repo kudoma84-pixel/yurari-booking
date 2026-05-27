@@ -1075,6 +1075,29 @@ export default function AdminPage() {
           </div>
         )}
 
+{settingsSubTab === "tickets" && (
+  <div>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+      <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>金券テンプレート一覧</div>
+      <button onClick={() => setEditingTicketTemplate({ valid_days: 365 })} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>＋ 金券追加</button>
+    </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {giftTicketTemplates.length === 0 && <div style={{ textAlign: "center", padding: 40, background: "white", borderRadius: 16, color: "#aaa" }}>金券テンプレートがありません</div>}
+      {giftTicketTemplates.map(t => (
+        <div key={t.id} style={{ background: "white", borderRadius: 14, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a" }}>🎫 {t.name}</div>
+            <div style={{ fontSize: 12, color: "#888" }}>¥{t.face_value?.toLocaleString()} / 有効期限 {t.valid_days}日間</div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setEditingTicketTemplate(t)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, cursor: "pointer" }}>編集</button>
+            <button onClick={async () => { await fetch(`${SUPABASE_URL}/rest/v1/gift_ticket_templates?id=eq.${t.id}`, { method: "DELETE", headers }); fetchGiftTicketTemplates(); }} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #ffcccc", background: "white", color: "#e07070", fontSize: 12, cursor: "pointer" }}>削除</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
         {tab === "checkout" && (
           <div>
             {!checkoutBooking ? (
