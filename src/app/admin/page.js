@@ -78,6 +78,10 @@ export default function AdminPage() {
   const [storeSettings, setStoreSettings] = useState(null);
   const [editingSettings, setEditingSettings] = useState(false);
   const [leadTime, setLeadTime] = useState(60);
+  const [giftTicketTemplates, setGiftTicketTemplates] = useState([]);
+  const [customerTickets, setCustomerTickets] = useState([]);
+  const [editingTicketTemplate, setEditingTicketTemplate] = useState(null);
+  const [selectedTicket, setSelectedTicket] = useState(null);
 
   // ★ 直接予約入力用 state
   const [directBookingModal, setDirectBookingModal] = useState(null);
