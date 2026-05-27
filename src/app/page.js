@@ -67,6 +67,7 @@ export default function App() {
   const [courses, setCourses] = useState([]);
   const [staffList, setStaffList] = useState([]);
   const [existingCustomer, setExistingCustomer] = useState(null);
+  const [sameDayLeadTime, setSameDayLeadTime] = useState(60);
 
   const dates = generateDates();
 
@@ -78,7 +79,9 @@ export default function App() {
   };
 
   useEffect(() => { fetchCourses(); }, []);
-  useEffect(() => { if (store) fetchStaff(store.id); }, [store]);
+  useEffect(() => {
+  if (store) { fetchStaff(store.id); fetchStoreSettings(store.id); }
+}, [store]);
   useEffect(() => {
     if (session && notificationMethod === "line") {
       checkExistingCustomer();
@@ -91,6 +94,11 @@ export default function App() {
     setCourses(Array.isArray(data) ? data : []);
   };
 
+  const fetchStoreSettings = async (storeId) => {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/store_settings?store_id=eq.${storeId}`, { headers });
+  const data = await res.json();
+  if (data[0]) setSameDayLeadTime(data[0].same_day_lead_time);
+};
   const fetchStaff = async (storeId) => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/staff_members?store_id=eq.${storeId}&is_active=eq.true&order=sort_order.asc`, { headers });
     const data = await res.json();
@@ -623,6 +631,21 @@ export default function App() {
                 <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: `2px solid ${GREEN}20` }}>ご希望時間</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {TIME_SLOTS.map(t => {
+  const isSelected = time === t;
+  const isToday = date && formatDate(date) === formatDate(new Date());
+  const isPast = isToday && (() => {
+    const now = new Date();
+    const [h, m] = t.split(":").map(Number);
+    const slotTime = new Date();
+    slotTime.setHours(h, m, 0, 0);
+    return slotTime.getTime() - now.getTime() < sameDayLeadTime * 60 * 1000;
+  })();
+  return (
+    <div key={t} onClick={() => !isPast && setTime(t)} style={{ background: isSelected ? GREEN : isPast ? "#f0f0f0" : "white", border: `2px solid ${isSelected ? GREEN : isPast ? "#ddd" : "#e8ddd0"}`, borderRadius: 10, padding: "8px 14px", cursor: isPast ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, color: isSelected ? "white" : isPast ? "#bbb" : DARK }}>
+      {t}
+    </div>
+  );
+})}
                     const isSelected = time === t;
                     return (
                       <div key={t} onClick={() => setTime(t)} style={{ background: isSelected ? GREEN : "white", border: `2px solid ${isSelected ? GREEN : "#e8ddd0"}`, borderRadius: 10, padding: "8px 14px", cursor: "pointer", fontSize: 13, fontWeight: 600, color: isSelected ? "white" : DARK }}>
