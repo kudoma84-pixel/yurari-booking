@@ -56,7 +56,7 @@ export default function App() {
   const [staff, setStaff] = useState(null);
   const [date, setDate] = useState(null);
   const [time, setTime] = useState(null);
-  const [profile, setProfile] = useState({ name: "", kana: "", address: "", tel: "", birthday: "", email: "", firstVisit: "初めて", notes: "" });
+  const [profile, setProfile] = useState({ name: "", kana: "", zipcode: "", address: "", tel: "", birthday: "", email: "", firstVisit: "初めて", notes: "" });
   const [bookingNum, setBookingNum] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
