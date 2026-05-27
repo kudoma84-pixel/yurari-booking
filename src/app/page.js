@@ -81,8 +81,8 @@ export default function App() {
   useEffect(() => { fetchCourses(); }, []);
   useEffect(() => {
     useEffect(() => { if (store) { fetchStaff(store.id); fetchStoreSettings(store.id); } }, [store]);
-      }, [store]);
   useEffect(() => {
+    if (session && notificationMethod === "line") {
     if (session && notificationMethod === "line") {
       checkExistingCustomer();
     }
