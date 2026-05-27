@@ -127,13 +127,21 @@ export default function App() {
   };
 
   const handleRegisterSubmit = async () => {
-    if (!profile.name || !profile.kana || !profile.tel) {
-      setError("氏名・フリガナ・携帯番号は必須です");
-      return;
-    }
-    setScreen("booking");
-    setError("");
-  };
+  if (!profile.name || !profile.kana || !profile.tel) {
+    setError("氏名・フリガナ・携帯番号は必須です");
+    return;
+  }
+  if (notificationMethod === "email" && !profile.email) {
+    setError("メール登録の場合、メールアドレスは必須です");
+    return;
+  }
+  if (notificationMethod === "sms" && !profile.tel) {
+    setError("SMS登録の場合、携帯番号は必須です");
+    return;
+  }
+  setScreen("booking");
+  setError("");
+};
 
   const canNext = () => {
     if (step === 0) return !!store;
