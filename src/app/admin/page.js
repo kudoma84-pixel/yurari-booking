@@ -268,11 +268,13 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
-    if (loggedIn && tab === "customers") fetchCustomers();
-    if (loggedIn && tab === "shifts") { fetchMonthShifts(); fetchShiftPlans(); }
-    if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchProducts(); fetchCourseMenus(); }
-    if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); fetchStoreSettings(); }
-  }, [loggedIn, tab]);
+    useEffect(() => {
+  if (loggedIn && tab === "customers") fetchCustomers();
+  if (loggedIn && tab === "shifts") { fetchMonthShifts(); fetchShiftPlans(); fetchStaffMembers(); }
+  if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchProducts(); fetchCourseMenus(); }
+  if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); fetchStoreSettings(); }
+  if (loggedIn && tab === "calendar") { fetchStaffMembers(); }
+}, [loggedIn, tab]);
 
   useEffect(() => {
     if (loggedIn && selectedDate) fetchAll(selectedDate);
