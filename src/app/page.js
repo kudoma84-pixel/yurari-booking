@@ -212,7 +212,7 @@ export default function App() {
     setScreen("top"); setNotificationMethod(null); setStep(0);
     setStore(null); setCourse(null); setStaff(null);
     setDate(null); setTime(null);
-    setProfile({ name: "", kana: "", address: "", tel: "", birthday: "", email: "", firstVisit: "初めて", notes: "" });
+    setProfile({ name: "", kana: "", zipcode: "", address: "", tel: "", birthday: "", email: "", firstVisit: "初めて", notes: "" });
     setBookingNum(""); setError(""); setExistingCustomer(null);
   };
 
