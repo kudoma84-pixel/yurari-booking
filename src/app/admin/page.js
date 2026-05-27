@@ -577,15 +577,23 @@ export default function AdminPage() {
     return slots;
   };
 
-  const isBreakReleased = () => (extensions[0]?.break_released || false);
+  const isSlotBreakReleased = (time) => {
+    const ext = extensions[0] || {};
+    if (time === "13:30") return ext.break_released_1330 || false;
+    if (time === "14:00") return ext.break_released_1400 || false;
+    if (time === "14:30") return ext.break_released_1430 || false;
+    return false;
+  };
 
-  const toggleBreakRelease = async () => {
+  const toggleBreakSlot = async (time) => {
     const d = formatDate(selectedDate);
     const ext = extensions[0];
+    const field = time === "13:30" ? "break_released_1330" : time === "14:00" ? "break_released_1400" : "break_released_1430";
+    const currentVal = ext?.[field] || false;
     if (ext) {
-      await fetch(`${SUPABASE_URL}/rest/v1/time_extensions?id=eq.${ext.id}`, { method: "PATCH", headers, body: JSON.stringify({ break_released: !ext.break_released }) });
+      await fetch(`${SUPABASE_URL}/rest/v1/time_extensions?id=eq.${ext.id}`, { method: "PATCH", headers, body: JSON.stringify({ [field]: !currentVal }) });
     } else {
-      await fetch(`${SUPABASE_URL}/rest/v1/time_extensions`, { method: "POST", headers, body: JSON.stringify({ store_id: currentStore.id, extension_date: d, break_released: true }) });
+      await fetch(`${SUPABASE_URL}/rest/v1/time_extensions`, { method: "POST", headers, body: JSON.stringify({ store_id: currentStore.id, extension_date: d, [field]: true }) });
     }
     fetchExtensions(selectedDate);
   };
@@ -1324,7 +1332,9 @@ export default function AdminPage() {
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <button onClick={() => toggleExtension("morning_extended")} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${ext.morning_extended ? "#5a9e7a" : "#e8ddd0"}`, background: ext.morning_extended ? "#eaf5ec" : "white", color: ext.morning_extended ? "#3a5a3a" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{ext.morning_extended ? "✓" : ""} 早朝拡張(9:00〜)</button>
                       <button onClick={() => toggleExtension("evening_extended")} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${ext.evening_extended ? "#5a9e7a" : "#e8ddd0"}`, background: ext.evening_extended ? "#eaf5ec" : "white", color: ext.evening_extended ? "#3a5a3a" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{ext.evening_extended ? "✓" : ""} 夜間拡張(〜20:30)</button>
-                      <button onClick={toggleBreakRelease} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${ext.break_released ? "#e0a040" : "#e8ddd0"}`, background: ext.break_released ? "#fdf5f0" : "white", color: ext.break_released ? "#e0a040" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{ext.break_released ? "✓" : ""} 休憩解放(13:30〜15:00)</button>
+                      {["13:30","14:00","14:30"].map(t => (
+                        <button key={t} onClick={() => toggleBreakSlot(t)} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${isSlotBreakReleased(t) ? "#e0a040" : "#e8ddd0"}`, background: isSlotBreakReleased(t) ? "#fdf5f0" : "white", color: isSlotBreakReleased(t) ? "#e0a040" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{isSlotBreakReleased(t) ? "✓" : ""} {t}解放</button>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -1337,7 +1347,7 @@ export default function AdminPage() {
                           {timeSlots.map(time => {
                             const isBreak = BREAK_SLOTS.includes(time);
                             const isExt = MORNING_EXT.includes(time) || EVENING_EXT.includes(time);
-                            const breakActive = isBreak && !isBreakReleased();
+                            const breakActive = isBreak && !isSlotBreakReleased(time);
                             return <th key={time} style={{ padding: "10px 8px", textAlign: "center", fontSize: 11, fontWeight: 700, color: breakActive ? "#e0a040" : isExt ? "#5a9e7a" : "#7a9a7a", minWidth: 70, borderLeft: "1px solid #f0ebe4", background: breakActive ? "#fdf5f0" : isExt ? "#f0f8f4" : "#f5f5f5" }}>{time}{breakActive && <div style={{ fontSize: 9, color: "#e0a040" }}>休憩</div>}{isExt && <div style={{ fontSize: 9, color: "#5a9e7a" }}>拡張</div>}</th>;
                           })}
                         </tr>
@@ -1353,8 +1363,8 @@ export default function AdminPage() {
                               const onShift = isOnShift(s.id);
                               const isExt = MORNING_EXT.includes(time) || EVENING_EXT.includes(time);
                               return (
-                                <td key={time} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: (isBreak && !isBreakReleased()) ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", minWidth: 70 }}>
-                                  {isBreak && !isBreakReleased() ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
+                                <td key={time} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: (isBreak && !isSlotBreakReleased(time)) ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", minWidth: 70 }}>
+                                  {isBreak && !isSlotBreakReleased(time) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
                                   : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
                                   : booking && booking.status !== "cancelled" ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "3px 6px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => setSelectedBooking(booking)}>{booking.customers?.name || "予約あり"}</div>
                                   : blocked ? <div onClick={() => toggleBlock(s.id, time)} style={{ background: "#f0ebe4", color: "#bbb", borderRadius: 6, padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>🔒</div>
