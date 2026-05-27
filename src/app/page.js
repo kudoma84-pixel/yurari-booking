@@ -421,7 +421,7 @@ export default function App() {
                   setProfile({ ...profile, birthYear: y, birthday: updateBirthday(y, profile.birthMonth, profile.birthDay) });
                 }} style={{ flex: 2, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
                   <option value="">年</option>
-                  {Array.from({ length: 80 }, (_, i) => new Date().getFullYear() - 10 - i).map(y => <option key={y} value={y}>{y}年</option>)}
+                  {Array.from({ length: 80 }, (_, i) => new Date().getFullYear() - i).map(y => <option key={y} value={y}>{y}年</option>)}
                 </select>
                 <select value={profile.birthMonth} onChange={e => {
                   const m = e.target.value;
