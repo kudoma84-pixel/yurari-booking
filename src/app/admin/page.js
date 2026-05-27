@@ -156,7 +156,7 @@ export default function AdminPage() {
   const fetchExtensions = async (date) => {
     if (!date) return;
     const d = formatDate(date);
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/time_extensions?store_id=eq.${currentStore.id}&extension_date=eq.${d}`, { headers });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/time_extensions?store_id=eq.${currentStore.id}&extension_date=eq.${d}&order=created_at.desc&limit=1`, { headers });
     const data = await res.json();
     setExtensions(Array.isArray(data) ? data : []);
   };
