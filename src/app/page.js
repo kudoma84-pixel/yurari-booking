@@ -112,7 +112,7 @@ export default function App() {
       } else {
         const newRes = await fetch(`${SUPABASE_URL}/rest/v1/customers`, {
           method: "POST", headers,
-          body: JSON.stringify({ name: form.name, kana: form.kana, tel: form.tel, email: form.email, points: 0, line_user_id: session?.lineUserId || null }),
+          body: JSON.stringify({ name: form.name, kana: form.kana, tel: form.tel, email: form.email, points: 0, line_user_id: session?.lineUserId || null, notification_method: form.notificationMethod || "line" }),
         });
         const newCustomer = await newRes.json();
         customerId = newCustomer[0]?.id;
