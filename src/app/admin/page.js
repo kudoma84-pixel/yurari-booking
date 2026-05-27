@@ -1232,7 +1232,7 @@ export default function AdminPage() {
                         ))}
                       </div>
                     )}
-                               </div>
+                              </div>
                 <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>🎫 金券</div>
                   {checkoutBooking?.customer_id ? (
