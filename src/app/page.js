@@ -80,8 +80,8 @@ export default function App() {
 
   useEffect(() => { fetchCourses(); }, []);
   useEffect(() => {
-  if (store) { fetchStaff(store.id); fetchStoreSettings(store.id); }
-}, [store]);
+    if (store) { fetchStaff(store.id); fetchStoreSettings(store.id); }
+  }, [store]);
   useEffect(() => {
     if (session && notificationMethod === "line") {
       checkExistingCustomer();
@@ -94,15 +94,16 @@ export default function App() {
     setCourses(Array.isArray(data) ? data : []);
   };
 
-  const fetchStoreSettings = async (storeId) => {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/store_settings?store_id=eq.${storeId}`, { headers });
-  const data = await res.json();
-  if (data[0]) setSameDayLeadTime(data[0].same_day_lead_time);
-};
   const fetchStaff = async (storeId) => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/staff_members?store_id=eq.${storeId}&is_active=eq.true&order=sort_order.asc`, { headers });
     const data = await res.json();
     setStaffList(Array.isArray(data) ? data : []);
+  };
+
+  const fetchStoreSettings = async (storeId) => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/store_settings?store_id=eq.${storeId}`, { headers });
+    const data = await res.json();
+    if (data[0]) setSameDayLeadTime(data[0].same_day_lead_time);
   };
 
   const checkExistingCustomer = async () => {
@@ -211,6 +212,17 @@ export default function App() {
       return `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
     }
     return "";
+  };
+
+  const isSlotDisabled = (t) => {
+    if (!date) return false;
+    const isToday = formatDate(date) === formatDate(new Date());
+    if (!isToday) return false;
+    const now = new Date();
+    const [h, m] = t.split(":").map(Number);
+    const slotTime = new Date();
+    slotTime.setHours(h, m, 0, 0);
+    return slotTime.getTime() - now.getTime() < sameDayLeadTime * 60 * 1000;
   };
 
   const Header = ({ showBack }) => (
@@ -360,7 +372,6 @@ export default function App() {
           {error && <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#cc4444" }}>{error}</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-            {/* お名前 */}
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>お名前 <span style={{ color: ORANGE }}>*</span></label>
               <input type="text" value={profile.name} onChange={e => setProfile({ ...profile, name: e.target.value })} placeholder="山田 花子"
@@ -368,7 +379,6 @@ export default function App() {
                 onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
             </div>
 
-            {/* フリガナ */}
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>フリガナ <span style={{ color: ORANGE }}>*</span></label>
               <input type="text" value={profile.kana} onChange={e => setProfile({ ...profile, kana: e.target.value })} placeholder="ヤマダ ハナコ"
@@ -376,7 +386,6 @@ export default function App() {
                 onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
             </div>
 
-            {/* 携帯番号 */}
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>携帯番号 <span style={{ color: ORANGE }}>*</span></label>
               <input type="tel" value={profile.tel} onChange={e => setProfile({ ...profile, tel: e.target.value })} placeholder="090-0000-0000"
@@ -384,7 +393,6 @@ export default function App() {
                 onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
             </div>
 
-            {/* メールアドレス */}
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>メールアドレス <span style={{ color: ORANGE }}>*</span></label>
               <input type="email" value={profile.email} onChange={e => setProfile({ ...profile, email: e.target.value })} placeholder="example@email.com"
@@ -392,7 +400,6 @@ export default function App() {
                 onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
             </div>
 
-            {/* 郵便番号 */}
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>郵便番号 <span style={{ color: ORANGE }}>*</span></label>
               <input type="text" value={profile.zipcode} maxLength={7} placeholder="1234567（ハイフンなし）"
@@ -412,7 +419,6 @@ export default function App() {
                 onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
             </div>
 
-            {/* 住所 */}
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>住所 <span style={{ color: ORANGE }}>*</span></label>
               <input type="text" value={profile.address} onChange={e => setProfile({ ...profile, address: e.target.value })} placeholder="自動入力されます（番地・部屋番号を追加してください）"
@@ -420,7 +426,6 @@ export default function App() {
                 onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
             </div>
 
-            {/* 生年月日 */}
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>生年月日 <span style={{ color: ORANGE }}>*</span></label>
               <div style={{ display: "flex", gap: 8 }}>
@@ -448,7 +453,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* ご来院歴 */}
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>ご来院歴</label>
               <div style={{ display: "flex", gap: 10 }}>
@@ -458,7 +462,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* お悩み・ご要望 */}
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>お悩み・ご要望（任意）</label>
               <textarea value={profile.notes} onChange={e => setProfile({ ...profile, notes: e.target.value })} placeholder="肩こりがひどく、特に右肩が気になります..." rows={3}
@@ -631,24 +634,10 @@ export default function App() {
                 <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: `2px solid ${GREEN}20` }}>ご希望時間</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {TIME_SLOTS.map(t => {
-  const isSelected = time === t;
-  const isToday = date && formatDate(date) === formatDate(new Date());
-  const isPast = isToday && (() => {
-    const now = new Date();
-    const [h, m] = t.split(":").map(Number);
-    const slotTime = new Date();
-    slotTime.setHours(h, m, 0, 0);
-    return slotTime.getTime() - now.getTime() < sameDayLeadTime * 60 * 1000;
-  })();
-  return (
-    <div key={t} onClick={() => !isPast && setTime(t)} style={{ background: isSelected ? GREEN : isPast ? "#f0f0f0" : "white", border: `2px solid ${isSelected ? GREEN : isPast ? "#ddd" : "#e8ddd0"}`, borderRadius: 10, padding: "8px 14px", cursor: isPast ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, color: isSelected ? "white" : isPast ? "#bbb" : DARK }}>
-      {t}
-    </div>
-  );
-})}
                     const isSelected = time === t;
+                    const disabled = isSlotDisabled(t);
                     return (
-                      <div key={t} onClick={() => setTime(t)} style={{ background: isSelected ? GREEN : "white", border: `2px solid ${isSelected ? GREEN : "#e8ddd0"}`, borderRadius: 10, padding: "8px 14px", cursor: "pointer", fontSize: 13, fontWeight: 600, color: isSelected ? "white" : DARK }}>
+                      <div key={t} onClick={() => !disabled && setTime(t)} style={{ background: isSelected ? GREEN : disabled ? "#f0f0f0" : "white", border: `2px solid ${isSelected ? GREEN : disabled ? "#ddd" : "#e8ddd0"}`, borderRadius: 10, padding: "8px 14px", cursor: disabled ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, color: isSelected ? "white" : disabled ? "#bbb" : DARK }}>
                         {t}
                       </div>
                     );
