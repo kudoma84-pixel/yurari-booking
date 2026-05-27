@@ -24,6 +24,7 @@ const PAYMENT_METHODS = [
 
 const BASE_SLOTS = [
   "10:00","10:30","11:00","11:30","12:00","12:30","13:00",
+  "13:30","14:00","14:30",
   "15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30"
 ];
 const MORNING_EXT = ["09:00","09:30"];
@@ -1358,11 +1359,11 @@ export default function AdminPage() {
                       {["09:00","09:30"].map(t => (
                         <button key={t} onClick={() => toggleSlot(t)} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${isSlotExtended(t) ? "#5a9e7a" : "#e8ddd0"}`, background: isSlotExtended(t) ? "#eaf5ec" : "white", color: isSlotExtended(t) ? "#3a5a3a" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{isSlotExtended(t) ? "✓" : ""} {t}追加</button>
                       ))}
-                      {["20:00","20:30"].map(t => (
-                        <button key={t} onClick={() => toggleSlot(t)} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${isSlotExtended(t) ? "#5a9e7a" : "#e8ddd0"}`, background: isSlotExtended(t) ? "#eaf5ec" : "white", color: isSlotExtended(t) ? "#3a5a3a" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{isSlotExtended(t) ? "✓" : ""} {t}追加</button>
-                      ))}
                       {["13:30","14:00","14:30"].map(t => (
                         <button key={t} onClick={() => toggleBreakSlot(t)} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${isSlotBreakReleased(t) ? "#e0a040" : "#e8ddd0"}`, background: isSlotBreakReleased(t) ? "#fdf5f0" : "white", color: isSlotBreakReleased(t) ? "#e0a040" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{isSlotBreakReleased(t) ? "✓" : ""} {t}解放</button>
+                      ))}
+                      {["20:00","20:30"].map(t => (
+                        <button key={t} onClick={() => toggleSlot(t)} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${isSlotExtended(t) ? "#5a9e7a" : "#e8ddd0"}`, background: isSlotExtended(t) ? "#eaf5ec" : "white", color: isSlotExtended(t) ? "#3a5a3a" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{isSlotExtended(t) ? "✓" : ""} {t}追加</button>
                       ))}
                     </div>
                   </div>
