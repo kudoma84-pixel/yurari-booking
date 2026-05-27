@@ -44,23 +44,25 @@ function formatDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
 
-const steps = ["店舗選択","コース選択","スタッフ・日時","お客様情報","確認"];
+const bookingSteps = ["店舗選択","コース選択","スタッフ・日時","確認"];
 
 export default function App() {
   const { data: session } = useSession();
-  const [step, setStep] = useState(-1);
+  const [screen, setScreen] = useState("top"); // top, auth, register, booking, complete
+  const [notificationMethod, setNotificationMethod] = useState(null);
+  const [step, setStep] = useState(0);
   const [store, setStore] = useState(null);
   const [course, setCourse] = useState(null);
   const [staff, setStaff] = useState(null);
   const [date, setDate] = useState(null);
   const [time, setTime] = useState(null);
-  const [form, setForm] = useState({ name: "", kana: "", tel: "", email: "", firstVisit: "初めて", notes: "", notificationMethod: "line" });
-  const [submitted, setSubmitted] = useState(false);
+  const [profile, setProfile] = useState({ name: "", kana: "", address: "", tel: "", birthday: "", email: "", firstVisit: "初めて", notes: "" });
   const [bookingNum, setBookingNum] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [courses, setCourses] = useState([]);
   const [staffList, setStaffList] = useState([]);
+  const [existingCustomer, setExistingCustomer] = useState(null);
 
   const dates = generateDates();
 
@@ -73,9 +75,10 @@ export default function App() {
 
   useEffect(() => { fetchCourses(); }, []);
   useEffect(() => { if (store) fetchStaff(store.id); }, [store]);
+
   useEffect(() => {
-    if (session) {
-      setForm(f => ({ ...f, name: f.name || session?.user?.name || "", email: f.email || session?.user?.email || "" }));
+    if (session && notificationMethod === "line") {
+      checkExistingCustomer();
     }
   }, [session]);
 
@@ -91,11 +94,51 @@ export default function App() {
     setStaffList(Array.isArray(data) ? data : []);
   };
 
+  const checkExistingCustomer = async () => {
+    if (!session?.lineUserId) return;
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?line_user_id=eq.${session.lineUserId}&select=*`, { headers });
+    const data = await res.json();
+    if (data && data.length > 0) {
+      setExistingCustomer(data[0]);
+      setProfile({
+        name: data[0].name || "",
+        kana: data[0].kana || "",
+        address: data[0].address || "",
+        tel: data[0].tel || "",
+        birthday: data[0].birthday || "",
+        email: data[0].email || "",
+        firstVisit: "2回目以降",
+        notes: "",
+      });
+      setScreen("booking");
+    } else {
+      setProfile(p => ({ ...p, name: session?.user?.name || "", email: session?.user?.email || "" }));
+      setScreen("register");
+    }
+  };
+
+  const handleAuthSelect = (method) => {
+    setNotificationMethod(method);
+    if (method === "line") {
+      signIn("line");
+    } else {
+      setScreen("register");
+    }
+  };
+
+  const handleRegisterSubmit = async () => {
+    if (!profile.name || !profile.kana || !profile.tel) {
+      setError("氏名・フリガナ・携帯番号は必須です");
+      return;
+    }
+    setScreen("booking");
+    setError("");
+  };
+
   const canNext = () => {
     if (step === 0) return !!store;
     if (step === 1) return !!course;
     if (step === 2) return !!staff && !!date && !!time;
-    if (step === 3) return form.name && form.kana && form.tel && form.email;
     return true;
   };
 
@@ -104,40 +147,54 @@ export default function App() {
     setError("");
     const num = "YR-" + Date.now().toString().slice(-6);
     try {
-      const searchRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?tel=eq.${form.tel}&select=id`, { headers });
-      const customers = await searchRes.json();
-      let customerId;
-      if (customers && customers.length > 0) {
-        customerId = customers[0].id;
-      } else {
-        const newRes = await fetch(`${SUPABASE_URL}/rest/v1/customers`, {
-          method: "POST", headers,
-          body: JSON.stringify({ name: form.name, kana: form.kana, tel: form.tel, email: form.email, points: 0, line_user_id: session?.lineUserId || null, notification_method: form.notificationMethod || "line" }),
-        });
-        const newCustomer = await newRes.json();
-        customerId = newCustomer[0]?.id;
+      let customerId = existingCustomer?.id;
+      if (!customerId) {
+        const searchRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?tel=eq.${profile.tel}&select=id`, { headers });
+        const customers = await searchRes.json();
+        if (customers && customers.length > 0) {
+          customerId = customers[0].id;
+        } else {
+          const newRes = await fetch(`${SUPABASE_URL}/rest/v1/customers`, {
+            method: "POST", headers,
+            body: JSON.stringify({
+              name: profile.name, kana: profile.kana, tel: profile.tel,
+              email: profile.email, address: profile.address,
+              birthday: profile.birthday || null,
+              points: 0,
+              line_user_id: session?.lineUserId || null,
+              notification_method: notificationMethod || "line",
+            }),
+          });
+          const newCustomer = await newRes.json();
+          customerId = newCustomer[0]?.id;
+        }
       }
       await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
         method: "POST", headers,
-        body: JSON.stringify({ customer_id: customerId, store_id: store.id, course_id: course.id, course_name: course.name, staff_id: staff.id, staff_name: staff.name, booking_date: formatDate(date), booking_time: time, status: "confirmed", notes: form.notes, booking_number: num }),
+        body: JSON.stringify({
+          customer_id: customerId, store_id: store.id,
+          course_id: course.id, course_name: course.name,
+          staff_id: staff.id, staff_name: staff.name,
+          booking_date: formatDate(date), booking_time: time,
+          status: "confirmed", notes: profile.notes, booking_number: num,
+        }),
       });
       setBookingNum(num);
-      setSubmitted(true);
-      setStep(5);
+      setScreen("complete");
     } catch (e) {
       setBookingNum(num);
-      setSubmitted(true);
-      setStep(5);
+      setScreen("complete");
     } finally {
       setLoading(false);
     }
   };
 
   const reset = () => {
-    setStep(-1); setStore(null); setCourse(null); setStaff(null);
+    setScreen("top"); setNotificationMethod(null); setStep(0);
+    setStore(null); setCourse(null); setStaff(null);
     setDate(null); setTime(null);
-    setForm({ name: "", kana: "", tel: "", email: "", firstVisit: "初めて", notes: "", notificationMethod: "line" });
-    setSubmitted(false); setBookingNum(""); setError("");
+    setProfile({ name: "", kana: "", address: "", tel: "", birthday: "", email: "", firstVisit: "初めて", notes: "" });
+    setBookingNum(""); setError(""); setExistingCustomer(null);
   };
 
   const Header = ({ showBack }) => (
@@ -147,7 +204,7 @@ export default function App() {
           <img src={LOGO_URL} alt="癒楽里ロゴ" style={{ height: 44, width: "auto" }} />
         </div>
         {!showBack && (
-          <button onClick={() => session ? setStep(0) : signIn("line")} style={{ padding: "10px 20px", borderRadius: 25, border: "none", background: ORANGE, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: `0 3px 12px ${ORANGE}60` }}>
+          <button onClick={() => setScreen("auth")} style={{ padding: "10px 20px", borderRadius: 25, border: "none", background: ORANGE, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
             ご予約はこちら
           </button>
         )}
@@ -155,34 +212,27 @@ export default function App() {
     </div>
   );
 
-  if (step === -1) {
+  // トップページ
+  if (screen === "top") {
     return (
-      <div style={{ fontFamily: "'Noto Sans JP', 'Hiragino Kaku Gothic ProN', sans-serif", background: CREAM, minHeight: "100vh" }}>
+      <div style={{ fontFamily: "'Noto Sans JP', sans-serif", background: CREAM, minHeight: "100vh" }}>
         <Header showBack={false} />
-
         <div style={{ position: "relative", height: 420, overflow: "hidden" }}>
-          <img src={IMAGES.hero} alt="癒楽里" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center" }} />
-          <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.5) 100%)" }} />
+          <img src={IMAGES.hero} alt="癒楽里" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,0.2), rgba(0,0,0,0.5))" }} />
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 20 }}>
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-              {["歪み", "痛み", "痺れ"].map(t => (
-                <div key={t} style={{ background: GREEN, color: "white", padding: "4px 16px", borderRadius: 4, fontSize: 16, fontWeight: 700 }}>{t}</div>
-              ))}
+              {["歪み","痛み","痺れ"].map(t => <div key={t} style={{ background: GREEN, color: "white", padding: "4px 16px", borderRadius: 4, fontSize: 16, fontWeight: 700 }}>{t}</div>)}
             </div>
-            <div style={{ fontSize: 48, fontWeight: 900, color: ORANGE, textShadow: "2px 2px 8px rgba(0,0,0,0.5)", marginBottom: 12, lineHeight: 1.1 }}>根本改善へ</div>
+            <div style={{ fontSize: 48, fontWeight: 900, color: ORANGE, textShadow: "2px 2px 8px rgba(0,0,0,0.5)", marginBottom: 12 }}>根本改善へ</div>
             <div style={{ background: "rgba(255,255,255,0.9)", borderRadius: 12, padding: "10px 24px", marginBottom: 20 }}>
-              <div style={{ fontSize: 13, color: DARK, fontWeight: 700 }}>
-                <span style={{ color: "#4285f4", fontWeight: 900 }}>G</span>
-                <span style={{ color: "#ea4335", fontWeight: 900 }}>o</span>
-                <span style={{ color: "#fbbc05", fontWeight: 900 }}>o</span>
-                <span style={{ color: "#4285f4", fontWeight: 900 }}>g</span>
-                <span style={{ color: "#34a853", fontWeight: 900 }}>l</span>
-                <span style={{ color: "#ea4335", fontWeight: 900 }}>e</span>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>
+                <span style={{ color: "#4285f4" }}>G</span><span style={{ color: "#ea4335" }}>o</span><span style={{ color: "#fbbc05" }}>o</span><span style={{ color: "#4285f4" }}>g</span><span style={{ color: "#34a853" }}>l</span><span style={{ color: "#ea4335" }}>e</span>
                 　口コミ評価　<span style={{ fontSize: 20, color: ORANGE, fontWeight: 900 }}>4.9</span>
               </div>
               <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>多数のお喜びの声を頂いております！</div>
             </div>
-            <button onClick={() => session ? setStep(0) : signIn("line")} style={{ padding: "16px 40px", borderRadius: 30, border: "none", background: ORANGE, color: "white", fontSize: 16, fontWeight: 700, cursor: "pointer", boxShadow: `0 4px 20px ${ORANGE}80` }}>
+            <button onClick={() => setScreen("auth")} style={{ padding: "16px 40px", borderRadius: 30, border: "none", background: ORANGE, color: "white", fontSize: 16, fontWeight: 700, cursor: "pointer" }}>
               今すぐ予約する →
             </button>
           </div>
@@ -218,8 +268,8 @@ export default function App() {
               <div style={{ width: 40, height: 3, background: ORANGE, margin: "8px auto 0" }} />
             </div>
             <div style={{ display: "flex", gap: 12 }}>
-              <img src={IMAGES.symptoms1} alt="症状1" style={{ flex: 1, width: "50%", borderRadius: 12, boxShadow: "0 4px 16px rgba(0,0,0,0.1)" }} />
-              <img src={IMAGES.symptoms2} alt="症状2" style={{ flex: 1, width: "50%", borderRadius: 12, boxShadow: "0 4px 16px rgba(0,0,0,0.1)" }} />
+              <img src={IMAGES.symptoms1} alt="症状1" style={{ flex: 1, width: "50%", borderRadius: 12 }} />
+              <img src={IMAGES.symptoms2} alt="症状2" style={{ flex: 1, width: "50%", borderRadius: 12 }} />
             </div>
           </div>
         </div>
@@ -230,13 +280,13 @@ export default function App() {
             <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>院長からのメッセージ</div>
             <div style={{ width: 40, height: 3, background: ORANGE, margin: "8px auto 0" }} />
           </div>
-          <img src={IMAGES.message} alt="メッセージ" style={{ width: "100%", borderRadius: 16, boxShadow: "0 4px 20px rgba(0,0,0,0.1)" }} />
+          <img src={IMAGES.message} alt="メッセージ" style={{ width: "100%", borderRadius: 16 }} />
         </div>
 
         <div style={{ background: GREEN, padding: "40px 20px", textAlign: "center" }}>
           <div style={{ fontSize: 20, fontWeight: 700, color: "white", marginBottom: 8 }}>まずはお気軽にご予約ください</div>
           <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", marginBottom: 24 }}>初回体験コース ¥3,300〜</div>
-          <button onClick={() => session ? setStep(0) : signIn("line")} style={{ padding: "18px 48px", borderRadius: 30, border: "none", background: ORANGE, color: "white", fontSize: 18, fontWeight: 700, cursor: "pointer", boxShadow: `0 4px 20px ${ORANGE}80` }}>
+          <button onClick={() => setScreen("auth")} style={{ padding: "18px 48px", borderRadius: 30, border: "none", background: ORANGE, color: "white", fontSize: 18, fontWeight: 700, cursor: "pointer" }}>
             オンライン予約する
           </button>
         </div>
@@ -251,7 +301,103 @@ export default function App() {
     );
   }
 
-  if (step === 5) {
+  // 認証・通知方法選択
+  if (screen === "auth") {
+    return (
+      <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
+        <Header showBack={true} />
+        <div style={{ maxWidth: 480, margin: "0 auto", padding: "40px 20px" }}>
+          <div style={{ textAlign: "center", marginBottom: 32 }}>
+            <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 8 }}>STEP 0</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: GREEN, marginBottom: 8 }}>ご予約方法を選んでください</div>
+            <div style={{ fontSize: 13, color: "#888" }}>予約確認・リマインドの受け取り方法を選んでください</div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {[
+              { id: "line", icon: "💚", label: "LINEで予約する", desc: "LINEログインで簡単予約。確認・リマインドをLINEで受け取れます。", color: "#06C755" },
+              { id: "email", icon: "📧", label: "メールで予約する", desc: "メールアドレスで予約。確認・リマインドをメールで受け取れます。", color: GREEN },
+              { id: "sms", icon: "📱", label: "SMS（ショートメール）で予約する", desc: "携帯番号で予約。確認・リマインドをSMSで受け取れます。", color: ORANGE },
+            ].map(m => (
+              <button key={m.id} onClick={() => handleAuthSelect(m.id)} style={{ display: "flex", alignItems: "center", gap: 16, padding: "20px 24px", borderRadius: 16, border: `2px solid ${m.color}20`, background: "white", cursor: "pointer", textAlign: "left", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", transition: "all 0.2s" }}>
+                <div style={{ fontSize: 36, flexShrink: 0 }}>{m.icon}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: m.color, marginBottom: 4 }}>{m.label}</div>
+                  <div style={{ fontSize: 12, color: "#888", lineHeight: 1.5 }}>{m.desc}</div>
+                </div>
+                <div style={{ color: "#aaa", fontSize: 18, flexShrink: 0 }}>›</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 個人情報入力
+  if (screen === "register") {
+    return (
+      <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
+        <Header showBack={true} />
+        <div style={{ maxWidth: 640, margin: "0 auto", padding: "24px 16px 100px" }}>
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>お客様情報</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>お客様情報をご入力ください</div>
+            <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>初回のみ入力が必要です。次回からは自動入力されます。</div>
+          </div>
+          {error && <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#cc4444" }}>{error}</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {[
+              { label: "お名前", key: "name", placeholder: "山田 花子", required: true },
+              { label: "フリガナ", key: "kana", placeholder: "ヤマダ ハナコ", required: true },
+              { label: "携帯番号", key: "tel", placeholder: "090-0000-0000", required: true, type: "tel" },
+              { label: "メールアドレス", key: "email", placeholder: "example@email.com", type: "email" },
+              { label: "住所", key: "address", placeholder: "さいたま市南区○○○" },
+              { label: "生年月日", key: "birthday", placeholder: "1980-01-01", type: "date" },
+            ].map(f => (
+              <div key={f.key}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>
+                  {f.label} {f.required && <span style={{ color: ORANGE }}>*</span>}
+                </label>
+                <input
+                  type={f.type || "text"}
+                  value={profile[f.key]}
+                  onChange={e => setProfile({ ...profile, [f.key]: e.target.value })}
+                  placeholder={f.placeholder}
+                  style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
+                  onFocus={e => e.target.style.borderColor = GREEN}
+                  onBlur={e => e.target.style.borderColor = "#e8ddd0"}
+                />
+              </div>
+            ))}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>ご来院歴</label>
+              <div style={{ display: "flex", gap: 10 }}>
+                {["初めて","2回目以降"].map(v => (
+                  <div key={v} onClick={() => setProfile({ ...profile, firstVisit: v })} style={{ flex: 1, padding: "12px", borderRadius: 12, border: `2px solid ${profile.firstVisit === v ? GREEN : "#e8ddd0"}`, background: profile.firstVisit === v ? `${GREEN}10` : "white", textAlign: "center", cursor: "pointer", fontSize: 14, fontWeight: 700, color: profile.firstVisit === v ? GREEN : "#aaa" }}>{v}</div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>お悩み・ご要望（任意）</label>
+              <textarea value={profile.notes} onChange={e => setProfile({ ...profile, notes: e.target.value })} placeholder="肩こりがひどく、特に右肩が気になります..." rows={3}
+                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white", boxSizing: "border-box", outline: "none", resize: "none", fontFamily: "inherit" }}
+                onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
+            </div>
+          </div>
+        </div>
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(12px)", borderTop: `3px solid ${GREEN}20`, padding: "12px 16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom))" }}>
+          <div style={{ maxWidth: 640, margin: "0 auto" }}>
+            <button onClick={handleRegisterSubmit} style={{ width: "100%", padding: "16px", borderRadius: 14, border: "none", background: GREEN, color: "white", fontSize: 16, fontWeight: 700, cursor: "pointer" }}>
+              次へ → 予約内容を選ぶ
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 予約完了
+  if (screen === "complete") {
     return (
       <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
         <Header showBack={true} />
@@ -289,22 +435,22 @@ export default function App() {
     );
   }
 
+  // 予約フォーム
   return (
-    <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', 'Hiragino Kaku Gothic ProN', sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
       <Header showBack={true} />
-
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "0 16px 100px" }}>
         <div style={{ padding: "20px 0 8px" }}>
           <div style={{ display: "flex", alignItems: "center" }}>
-            {steps.map((s, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", flex: i < steps.length - 1 ? 1 : "none" }}>
-                <div style={{ width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, background: i < step ? GREEN : i === step ? ORANGE : "#e0d5c8", color: i <= step ? "white" : "#999", transition: "all 0.3s" }}>{i < step ? "✓" : i+1}</div>
-                {i < steps.length - 1 && <div style={{ flex: 1, height: 2, background: i < step ? GREEN : "#e0d5c8", margin: "0 2px" }} />}
+            {bookingSteps.map((s, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", flex: i < bookingSteps.length - 1 ? 1 : "none" }}>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, background: i < step ? GREEN : i === step ? ORANGE : "#e0d5c8", color: i <= step ? "white" : "#999" }}>{i < step ? "✓" : i+1}</div>
+                {i < bookingSteps.length - 1 && <div style={{ flex: 1, height: 2, background: i < step ? GREEN : "#e0d5c8", margin: "0 2px" }} />}
               </div>
             ))}
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 9 }}>
-            {steps.map((s, i) => <span key={i} style={{ color: i === step ? ORANGE : "#aaa", fontWeight: i === step ? 700 : 400 }}>{s}</span>)}
+            {bookingSteps.map((s, i) => <span key={i} style={{ color: i === step ? ORANGE : "#aaa", fontWeight: i === step ? 700 : 400 }}>{s}</span>)}
           </div>
         </div>
 
@@ -316,9 +462,9 @@ export default function App() {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {STORES.map(s => (
-                <div key={s.id} onClick={() => setStore(s)} style={{ background: store?.id === s.id ? `${GREEN}15` : "white", border: `2px solid ${store?.id === s.id ? GREEN : "#e8ddd0"}`, borderRadius: 16, padding: "20px 24px", cursor: "pointer", transition: "all 0.2s", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <div key={s.id} onClick={() => setStore(s)} style={{ background: store?.id === s.id ? `${GREEN}15` : "white", border: `2px solid ${store?.id === s.id ? GREEN : "#e8ddd0"}`, borderRadius: 16, padding: "20px 24px", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <img src="https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp" alt="ロゴ" style={{ height: 36, width: "auto" }} />
+                    <img src={LOGO_URL} alt="ロゴ" style={{ height: 36, width: "auto" }} />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 18, fontWeight: 700, color: GREEN }}>癒楽里 {s.name}</div>
                       <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{s.address}</div>
@@ -374,8 +520,8 @@ export default function App() {
             <div style={{ marginBottom: 28 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: `2px solid ${GREEN}20` }}>担当スタッフ</div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {[{ id: "any", name: "指名なし", title: "おまかせ", specialty: "" }, ...staffList].map(s => (
-                  <div key={s.id} onClick={() => setStaff(s)} style={{ background: staff?.id === s.id ? `${GREEN}15` : "white", border: `2px solid ${staff?.id === s.id ? GREEN : "#e8ddd0"}`, borderRadius: 12, padding: "12px 16px", cursor: "pointer", textAlign: "center", minWidth: 90, boxShadow: "0 2px 6px rgba(0,0,0,0.06)" }}>
+                {[{ id: "any", name: "指名なし", title: "おまかせ" }, ...staffList].map(s => (
+                  <div key={s.id} onClick={() => setStaff(s)} style={{ background: staff?.id === s.id ? `${GREEN}15` : "white", border: `2px solid ${staff?.id === s.id ? GREEN : "#e8ddd0"}`, borderRadius: 12, padding: "12px 16px", cursor: "pointer", textAlign: "center", minWidth: 90 }}>
                     <div style={{ fontSize: 28 }}>👤</div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: GREEN, marginTop: 4 }}>{s.name}</div>
                     <div style={{ fontSize: 10, color: "#888" }}>{s.title}</div>
@@ -421,63 +567,6 @@ export default function App() {
           <div style={{ paddingTop: 24 }}>
             <div style={{ marginBottom: 24 }}>
               <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>STEP 4</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>お客様情報をご入力ください</div>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {[
-                { label: "お名前", key: "name", placeholder: "山田 花子", required: true },
-                { label: "フリガナ", key: "kana", placeholder: "ヤマダ ハナコ", required: true },
-                { label: "電話番号", key: "tel", placeholder: "090-0000-0000", required: true, type: "tel" },
-                { label: "メールアドレス", key: "email", placeholder: "example@email.com", required: true, type: "email" },
-              ].map(f => (
-                <div key={f.key}>
-                  <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>{f.label} {f.required && <span style={{ color: ORANGE }}>*</span>}</label>
-                  <input type={f.type || "text"} value={form[f.key]} onChange={e => setForm({ ...form, [f.key]: e.target.value })} placeholder={f.placeholder}
-                    style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
-                    onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
-                </div>
-              ))}
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>ご来院歴</label>
-                <div style={{ display: "flex", gap: 10 }}>
-                  {["初めて","2回目以降"].map(v => (
-                    <div key={v} onClick={() => setForm({ ...form, firstVisit: v })} style={{ flex: 1, padding: "12px", borderRadius: 12, border: `2px solid ${form.firstVisit === v ? GREEN : "#e8ddd0"}`, background: form.firstVisit === v ? `${GREEN}10` : "white", textAlign: "center", cursor: "pointer", fontSize: 14, fontWeight: 700, color: form.firstVisit === v ? GREEN : "#aaa" }}>{v}</div>
-                  ))}
-                </div>
-              </div>
-                  <div>
-  <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>通知方法 <span style={{ color: ORANGE }}>*</span></label>
-  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-    {[
-      { id: "line", label: "LINE", desc: "LINEで予約確認・リマインドを受け取る", icon: "💚" },
-      { id: "email", label: "メール", desc: "メールで予約確認・リマインドを受け取る", icon: "📧" },
-      { id: "sms", label: "SMS（ショートメール）", desc: "携帯電話のショートメールで受け取る", icon: "📱" },
-    ].map(n => (
-      <div key={n.id} onClick={() => setForm({ ...form, notificationMethod: n.id })} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderRadius: 12, border: `2px solid ${form.notificationMethod === n.id ? GREEN : "#e8ddd0"}`, background: form.notificationMethod === n.id ? `${GREEN}10` : "white", cursor: "pointer" }}>
-        <div style={{ fontSize: 24 }}>{n.icon}</div>
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: GREEN }}>{n.label}</div>
-          <div style={{ fontSize: 11, color: "#888" }}>{n.desc}</div>
-        </div>
-        {form.notificationMethod === n.id && <div style={{ marginLeft: "auto", color: GREEN, fontSize: 18 }}>✓</div>}
-      </div>
-    ))}
-  </div>
-</div>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>お悩み・ご要望（任意）</label>
-                <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="肩こりがひどく、特に右肩が気になります..." rows={3}
-                  style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white", boxSizing: "border-box", outline: "none", resize: "none", fontFamily: "inherit" }}
-                  onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {step === 4 && (
-          <div style={{ paddingTop: 24 }}>
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>STEP 5</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>ご予約内容を確認してください</div>
             </div>
             <div style={{ background: "white", borderRadius: 16, padding: "20px 24px", border: `2px solid ${GREEN}20`, marginBottom: 20, boxShadow: "0 4px 20px rgba(0,0,0,0.06)" }}>
@@ -486,11 +575,10 @@ export default function App() {
                 { label: "コース", value: `${course?.name}（${course?.duration} / ¥${course?.price?.toLocaleString()}）` },
                 { label: "担当", value: staff?.name },
                 { label: "日時", value: date && time ? `${date.getFullYear()}年${date.getMonth()+1}月${date.getDate()}日（${DAYS_JP[date.getDay()]}） ${time}〜` : "" },
-                { label: "お名前", value: form.name },
-                { label: "電話番号", value: form.tel },
-                { label: "メール", value: form.email },
-                { label: "ご来院歴", value: form.firstVisit },
-                form.notes ? { label: "ご要望", value: form.notes } : null,
+                { label: "お名前", value: profile.name },
+                { label: "電話番号", value: profile.tel },
+                { label: "通知方法", value: notificationMethod === "line" ? "LINE" : notificationMethod === "email" ? "メール" : "SMS" },
+                profile.notes ? { label: "ご要望", value: profile.notes } : null,
               ].filter(Boolean).map((row, i) => (
                 <div key={i} style={{ display: "flex", padding: "10px 0", borderBottom: "1px solid #f0ebe4" }}>
                   <div style={{ fontSize: 12, color: "#888", fontWeight: 700, width: 80, flexShrink: 0 }}>{row.label}</div>
@@ -502,21 +590,19 @@ export default function App() {
               キャンセル・変更は前日17時まで承ります。
             </div>
             {error && <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#cc4444" }}>{error}</div>}
-            <button onClick={handleSubmit} disabled={loading} style={{ width: "100%", padding: "18px", borderRadius: 14, border: "none", cursor: loading ? "not-allowed" : "pointer", background: loading ? "#aaa" : GREEN, color: "white", fontSize: 16, fontWeight: 700, letterSpacing: "0.05em", boxShadow: `0 4px 20px ${GREEN}50` }}>
+            <button onClick={handleSubmit} disabled={loading} style={{ width: "100%", padding: "18px", borderRadius: 14, border: "none", cursor: loading ? "not-allowed" : "pointer", background: loading ? "#aaa" : GREEN, color: "white", fontSize: 16, fontWeight: 700, boxShadow: `0 4px 20px ${GREEN}50` }}>
               {loading ? "送信中..." : "✓ この内容で予約を確定する"}
             </button>
           </div>
         )}
 
-        {step >= 0 && step <= 4 && (
-          <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(12px)", borderTop: `3px solid ${GREEN}20`, padding: "12px 16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom))" }}>
-            <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", gap: 12 }}>
-              {step > 0 && <button onClick={() => setStep(step - 1)} style={{ flex: 1, padding: "14px", borderRadius: 14, border: `2px solid ${GREEN}40`, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>← 戻る</button>}
-              {step < 4 && <button onClick={() => canNext() && setStep(step + 1)} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: canNext() ? GREEN : "#e8ddd0", color: canNext() ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: canNext() ? "pointer" : "not-allowed" }}>次へ →</button>}
-              {step === 4 && <button onClick={() => canNext() && handleSubmit()} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: canNext() ? ORANGE : "#e8ddd0", color: canNext() ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: canNext() ? "pointer" : "not-allowed" }}>予約を確定する ✓</button>}
-            </div>
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(12px)", borderTop: `3px solid ${GREEN}20`, padding: "12px 16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom))" }}>
+          <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", gap: 12 }}>
+            {step > 0 && <button onClick={() => setStep(step - 1)} style={{ flex: 1, padding: "14px", borderRadius: 14, border: `2px solid ${GREEN}40`, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>← 戻る</button>}
+            {step < 3 && <button onClick={() => canNext() && setStep(step + 1)} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: canNext() ? GREEN : "#e8ddd0", color: canNext() ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: canNext() ? "pointer" : "not-allowed" }}>次へ →</button>}
+            {step === 3 && <button onClick={handleSubmit} disabled={loading} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: canNext() ? ORANGE : "#e8ddd0", color: canNext() ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: canNext() ? "pointer" : "not-allowed" }}>予約を確定する ✓</button>}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
