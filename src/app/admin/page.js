@@ -1182,7 +1182,7 @@ export default function AdminPage() {
                                 <td key={time} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: isBreak ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", minWidth: 70 }}>
                                   {isBreak ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
                                   : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
-                                  : booking ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "3px 6px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => setSelectedBooking(booking)}>{booking.customers?.name || "予約あり"}</div>
+                                  : booking && booking.status !== "cancelled" ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "3px 6px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }} onClick={() => setSelectedBooking(booking)}>{booking.customers?.name || "予約あり"}</div>
                                   : blocked ? <div onClick={() => toggleBlock(s.id, time)} style={{ background: "#f0ebe4", color: "#bbb", borderRadius: 6, padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>🔒</div>
                                   // ★ 空きコマをクリック → 直接予約入力モーダルを開く
                                   : <div onClick={() => { setDirectBookingModal({ date: selectedDate, staffId: s.id, time }); setDirectBookingForm({ staff_id: s.id, booking_time: time }); setCustomerSearchQuery(""); setCustomerSearchResult(null); fetchCourseMenus(); }} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}
