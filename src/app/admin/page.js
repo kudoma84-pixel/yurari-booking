@@ -925,6 +925,29 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+        {editingTicketTemplate !== null && (
+  <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setEditingTicketTemplate(null)}>
+    <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 400, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>{editingTicketTemplate.id ? "金券編集" : "金券追加"}</div>
+        <button onClick={() => setEditingTicketTemplate(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 24 }}>
+        {[
+          { label: "金券名", key: "name", placeholder: "1万円券・3万円券など", required: true },
+          { label: "額面金額（円）", key: "face_value", placeholder: "10000", type: "number" },
+          { label: "有効期限（日間）", key: "valid_days", placeholder: "365", type: "number" },
+        ].map(f => (
+          <div key={f.key}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>{f.label}{f.required && <span style={{ color: "#e07070" }}> *</span>}</label>
+            <input type={f.type || "text"} value={editingTicketTemplate[f.key] || ""} onChange={e => setEditingTicketTemplate({ ...editingTicketTemplate, [f.key]: e.target.value })} placeholder={f.placeholder} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+          </div>
+        ))}
+      </div>
+      <button onClick={saveGiftTicketTemplate} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>保存</button>
+    </div>
+  </div>
+)}
 
       <div style={{ background: "white", borderBottom: "1px solid #e8ddd0", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
