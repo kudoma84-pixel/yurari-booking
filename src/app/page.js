@@ -351,7 +351,26 @@ export default function App() {
 { label: "フリガナ", key: "kana", placeholder: "ヤマダ ハナコ", required: true },
 { label: "携帯番号", key: "tel", placeholder: "090-0000-0000", required: true, type: "tel" },
 { label: "メールアドレス", key: "email", placeholder: "example@email.com", required: true, type: "email" },
-{ label: "生年月日", key: "birthday", placeholder: "1980-01-01", required: true, type: "date" },
+]}
+    {/* 生年月日 */}
+    <div>
+      <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>生年月日 <span style={{ color: ORANGE }}>*</span></label>
+      <div style={{ display: "flex", gap: 8 }}>
+        <select value={profile.birthYear || ""} onChange={e => setProfile({ ...profile, birthYear: e.target.value, birthday: `${e.target.value}-${String(profile.birthMonth || "").padStart(2,"0")}-${String(profile.birthDay || "").padStart(2,"0")}` })} style={{ flex: 2, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
+          <option value="">年</option>
+          {Array.from({ length: 80 }, (_, i) => new Date().getFullYear() - 10 - i).map(y => <option key={y} value={y}>{y}年</option>)}
+        </select>
+        <select value={profile.birthMonth || ""} onChange={e => setProfile({ ...profile, birthMonth: e.target.value, birthday: `${profile.birthYear || ""}-${String(e.target.value).padStart(2,"0")}-${String(profile.birthDay || "").padStart(2,"0")}` })} style={{ flex: 1, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
+          <option value="">月</option>
+          {Array.from({ length: 12 }, (_, i) => i + 1).map(m => <option key={m} value={m}>{m}月</option>)}
+        </select>
+        <select value={profile.birthDay || ""} onChange={e => setProfile({ ...profile, birthDay: e.target.value, birthday: `${profile.birthYear || ""}-${String(profile.birthMonth || "").padStart(2,"0")}-${String(e.target.value).padStart(2,"0")}` })} style={{ flex: 1, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
+          <option value="">日</option>
+          {Array.from({ length: 31 }, (_, i) => i + 1).map(d => <option key={d} value={d}>{d}日</option>)}
+        </select>
+      </div>
+    </div>
+    {[
             ].map(f => (
               <div key={f.key}>
                 <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>
