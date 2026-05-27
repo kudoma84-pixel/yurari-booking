@@ -862,6 +862,26 @@ const saveStoreSettings = async () => {
             )}
           </div>
         )}
+{settingsSubTab === "booking" && (
+  <div style={{ maxWidth: 480 }}>
+    <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a", marginBottom: 20 }}>予約設定 - {currentStore.name}</div>
+    <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 8 }}>当日予約の受付締め切り</div>
+      <div style={{ fontSize: 12, color: "#aaa", marginBottom: 20 }}>予約希望時刻の何分前まで受け付けるか設定します</div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 24 }}>
+        {[30, 60, 90, 120].map(min => (
+          <button key={min} onClick={() => setLeadTime(min)} style={{ padding: "12px 20px", borderRadius: 12, border: `2px solid ${leadTime === min ? "#5a9e7a" : "#e8ddd0"}`, background: leadTime === min ? "#eaf5ec" : "white", color: leadTime === min ? "#3a5a3a" : "#888", fontSize: 14, fontWeight: leadTime === min ? 700 : 400, cursor: "pointer" }}>
+            {min}分前
+          </button>
+        ))}
+      </div>
+      <div style={{ fontSize: 13, color: "#7a9a7a", marginBottom: 20, background: "#f9f6f2", borderRadius: 10, padding: "10px 14px" }}>
+        現在の設定：<strong>予約時刻の{leadTime}分前</strong>まで受付
+      </div>
+      <button onClick={saveStoreSettings} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>保存する</button>
+    </div>
+  </div>
+)}
 
         {tab === "checkout" && (
           <div>
