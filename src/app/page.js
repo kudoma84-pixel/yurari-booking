@@ -620,7 +620,7 @@ export default function App() {
                   const dayIdx = d.getDay();
                   const isSelected = date && d.toDateString() === date.toDateString();
                   return (
-                    <div key={i} onClick={() => setDate(d)} style={{ background: isSelected ? GREEN : "white", border: `2px solid ${isSelected ? GREEN : "#e8ddd0"}`, borderRadius: 12, padding: "10px 12px", cursor: "pointer", textAlign: "center", flexShrink: 0, minWidth: 52 }}>
+                    <div key={i} onClick={() => { setDate(d); if (store) fetchStoreSettings(store.id); }} style={{ background: isSelected ? GREEN : "white", border: `2px solid ${isSelected ? GREEN : "#e8ddd0"}`, borderRadius: 12, padding: "10px 12px", cursor: "pointer", textAlign: "center", flexShrink: 0, minWidth: 52 }}>
                       <div style={{ fontSize: 10, color: isSelected ? "rgba(255,255,255,0.8)" : dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : "#aaa" }}>{DAYS_JP[dayIdx]}</div>
                       <div style={{ fontSize: 18, fontWeight: 700, color: isSelected ? "white" : DARK }}>{d.getDate()}</div>
                       <div style={{ fontSize: 10, color: isSelected ? "rgba(255,255,255,0.8)" : "#aaa" }}>{d.getMonth()+1}月</div>
