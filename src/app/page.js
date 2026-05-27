@@ -387,6 +387,42 @@ export default function App() {
                 />
               </div>
             ))}
+              <div>
+          <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>郵便番号 <span style={{ color: ORANGE }}>*</span></label>
+          <input
+            type="text"
+            value={profile.zipcode}
+            onChange={async (e) => {
+              const zip = e.target.value.replace(/[^0-9]/g, "");
+              setProfile({ ...profile, zipcode: zip });
+              if (zip.length === 7) {
+                const res = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${zip}`);
+                const data = await res.json();
+                if (data.results) {
+                  const r = data.results[0];
+                  setProfile(p => ({ ...p, zipcode: zip, address: `${r.address1}${r.address2}${r.address3}` }));
+                }
+              }
+            }}
+            placeholder="1234567（ハイフンなし）"
+            maxLength={7}
+            style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
+            onFocus={e => e.target.style.borderColor = GREEN}
+            onBlur={e => e.target.style.borderColor = "#e8ddd0"}
+          />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>住所 <span style={{ color: ORANGE }}>*</span></label>
+          <input
+            type="text"
+            value={profile.address}
+            onChange={e => setProfile({ ...profile, address: e.target.value })}
+            placeholder="自動入力されます（番地・部屋番号を追加してください）"
+            style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
+            onFocus={e => e.target.style.borderColor = GREEN}
+            onBlur={e => e.target.style.borderColor = "#e8ddd0"}
+          />
+        </div>
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>ご来院歴</label>
               <div style={{ display: "flex", gap: 10 }}>
