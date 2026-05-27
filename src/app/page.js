@@ -80,7 +80,8 @@ export default function App() {
 
   useEffect(() => { fetchCourses(); }, []);
   useEffect(() => {
-    if (store) { fetchStaff(store.id); fetchStoreSettings(store.id); }
+    useEffect(() => { if (store) { fetchStaff(store.id); fetchStoreSettings(store.id); } }, [store]);
+    useEffect(() => { setDate(null); setTime(null); }, [step]);
   }, [store]);
   useEffect(() => {
     if (session && notificationMethod === "line") {
