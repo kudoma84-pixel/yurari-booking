@@ -127,6 +127,17 @@ export default function App() {
   };
 
   const handleRegisterSubmit = async () => {
+  if (!profile.name || !profile.kana || !profile.tel || !profile.email || !profile.address || !profile.zipcode || !profile.birthday) {
+    setError("全ての項目を入力してください");
+    return;
+  }
+  if (notificationMethod === "email" && !profile.email) {
+    setError("メール登録の場合、メールアドレスは必須です");
+    return;
+  }
+  setScreen("booking");
+  setError("");
+};
   if (!profile.name || !profile.kana || !profile.tel || !profile.email || !profile.address || !profile.birthday) {
     setError("全ての項目を入力してください");
     return;
