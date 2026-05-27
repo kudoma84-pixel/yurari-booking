@@ -274,7 +274,7 @@ export default function AdminPage() {
   useEffect(() => {
    if (loggedIn && tab === "customers") fetchCustomers();
   if (loggedIn && tab === "shifts") { fetchMonthShifts(); fetchShiftPlans(); fetchStaffMembers(); }
-  if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchProducts(); fetchCourseMenus(); }
+  if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchProducts(); fetchCourseMenus(); fetchGiftTicketTemplates(); }
   if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); fetchStoreSettings(); fetchGiftTicketTemplates(); }
   if (loggedIn && tab === "calendar") { fetchStaffMembers(); }
 }, [loggedIn, tab]);
