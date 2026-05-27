@@ -180,8 +180,13 @@ const [leadTime, setLeadTime] = useState(60);
     setStaffMembers(Array.isArray(data) ? data : []);
   };
 
-  const fetchCourseMenus = async () => {
-    const fetchStoreSettings = async () => {
+ const fetchCourseMenus = async () => {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/course_menus?order=sort_order.asc`, { headers });
+  const data = await res.json();
+  setCourseMenus(Array.isArray(data) ? data : []);
+};
+
+const fetchStoreSettings = async () => {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/store_settings?store_id=eq.${currentStore.id}`, { headers });
   const data = await res.json();
   if (data[0]) { setStoreSettings(data[0]); setLeadTime(data[0].same_day_lead_time); }
