@@ -42,15 +42,14 @@ export default function MyPage() {
 
   const handleLogin = async () => {
     const clean = loginCode.replace(/[^0-9]/g, "");
-    if (clean.length !== 12) {
-      setError("携帯下4桁＋誕生日8桁（合計12桁）を入力してください");
+    if (clean.length !== 8) {
+      setError("携帯下4桁＋誕生日4桁（合計8桁）を入力してください");
       return;
     }
     setLoading(true);
     setError("");
     try {
       const telLast4 = clean.slice(0, 4);
-      const mmdd = clean.slice(4); // 8桁 MMDD or MMDDYYYY
       const birthMonth = clean.slice(4, 6);
       const birthDay = clean.slice(6, 8);
       // tel末尾4桁で検索して誕生日MMDDで照合
@@ -178,20 +177,20 @@ export default function MyPage() {
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 8 }}>ログインコード（12桁）</label>
               <div style={{ fontSize: 12, color: "#888", marginBottom: 10, lineHeight: 1.6 }}>
                 携帯番号の下4桁 ＋ 誕生日（月日）4桁<br/>
-                例：携帯 090-<strong>1234</strong>-5678、誕生日 <strong>0804</strong> → <strong>12340804</strong>
+                例：携帯 090-<strong>1234</strong>-5678、誕生日8月4日 → <strong>12340804</strong>
               </div>
               <input
                 type="tel"
                 value={loginCode}
-                onChange={e => setLoginCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 12))}
+                onChange={e => setLoginCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 8))}
                 onKeyDown={e => e.key === "Enter" && handleLogin()}
                 placeholder="12340804"
                 inputMode="numeric"
-                maxLength={12}
+                maxLength={8}
                 style={{ width: "100%", padding: "18px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 24, color: DARK, background: "white", boxSizing: "border-box", outline: "none", letterSpacing: "0.2em", textAlign: "center" }}
               />
               <div style={{ textAlign: "right", fontSize: 12, color: loginCode.length === 12 ? GREEN : "#aaa", marginTop: 6 }}>
-                {loginCode.length} / 12桁
+                {loginCode.length} / 8桁
               </div>
             </div>
             <button
