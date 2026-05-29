@@ -27,6 +27,8 @@ export default function MyPage() {
   const [profileForm, setProfileForm] = useState({});
   const [cancelTarget, setCancelTarget] = useState(null);
   const [cancelDone, setCancelDone] = useState(false);
+  const [notices, setNotices] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const headers = {
     "apikey": SUPABASE_KEY,
@@ -77,6 +79,7 @@ export default function MyPage() {
         await fetchBookings(data[0].id);
         await fetchTickets(data[0].id);
         await fetchAllStaff();
+        await fetchNotices(data[0].id);
         setScreen("mypage");
       } else {
         setError("電話番号または生年月日が一致しません");
@@ -86,6 +89,26 @@ export default function MyPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchNotices = async (customerId) => {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/notifications?customer_id=eq.${customerId}&order=created_at.desc`,
+      { headers }
+    );
+    const data = await res.json();
+    const list = Array.isArray(data) ? data : [];
+    setNotices(list);
+    setUnreadCount(list.filter(n => !n.is_read).length);
+  };
+
+  const markAllRead = async () => {
+    await fetch(
+      `${SUPABASE_URL}/rest/v1/notifications?customer_id=eq.${customer.id}&is_read=eq.false`,
+      { method: "PATCH", headers, body: JSON.stringify({ is_read: true }) }
+    );
+    setNotices(prev => prev.map(n => ({ ...n, is_read: true })));
+    setUnreadCount(0);
   };
 
   const fetchBookings = async (customerId) => {
@@ -271,13 +294,15 @@ export default function MyPage() {
         <div style={{ display: "flex", gap: 8, marginBottom: 24, overflowX: "auto" }}>
           {[
             { id: "booking", label: "📅 予約" },
+            { id: "notice", label: "🔔 お知らせ", badge: unreadCount },
             { id: "ticket", label: "🎫 金券" },
             { id: "staff", label: "👤 担当スタッフ" },
             { id: "profile", label: "⚙️ 個人情報" },
           ].map(t => (
-            <button key={t.id} onClick={() => setActiveTab(t.id)}
-              style={{ padding: "10px 20px", borderRadius: 20, border: "none", background: activeTab === t.id ? GREEN : "white", color: activeTab === t.id ? "white" : "#888", fontSize: 13, fontWeight: activeTab === t.id ? 700 : 400, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+            <button key={t.id} onClick={() => { setActiveTab(t.id); if (t.id === "notice") markAllRead(); }}
+              style={{ position: "relative", padding: "10px 20px", borderRadius: 20, border: "none", background: activeTab === t.id ? GREEN : "white", color: activeTab === t.id ? "white" : "#888", fontSize: 13, fontWeight: activeTab === t.id ? 700 : 400, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
               {t.label}
+              {t.badge > 0 && <span style={{ position: "absolute", top: -4, right: -4, background: "#e07070", color: "white", borderRadius: "50%", width: 18, height: 18, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{t.badge}</span>}
             </button>
           ))}
         </div>
@@ -331,6 +356,34 @@ export default function MyPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* お知らせタブ */}
+        {activeTab === "notice" && (
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 16 }}>🔔 お知らせ</div>
+            {notices.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "40px 20px", background: "white", borderRadius: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>🔔</div>
+                <div style={{ fontSize: 14, color: "#aaa" }}>お知らせはありません</div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {notices.map(n => (
+                  <div key={n.id} style={{ background: n.is_read ? "white" : "#f0f8f4", borderRadius: 16, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", border: n.is_read ? "1px solid #f0ebe4" : `2px solid ${GREEN}30` }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: GREEN }}>{n.title}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {!n.is_read && <div style={{ width: 8, height: 8, borderRadius: "50%", background: GREEN }} />}
+                        <div style={{ fontSize: 11, color: "#aaa" }}>{new Date(n.created_at).toLocaleDateString("ja-JP")}</div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 13, color: DARK, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{n.body}</div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
