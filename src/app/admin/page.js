@@ -88,6 +88,15 @@ export default function AdminPage() {
   const [directBookingForm, setDirectBookingForm] = useState({});
   const [customerSearchResult, setCustomerSearchResult] = useState(null);
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
+  const [notifications, setNotifications] = useState([]);
+  const [notifyTarget, setNotifyTarget] = useState("all"); // all / individual
+  const [notifyCustomerId, setNotifyCustomerId] = useState("");
+  const [notifyTitle, setNotifyTitle] = useState("");
+  const [notifyBody, setNotifyBody] = useState("");
+  const [notifySending, setNotifySending] = useState(false);
+  const [notifySent, setNotifySent] = useState(false);
+  const [notifyCustomerSearch, setNotifyCustomerSearch] = useState("");
+  const [notifyCustomerResult, setNotifyCustomerResult] = useState(null);
 
   const popoverRef = useRef(null);
 
@@ -332,6 +341,79 @@ export default function AdminPage() {
     fetchAll(directBookingModal.date);
   };
 
+  const fetchNotifications = async () => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/notifications?store_id=eq.${currentStore.id}&order=created_at.desc&limit=50`, { headers });
+    const data = await res.json();
+    setNotifications(Array.isArray(data) ? data : []);
+  };
+
+  const sendNotification = async () => {
+    if (!notifyTitle || !notifyBody) return;
+    setNotifySending(true);
+    try {
+      // 対象顧客を取得
+      let targetCustomers = [];
+      if (notifyTarget === "all") {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?select=id,name,email,notification_method`, { headers });
+        targetCustomers = await res.json();
+      } else if (notifyTarget === "individual" && notifyCustomerId) {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${notifyCustomerId}&select=id,name,email,notification_method`, { headers });
+        targetCustomers = await res.json();
+      }
+
+      for (const customer of targetCustomers) {
+        // notificationsテーブルに保存
+        await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
+          method: "POST", headers,
+          body: JSON.stringify({
+            store_id: currentStore.id,
+            customer_id: customer.id,
+            title: notifyTitle,
+            body: notifyBody,
+            is_read: false,
+            sent_via: customer.notification_method || "email",
+          }),
+        });
+        // メール送信
+        if (customer.email && (customer.notification_method === "email" || !customer.notification_method)) {
+          await fetch("/api/send-email", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: customer.email,
+              subject: `【癒楽里】${notifyTitle}`,
+              html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+                <h2 style="color:#2d6a4f;">${notifyTitle}</h2>
+                <p style="white-space:pre-wrap;line-height:1.8;">${notifyBody}</p>
+                <hr style="border:1px solid #eee;margin:20px 0;">
+                <p style="font-size:12px;color:#888;">整体院 癒楽里<br>マイページ: https://yurari-booking.vercel.app/mypage</p>
+              </div>`,
+            }),
+          });
+        }
+      }
+      setNotifySent(true);
+      setNotifyTitle("");
+      setNotifyBody("");
+      setNotifyCustomerId("");
+      setNotifyCustomerResult(null);
+      setNotifyCustomerSearch("");
+      await fetchNotifications();
+      setTimeout(() => setNotifySent(false), 3000);
+    } catch(e) {
+      alert("送信エラーが発生しました");
+    } finally {
+      setNotifySending(false);
+    }
+  };
+
+  const searchNotifyCustomer = async (query) => {
+    if (!query) { setNotifyCustomerResult(null); return; }
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?or=(name.ilike.*${query}*,tel.ilike.*${query}*)&select=id,name,tel,email&limit=5`, { headers });
+    const data = await res.json();
+    setNotifyCustomerResult(Array.isArray(data) ? data : []);
+  };
+
   const fetchAll = async (date) => {
     await Promise.all([fetchBookings(date), fetchBlocks(date), fetchShifts(date), fetchExtensions(date)]);
   };
@@ -343,6 +425,7 @@ export default function AdminPage() {
     if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); fetchStoreSettings(); fetchGiftTicketTemplates(); }
     if (loggedIn && tab === "calendar") { fetchStaffMembers(); }
     if (loggedIn && tab === "bookings") { fetchBookings(selectedDate || new Date()); }
+    if (loggedIn && tab === "notifications") { fetchNotifications(); fetchCustomers(); }
   }, [loggedIn, tab]);
 
   useEffect(() => {
@@ -1013,6 +1096,7 @@ export default function AdminPage() {
           { id: "checkout", label: "💴 会計" },
           { id: "shifts", label: "👤 シフト管理" },
           { id: "customers", label: "👥 顧客管理" },
+          { id: "notifications", label: "🔔 通知" },
           { id: "settings", label: "⚙️ 設定" },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "14px 20px", border: "none", background: "none", fontSize: 14, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? "#3a5a3a" : "#aaa", borderBottom: tab === t.id ? "3px solid #5a9e7a" : "3px solid transparent", cursor: "pointer", whiteSpace: "nowrap" }}>{t.label}</button>
@@ -1556,6 +1640,82 @@ export default function AdminPage() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {tab === "notifications" && (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", margin: 0 }}>🔔 通知送信</h2>
+            </div>
+            {notifySent && <div style={{ background: "#eaf5ec", border: "1px solid #5a9e7a", borderRadius: 12, padding: "12px 16px", marginBottom: 20, fontSize: 14, color: "#3a5a3a", fontWeight: 700 }}>✓ 送信完了しました！</div>}
+            <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 320 }}>
+                <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 20 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 16 }}>送信先</div>
+                  <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+                    {[{ id: "all", label: "全顧客" }, { id: "individual", label: "個別指定" }].map(t => (
+                      <button key={t.id} onClick={() => { setNotifyTarget(t.id); setNotifyCustomerId(""); setNotifyCustomerResult(null); setNotifyCustomerSearch(""); }}
+                        style={{ flex: 1, padding: "10px", borderRadius: 10, border: `2px solid ${notifyTarget === t.id ? "#5a9e7a" : "#e8ddd0"}`, background: notifyTarget === t.id ? "#eaf5ec" : "white", color: notifyTarget === t.id ? "#3a5a3a" : "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                  {notifyTarget === "individual" && (
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                        <input value={notifyCustomerSearch} onChange={e => setNotifyCustomerSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && searchNotifyCustomer(notifyCustomerSearch)}
+                          placeholder="名前・電話番号で検索" style={{ flex: 1, padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+                        <button onClick={() => searchNotifyCustomer(notifyCustomerSearch)}
+                          style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>検索</button>
+                      </div>
+                      {notifyCustomerResult && notifyCustomerResult.map(c => (
+                        <div key={c.id} onClick={() => { setNotifyCustomerId(c.id); setNotifyCustomerResult(null); setNotifyCustomerSearch(c.name); }}
+                          style={{ padding: "10px 14px", background: notifyCustomerId === c.id ? "#eaf5ec" : "#f9f6f2", borderRadius: 10, cursor: "pointer", marginBottom: 4, fontSize: 13 }}>
+                          {c.name} / {c.tel}
+                        </div>
+                      ))}
+                      {notifyCustomerId && <div style={{ fontSize: 12, color: "#5a9e7a", marginTop: 4 }}>✓ {notifyCustomerSearch} を選択中</div>}
+                    </div>
+                  )}
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>タイトル</label>
+                    <input value={notifyTitle} onChange={e => setNotifyTitle(e.target.value)} placeholder="例：次回予約のご案内"
+                      style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+                  </div>
+                  <div style={{ marginBottom: 20 }}>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>本文</label>
+                    <textarea value={notifyBody} onChange={e => setNotifyBody(e.target.value)} placeholder="メッセージ内容を入力..." rows={5}
+                      style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }} />
+                  </div>
+                  <button onClick={sendNotification} disabled={notifySending || !notifyTitle || !notifyBody || (notifyTarget === "individual" && !notifyCustomerId)}
+                    style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: notifySending || !notifyTitle || !notifyBody ? "#e8ddd0" : "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: notifySending || !notifyTitle || !notifyBody ? "#bbb" : "white", fontSize: 15, fontWeight: 700, cursor: notifySending ? "not-allowed" : "pointer" }}>
+                    {notifySending ? "送信中..." : "🔔 送信する"}
+                  </button>
+                </div>
+              </div>
+              <div style={{ flex: 1, minWidth: 320 }}>
+                <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 16 }}>送信履歴</div>
+                  {notifications.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: 40, color: "#aaa", fontSize: 13 }}>送信履歴がありません</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {notifications.map(n => (
+                        <div key={n.id} style={{ padding: "12px 16px", background: "#f9f6f2", borderRadius: 12 }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a" }}>{n.title}</div>
+                            <div style={{ fontSize: 10, color: "#aaa" }}>{new Date(n.created_at).toLocaleDateString("ja-JP")}</div>
+                          </div>
+                          <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>{n.body?.slice(0, 50)}{n.body?.length > 50 ? "..." : ""}</div>
+                          <div style={{ fontSize: 11, color: "#aaa" }}>送信方法: {n.sent_via || "-"}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
