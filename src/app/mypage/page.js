@@ -197,10 +197,10 @@ export default function MyPage() {
 
           <div style={{ background: "white", borderRadius: 20, padding: 28, boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}>
             <div style={{ marginBottom: 28 }}>
-              <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 8 }}>ログインコード（12桁）</label>
+              <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 8 }}>ログインコード（8桁）</label>
               <div style={{ fontSize: 12, color: "#888", marginBottom: 10, lineHeight: 1.6 }}>
-                携帯番号の下4桁 ＋ 誕生日（月日）4桁<br/>
-                例：携帯 090-<strong>1234</strong>-5678、誕生日8月4日 → <strong>12340804</strong>
+                携帯番号の下4桁 ＋ 誕生日（月日）4桁 = 合計8桁<br/>
+                例：携帯 090-1234-<strong>5678</strong>、誕生日8月4日（<strong>0804</strong>） → <strong>56780804</strong>
               </div>
               <input
                 type="tel"
@@ -302,7 +302,7 @@ export default function MyPage() {
             <button key={t.id} onClick={() => { setActiveTab(t.id); if (t.id === "notice") markAllRead(); }}
               style={{ position: "relative", padding: "10px 20px", borderRadius: 20, border: "none", background: activeTab === t.id ? GREEN : "white", color: activeTab === t.id ? "white" : "#888", fontSize: 13, fontWeight: activeTab === t.id ? 700 : 400, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
               {t.label}
-              {t.badge > 0 && <span style={{ position: "absolute", top: -4, right: -4, background: "#e07070", color: "white", borderRadius: "50%", width: 18, height: 18, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{t.badge}</span>}
+              {t.badge > 0 && <span style={{ position: "absolute", top: -6, right: -6, background: "#e07070", color: "white", borderRadius: "50%", width: 20, height: 20, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 0 2px white" }}>{t.badge}</span>}
             </button>
           ))}
         </div>
