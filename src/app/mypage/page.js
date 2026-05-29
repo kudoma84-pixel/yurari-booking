@@ -291,7 +291,7 @@ export default function MyPage() {
         </div>
 
         {/* タブ */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 24, overflowX: "auto" }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 24, overflowX: "auto", paddingTop: 8, paddingBottom: 4 }}>
           {[
             { id: "booking", label: "📅 予約" },
             { id: "notice", label: "🔔 お知らせ", badge: unreadCount },
