@@ -375,22 +375,7 @@ export default function AdminPage() {
           }),
         });
         // メール送信
-        if (customer.email && (customer.notification_method === "email" || !customer.notification_method)) {
-          await fetch("/api/send-email", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              to: customer.email,
-              subject: `【癒楽里】${notifyTitle}`,
-              html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-                <h2 style="color:#2d6a4f;">${notifyTitle}</h2>
-                <p style="white-space:pre-wrap;line-height:1.8;">${notifyBody}</p>
-                <hr style="border:1px solid #eee;margin:20px 0;">
-                <p style="font-size:12px;color:#888;">整体院 癒楽里<br>マイページ: https://yurari-booking.vercel.app/mypage</p>
-              </div>`,
-            }),
-          });
-        }
+
       }
       setNotifySent(true);
       setNotifyTitle("");
