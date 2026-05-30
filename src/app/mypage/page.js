@@ -338,10 +338,16 @@ export default function MyPage() {
                     <div style={{ fontSize: 14, color: DARK, marginBottom: 2 }}>📅 {formatDate(b.booking_date)} {b.booking_time}〜</div>
                     <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>👤 {b.staff_name}</div>
                     {b.status !== "cancelled" && b.status !== "completed" && (
-                      <button onClick={() => setCancelTarget(b)}
-                        style={{ width: "100%", padding: "12px", borderRadius: 12, border: "2px solid #e07070", background: "white", color: "#e07070", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                        キャンセルする
-                      </button>
+                      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                        <a href={`/src?change=${b.id}`}
+                          style={{ flex: 2, padding: "12px", borderRadius: 12, border: "none", background: GREEN, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer", textAlign: "center", textDecoration: "none" }}>
+                          予約を変更する
+                        </a>
+                        <button onClick={() => setCancelTarget(b)}
+                          style={{ flex: 1, padding: "12px", borderRadius: 12, border: "2px solid #e07070", background: "white", color: "#e07070", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                          キャンセル
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))}
