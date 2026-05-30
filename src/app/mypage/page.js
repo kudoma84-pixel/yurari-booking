@@ -37,6 +37,41 @@ export default function MyPage() {
     "Prefer": "return=representation",
   };
 
+  // 自動ログインチェック
+  useEffect(() => {
+    const customerId = localStorage.getItem('yurari_customer_id');
+    const expire = localStorage.getItem('yurari_login_expire');
+    if (customerId && expire && Date.now() < parseInt(expire)) {
+      const autoLogin = async () => {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}&select=*`, {
+          headers: {
+            "apikey": SUPABASE_KEY,
+            "Authorization": `Bearer ${SUPABASE_KEY}`,
+          }
+        });
+        const data = await res.json();
+        if (data && data.length > 0) {
+          setCustomer(data[0]);
+          setProfileForm({
+            name: data[0].name || "",
+            kana: data[0].kana || "",
+            tel: data[0].tel || "",
+            email: data[0].email || "",
+            address: data[0].address || "",
+            zipcode: data[0].zipcode || "",
+            preferred_staff_id: data[0].preferred_staff_id || "",
+          });
+          await fetchBookings(data[0].id);
+          await fetchTickets(data[0].id);
+          await fetchAllStaff();
+          await fetchNotices(data[0].id);
+          setScreen("mypage");
+        }
+      };
+      autoLogin();
+    }
+  }, []);
+
   const formatDate = (d) => {
     const dt = new Date(d);
     return `${dt.getFullYear()}年${dt.getMonth()+1}月${dt.getDate()}日（${DAYS_JP[dt.getDay()]}）`;
@@ -76,6 +111,9 @@ export default function MyPage() {
           zipcode: data[0].zipcode || "",
           preferred_staff_id: data[0].preferred_staff_id || "",
         });
+        // ログイン情報を保存（7日間）
+        localStorage.setItem('yurari_customer_id', data[0].id);
+        localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
         await fetchBookings(data[0].id);
         await fetchTickets(data[0].id);
         await fetchAllStaff();
@@ -251,7 +289,7 @@ export default function MyPage() {
           <img src={LOGO_URL} alt="癒楽里" style={{ height: 44, width: "auto" }} />
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ fontSize: 13, color: GREEN, fontWeight: 700 }}>{customer?.name} 様</div>
-            <button onClick={() => { setScreen("login"); setCustomer(null); setLoginCode(""); }}
+            <button onClick={() => { localStorage.removeItem('yurari_customer_id'); localStorage.removeItem('yurari_login_expire'); setScreen("login"); setCustomer(null); setLoginCode(""); }}
               style={{ padding: "8px 16px", borderRadius: 20, border: `2px solid ${GREEN}40`, background: "white", color: GREEN, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
               ログアウト
             </button>
