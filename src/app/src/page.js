@@ -171,6 +171,7 @@ function AppInner() {
   };
 
   const handleRegisterSubmit = async () => {
+    console.log("profile:", profile);
     if (!profile.name || !profile.kana || !profile.tel || !profile.email || !profile.address || !profile.zipcode || !profile.birthday) {
       setError("全ての項目を入力してください");
       return;
