@@ -215,8 +215,6 @@ function AppInner() {
           name: profile.name, kana: profile.kana, tel: profile.tel,
           email: profile.email, address: profile.address,
           zipcode: profile.zipcode, birthday: profile.birthday || null,
-          points: 0,
-          line_user_id: session?.lineUserId || null,
           notification_method: notificationMethod || "email",
         }),
       });
