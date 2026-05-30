@@ -170,13 +170,49 @@ function AppInner() {
     }
   };
 
-  const handleRegisterSubmit = () => {
+  const handleRegisterSubmit = async () => {
     if (!profile.name || !profile.kana || !profile.tel || !profile.email || !profile.address || !profile.zipcode || !profile.birthday) {
       setError("全ての項目を入力してください");
       return;
     }
-    setScreen("booking");
     setError("");
+    // 既存顧客チェック
+    const searchRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?tel=eq.${profile.tel}&select=id,name,kana,tel,email,address,zipcode,birthday`, { headers });
+    const existing = await searchRes.json();
+    if (existing && existing.length > 0) {
+      // 既存顧客の情報を更新
+      await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${existing[0].id}`, {
+        method: "PATCH", headers,
+        body: JSON.stringify({
+          name: profile.name, kana: profile.kana,
+          email: profile.email, address: profile.address,
+          zipcode: profile.zipcode, birthday: profile.birthday,
+          notification_method: notificationMethod || "email",
+        }),
+      });
+      setExistingCustomer({ ...existing[0], ...profile });
+    } else {
+      // 新規顧客を登録
+      const newRes = await fetch(`${SUPABASE_URL}/rest/v1/customers`, {
+        method: "POST", headers,
+        body: JSON.stringify({
+          name: profile.name, kana: profile.kana, tel: profile.tel,
+          email: profile.email, address: profile.address,
+          zipcode: profile.zipcode, birthday: profile.birthday || null,
+          points: 0,
+          line_user_id: session?.lineUserId || null,
+          notification_method: notificationMethod || "email",
+        }),
+      });
+      const newCustomer = await newRes.json();
+      if (newCustomer[0]) {
+        setExistingCustomer(newCustomer[0]);
+        // localStorageに保存
+        localStorage.setItem('yurari_customer_id', newCustomer[0].id);
+        localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
+      }
+    }
+    setScreen("booking");
   };
 
   const canNext = () => {
