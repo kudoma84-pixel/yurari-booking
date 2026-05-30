@@ -1,6 +1,7 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { signIn, useSession } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 
 const SUPABASE_URL = "https://pbjekdzmvjqhqbbrzbfk.supabase.co";
 const SUPABASE_KEY = "sb_publishable_I_98PawL-eNS__SZa0DlPA_80VwFUZc";
@@ -46,8 +47,11 @@ function formatDate(d) {
 
 const bookingSteps = ["店舗選択","コース選択","スタッフ・日時","確認"];
 
-export default function App() {
+function AppInner() {
   const { data: session } = useSession();
+  const searchParams = useSearchParams();
+  const changeBookingId = searchParams?.get('change');
+
   const [screen, setScreen] = useState("top");
   const [notificationMethod, setNotificationMethod] = useState(null);
   const [step, setStep] = useState(0);
@@ -87,6 +91,14 @@ export default function App() {
   useEffect(() => {
     if (session && notificationMethod === "line") { checkExistingCustomer(); }
   }, [session]);
+
+  // 予約変更モードの場合は直接予約画面へ
+  useEffect(() => {
+    if (changeBookingId) {
+      setNotificationMethod("email");
+      setScreen("booking");
+    }
+  }, [changeBookingId]);
 
   const fetchCourses = async () => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/course_menus?is_active=eq.true&order=sort_order.asc`, { headers });
@@ -189,6 +201,13 @@ export default function App() {
           status: "confirmed", notes: profile.notes, booking_number: num,
         }),
       });
+      // 予約変更の場合は古い予約をキャンセル
+      if (changeBookingId) {
+        await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${changeBookingId}`, {
+          method: "PATCH", headers,
+          body: JSON.stringify({ status: "cancelled" }),
+        });
+      }
       setBookingNum(num);
       setScreen("complete");
     } catch (e) {
@@ -232,11 +251,13 @@ export default function App() {
           <img src={LOGO_URL} alt="癒楽里ロゴ" style={{ height: 44, width: "auto" }} />
         </div>
         {!showBack && (
-  <div style={{ display: "flex", gap: 8 }}>
-    <a href="/mypage" style={{ padding: "10px 20px", borderRadius: 25, border: `2px solid ${GREEN}`, background: "white", color: GREEN, fontSize: 13, fontWeight: 700, textDecoration: "none" }}>マイページ</a>
-    <button onClick={() => setScreen("auth")} style={{ padding: "10px 20px", borderRadius: 25, border: "none", background: ORANGE, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>ご予約はこちら</button>
-  </div>
-)}
+          <div style={{ display: "flex", gap: 8 }}>
+            <a href="/mypage" style={{ padding: "10px 20px", borderRadius: 25, border: `2px solid ${GREEN}`, background: "white", color: GREEN, fontSize: 13, fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center" }}>マイページ</a>
+            <button onClick={() => setScreen("auth")} style={{ padding: "10px 20px", borderRadius: 25, border: "none", background: ORANGE, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              ご予約はこちら
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -372,35 +393,26 @@ export default function App() {
           </div>
           {error && <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#cc4444" }}>{error}</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>お名前 <span style={{ color: ORANGE }}>*</span></label>
               <input type="text" value={profile.name} onChange={e => setProfile({ ...profile, name: e.target.value })} placeholder="山田 花子"
-                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
-                onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
+                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }} />
             </div>
-
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>フリガナ <span style={{ color: ORANGE }}>*</span></label>
               <input type="text" value={profile.kana} onChange={e => setProfile({ ...profile, kana: e.target.value })} placeholder="ヤマダ ハナコ"
-                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
-                onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
+                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }} />
             </div>
-
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>携帯番号 <span style={{ color: ORANGE }}>*</span></label>
               <input type="tel" value={profile.tel} onChange={e => setProfile({ ...profile, tel: e.target.value })} placeholder="090-0000-0000"
-                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
-                onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
+                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }} />
             </div>
-
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>メールアドレス <span style={{ color: ORANGE }}>*</span></label>
               <input type="email" value={profile.email} onChange={e => setProfile({ ...profile, email: e.target.value })} placeholder="example@email.com"
-                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
-                onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
+                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }} />
             </div>
-
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>郵便番号 <span style={{ color: ORANGE }}>*</span></label>
               <input type="text" value={profile.zipcode} maxLength={7} placeholder="1234567（ハイフンなし）"
@@ -416,44 +428,33 @@ export default function App() {
                     }
                   }
                 }}
-                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
-                onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
+                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }} />
             </div>
-
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>住所 <span style={{ color: ORANGE }}>*</span></label>
               <input type="text" value={profile.address} onChange={e => setProfile({ ...profile, address: e.target.value })} placeholder="自動入力されます（番地・部屋番号を追加してください）"
-                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }}
-                onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
+                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none" }} />
             </div>
-
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>生年月日 <span style={{ color: ORANGE }}>*</span></label>
               <div style={{ display: "flex", gap: 8 }}>
-                <select value={profile.birthYear} onChange={e => {
-                  const y = e.target.value;
-                  setProfile({ ...profile, birthYear: y, birthday: updateBirthday(y, profile.birthMonth, profile.birthDay) });
-                }} style={{ flex: 2, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
+                <select value={profile.birthYear} onChange={e => { const y = e.target.value; setProfile({ ...profile, birthYear: y, birthday: updateBirthday(y, profile.birthMonth, profile.birthDay) }); }}
+                  style={{ flex: 2, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
                   <option value="">年</option>
                   {Array.from({ length: 80 }, (_, i) => new Date().getFullYear() - i).map(y => <option key={y} value={y}>{y}年</option>)}
                 </select>
-                <select value={profile.birthMonth} onChange={e => {
-                  const m = e.target.value;
-                  setProfile({ ...profile, birthMonth: m, birthday: updateBirthday(profile.birthYear, m, profile.birthDay) });
-                }} style={{ flex: 1, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
+                <select value={profile.birthMonth} onChange={e => { const m = e.target.value; setProfile({ ...profile, birthMonth: m, birthday: updateBirthday(profile.birthYear, m, profile.birthDay) }); }}
+                  style={{ flex: 1, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
                   <option value="">月</option>
                   {Array.from({ length: 12 }, (_, i) => i + 1).map(m => <option key={m} value={m}>{m}月</option>)}
                 </select>
-                <select value={profile.birthDay} onChange={e => {
-                  const d = e.target.value;
-                  setProfile({ ...profile, birthDay: d, birthday: updateBirthday(profile.birthYear, profile.birthMonth, d) });
-                }} style={{ flex: 1, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
+                <select value={profile.birthDay} onChange={e => { const d = e.target.value; setProfile({ ...profile, birthDay: d, birthday: updateBirthday(profile.birthYear, profile.birthMonth, d) }); }}
+                  style={{ flex: 1, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
                   <option value="">日</option>
                   {Array.from({ length: 31 }, (_, i) => i + 1).map(d => <option key={d} value={d}>{d}日</option>)}
                 </select>
               </div>
             </div>
-
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>ご来院歴</label>
               <div style={{ display: "flex", gap: 10 }}>
@@ -462,14 +463,11 @@ export default function App() {
                 ))}
               </div>
             </div>
-
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>お悩み・ご要望（任意）</label>
               <textarea value={profile.notes} onChange={e => setProfile({ ...profile, notes: e.target.value })} placeholder="肩こりがひどく、特に右肩が気になります..." rows={3}
-                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white", boxSizing: "border-box", outline: "none", resize: "none", fontFamily: "inherit" }}
-                onFocus={e => e.target.style.borderColor = GREEN} onBlur={e => e.target.style.borderColor = "#e8ddd0"} />
+                style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white", boxSizing: "border-box", outline: "none", resize: "none", fontFamily: "inherit" }} />
             </div>
-
           </div>
         </div>
         <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(12px)", borderTop: `3px solid ${GREEN}20`, padding: "12px 16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom))" }}>
@@ -489,7 +487,7 @@ export default function App() {
         <Header showBack={true} />
         <div style={{ maxWidth: 640, margin: "0 auto", padding: "40px 20px", textAlign: "center" }}>
           <div style={{ fontSize: 64, marginBottom: 16 }}>🌿</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: GREEN, marginBottom: 8 }}>ご予約が完了しました！</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: GREEN, marginBottom: 8 }}>{changeBookingId ? "予約を変更しました！" : "ご予約が完了しました！"}</div>
           <div style={{ fontSize: 14, color: "#888", marginBottom: 32 }}>ありがとうございます</div>
           <div style={{ background: "white", borderRadius: 20, padding: "24px", marginBottom: 24, boxShadow: "0 4px 20px rgba(0,0,0,0.08)", border: `2px solid ${LIGHT_GREEN}` }}>
             <div style={{ fontSize: 11, color: LIGHT_GREEN, marginBottom: 4 }}>予約番号</div>
@@ -512,12 +510,8 @@ export default function App() {
           <div style={{ fontSize: 12, color: "#aaa", marginBottom: 24, lineHeight: 1.8 }}>
             当日は予約時間の5分前にお越しください。<br/>キャンセル・変更は前日17時まで承ります。
           </div>
-          <a href={store?.lineUrl} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, width: "100%", padding: "15px", borderRadius: 14, background: "#06C755", color: "white", fontSize: 15, fontWeight: 700, textDecoration: "none", marginBottom: 12, boxSizing: "border-box" }}>
-            LINEでお問い合わせ・変更はこちら
-          </a>
+          <a href="/mypage" style={{ display: "block", width: "100%", padding: "14px", borderRadius: 14, background: GREEN, color: "white", fontSize: 15, fontWeight: 700, textDecoration: "none", textAlign: "center", marginBottom: 12, boxSizing: "border-box" }}>マイページで予約を確認する</a>
           <button onClick={reset} style={{ width: "100%", padding: "14px", borderRadius: 14, border: `2px solid ${GREEN}`, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>別の予約をする</button>
-<a href="/mypage" style={{ display: "block", width: "100%", padding: "14px", borderRadius: 14, background: GREEN, color: "white", fontSize: 15, fontWeight: 700, textDecoration: "none", textAlign: "center", marginBottom: 12, boxSizing: "border-box" }}>マイページで予約を確認する</a>
-<button onClick={reset} style={{ width: "100%", padding: "14px", borderRadius: 14, border: `2px solid ${GREEN}`, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>別の予約をする</button>
         </div>
       </div>
     );
@@ -679,7 +673,7 @@ export default function App() {
             </div>
             {error && <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#cc4444" }}>{error}</div>}
             <button onClick={handleSubmit} disabled={loading} style={{ width: "100%", padding: "18px", borderRadius: 14, border: "none", cursor: loading ? "not-allowed" : "pointer", background: loading ? "#aaa" : GREEN, color: "white", fontSize: 16, fontWeight: 700 }}>
-              {loading ? "送信中..." : "✓ この内容で予約を確定する"}
+              {loading ? "送信中..." : changeBookingId ? "✓ この内容で予約を変更する" : "✓ この内容で予約を確定する"}
             </button>
           </div>
         )}
@@ -688,10 +682,18 @@ export default function App() {
           <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", gap: 12 }}>
             {step > 0 && <button onClick={() => { setStep(step - 1); setDate(null); setTime(null); }} style={{ flex: 1, padding: "14px", borderRadius: 14, border: `2px solid ${GREEN}40`, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>← 戻る</button>}
             {step < 3 && <button onClick={() => { if (canNext()) { if (step < 2) { setDate(null); setTime(null); } setStep(step + 1); } }} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: canNext() ? GREEN : "#e8ddd0", color: canNext() ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: canNext() ? "pointer" : "not-allowed" }}>次へ →</button>}
-            {step === 3 && <button onClick={handleSubmit} disabled={loading} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: ORANGE, color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>予約を確定する ✓</button>}
+            {step === 3 && <button onClick={handleSubmit} disabled={loading} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: ORANGE, color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>{changeBookingId ? "予約を変更する ✓" : "予約を確定する ✓"}</button>}
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: "100vh", background: "#fdf8f0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: "#888" }}>読み込み中...</div>}>
+      <AppInner />
+    </Suspense>
   );
 }
