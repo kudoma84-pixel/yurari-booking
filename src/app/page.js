@@ -686,7 +686,7 @@ export default function App() {
         <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(12px)", borderTop: `3px solid ${GREEN}20`, padding: "12px 16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom))" }}>
           <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", gap: 12 }}>
             {step > 0 && <button onClick={() => { setStep(step - 1); setDate(null); setTime(null); }} style={{ flex: 1, padding: "14px", borderRadius: 14, border: `2px solid ${GREEN}40`, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>← 戻る</button>}
-            {step < 3 && <button onClick={() => { if (canNext()) { setDate(null); setTime(null); setStep(step + 1); } }} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: canNext() ? GREEN : "#e8ddd0", color: canNext() ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: canNext() ? "pointer" : "not-allowed" }}>次へ →</button>}
+            {step < 3 && <button onClick={() => { if (canNext()) { if (step < 2) { setDate(null); setTime(null); } setStep(step + 1); } }}
             {step === 3 && <button onClick={handleSubmit} disabled={loading} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: ORANGE, color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>予約を確定する ✓</button>}
           </div>
         </div>
