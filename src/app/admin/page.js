@@ -89,6 +89,13 @@ export default function AdminPage() {
   const [customerSearchResult, setCustomerSearchResult] = useState(null);
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [notifications, setNotifications] = useState([]);
+  const [giftModal, setGiftModal] = useState(null); // { customer, mode: 'sell' or 'present' }
+  const [giftForm, setGiftForm] = useState({});
+  const [giftCustomerSearch, setGiftCustomerSearch] = useState("");
+  const [giftCustomerResult, setGiftCustomerResult] = useState(null);
+  const [giftSelectedCustomer, setGiftSelectedCustomer] = useState(null);
+  const [giftSaving, setGiftSaving] = useState(false);
+  const [giftDone, setGiftDone] = useState(false);
   const [notifyTarget, setNotifyTarget] = useState("all"); // all / individual
   const [notifyCustomerId, setNotifyCustomerId] = useState("");
   const [notifyTitle, setNotifyTitle] = useState("");
@@ -341,6 +348,77 @@ export default function AdminPage() {
     fetchAll(directBookingModal.date);
   };
 
+  const searchGiftCustomer = async (query) => {
+    if (!query) { setGiftCustomerResult(null); return; }
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?or=(name.ilike.*${query}*,tel.ilike.*${query}*)&select=id,name,tel,email&limit=5`, { headers });
+    const data = await res.json();
+    setGiftCustomerResult(Array.isArray(data) ? data : []);
+  };
+
+  const issueGiftTickets = async () => {
+    if (!giftSelectedCustomer || !giftForm.templateId) return;
+    setGiftSaving(true);
+    try {
+      const template = giftTicketTemplates.find(t => t.id === giftForm.templateId);
+      if (!template) return;
+      const count = giftModal.mode === 'sell' ? (template.ticket_count || 10) : 1;
+      const today = new Date();
+      const expires = new Date(today);
+      expires.setFullYear(expires.getFullYear() + 1);
+      const groupId = crypto.randomUUID();
+      for (let i = 0; i < count; i++) {
+        await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
+          method: "POST", headers,
+          body: JSON.stringify({
+            store_id: currentStore.id,
+            customer_id: giftSelectedCustomer.id,
+            ticket_type: giftModal.mode === 'sell' ? 'purchase' : 'present',
+            purchase_group_id: giftModal.mode === 'sell' ? groupId : null,
+            ticket_name: template.name,
+            face_value: template.face_value,
+            issued_at: formatDate(today),
+            expires_at: formatDate(expires),
+            status: 'active',
+          }),
+        });
+      }
+      setGiftDone(true);
+      setTimeout(() => { setGiftModal(null); setGiftDone(false); setGiftSelectedCustomer(null); setGiftForm({}); setGiftCustomerSearch(""); setGiftCustomerResult(null); }, 2000);
+    } catch(e) {
+      alert("発行エラーが発生しました");
+    } finally {
+      setGiftSaving(false);
+    }
+  };
+
+  const useGiftTicketByCount = async (customerId) => {
+    const today = formatDate(new Date());
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/gift_tickets?customer_id=eq.${customerId}&status=eq.active&expires_at=gte.${today}&order=expires_at.asc&limit=1`,
+      { headers }
+    );
+    const data = await res.json();
+    if (data && data.length > 0) {
+      await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${data[0].id}`, {
+        method: "PATCH", headers,
+        body: JSON.stringify({ status: "used", used_at: new Date().toISOString() }),
+      });
+      return data[0];
+    }
+    return null;
+  };
+
+  const fetchCustomerTicketCount = async (customerId) => {
+    if (!customerId) return;
+    const today = formatDate(new Date());
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/gift_tickets?customer_id=eq.${customerId}&status=eq.active&expires_at=gte.${today}&order=expires_at.asc`,
+      { headers }
+    );
+    const data = await res.json();
+    setCustomerTickets(Array.isArray(data) ? data : []);
+  };
+
   const fetchNotifications = async () => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/notifications?store_id=eq.${currentStore.id}&order=created_at.desc&limit=50`, { headers });
     const data = await res.json();
@@ -411,6 +489,7 @@ export default function AdminPage() {
     if (loggedIn && tab === "calendar") { fetchStaffMembers(); }
     if (loggedIn && tab === "bookings") { fetchBookings(selectedDate || new Date()); }
     if (loggedIn && tab === "notifications") { fetchNotifications(); fetchCustomers(); }
+    if (loggedIn && tab === "gifts") { fetchGiftTicketTemplates(); }
   }, [loggedIn, tab]);
 
   useEffect(() => {
@@ -488,7 +567,7 @@ export default function AdminPage() {
     setCheckoutResult(null);
     setSelectedTicket(null);
     setCustomerTickets([]);
-    if (booking.customer_id) fetchCustomerTickets(booking.customer_id);
+    if (booking.customer_id) fetchCustomerTicketCount(booking.customer_id);
   };
 
   const addProduct = (product) => {
@@ -1082,6 +1161,7 @@ export default function AdminPage() {
           { id: "shifts", label: "👤 シフト管理" },
           { id: "customers", label: "👥 顧客管理" },
           { id: "notifications", label: "🔔 通知" },
+          { id: "gifts", label: "🎫 金券管理" },
           { id: "settings", label: "⚙️ 設定" },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "14px 20px", border: "none", background: "none", fontSize: 14, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? "#3a5a3a" : "#aaa", borderBottom: tab === t.id ? "3px solid #5a9e7a" : "3px solid transparent", cursor: "pointer", whiteSpace: "nowrap" }}>{t.label}</button>
@@ -1353,36 +1433,30 @@ export default function AdminPage() {
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>🎫 金券</div>
                     {checkoutBooking?.customer_id ? (
                       <>
-                        {customerTickets.length > 0 && (
-                          <div style={{ marginBottom: 16 }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", marginBottom: 8 }}>所持中の金券</div>
-                            {customerTickets.map(t => (
-                              <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "#f0f8f4", borderRadius: 10, marginBottom: 6 }}>
-                                <div>
-                                  <div style={{ fontSize: 12, fontWeight: 700, color: "#3a5a3a" }}>{t.ticket_name}</div>
-                                  <div style={{ fontSize: 11, color: "#888" }}>残高 {formatPrice(t.remaining_value)} / 期限 {t.expires_at}</div>
-                                </div>
-                                <button onClick={() => useGiftTicket(t, t.remaining_value)} disabled={selectedTicket?.id === t.id} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: selectedTicket?.id === t.id ? "#aaa" : "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 11, fontWeight: 700, cursor: selectedTicket?.id === t.id ? "not-allowed" : "pointer" }}>
-                                  {selectedTicket?.id === t.id ? `使用済 -${formatPrice(selectedTicket.use_amount)}` : "使用する"}
-                                </button>
+                        <div style={{ marginBottom: 16 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", marginBottom: 8 }}>保有枚数</div>
+                          {customerTickets.length === 0 ? (
+                            <div style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: 12 }}>金券がありません</div>
+                          ) : (
+                            <>
+                              <div style={{ background: "#f0f8f4", borderRadius: 12, padding: "12px 16px", marginBottom: 8 }}>
+                                <div style={{ fontSize: 24, fontWeight: 700, color: "#3a5a3a" }}>{customerTickets.length}枚</div>
+                                <div style={{ fontSize: 11, color: "#888" }}>有効期限が近い順に使用されます</div>
+                                <div style={{ fontSize: 11, color: "#aaa", marginTop: 4 }}>最短期限: {customerTickets[0]?.expires_at}</div>
                               </div>
-                            ))}
-                          </div>
-                        )}
-                        <div style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", marginBottom: 8 }}>金券を新規発行</div>
-                        {giftTicketTemplates.filter(t => t.is_active).length === 0 ? (
-                          <div style={{ color: "#aaa", fontSize: 12, textAlign: "center", padding: 12 }}>金券テンプレートがありません</div>
-                        ) : (
-                          giftTicketTemplates.filter(t => t.is_active).map(t => (
-                            <div key={t.id} onClick={() => issueGiftTicket(t)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "#f9f6f2", borderRadius: 10, marginBottom: 6, cursor: "pointer" }}>
-                              <div>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{t.name}</div>
-                                <div style={{ fontSize: 11, color: "#aaa" }}>有効期限 {t.valid_days}日間</div>
-                              </div>
-                              <div style={{ fontSize: 13, fontWeight: 700, color: "#5a9e7a" }}>{formatPrice(t.face_value)}</div>
-                            </div>
-                          ))
-                        )}
+                              <button onClick={async () => {
+                                const used = await useGiftTicketByCount(checkoutBooking.customer_id);
+                                if (used) {
+                                  setSelectedTicket(used);
+                                  setCheckoutDiscount(prev => prev + used.face_value);
+                                  await fetchCustomerTicketCount(checkoutBooking.customer_id);
+                                }
+                              }} disabled={!!selectedTicket} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "none", background: selectedTicket ? "#aaa" : "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: selectedTicket ? "not-allowed" : "pointer" }}>
+                                {selectedTicket ? `✓ 1枚使用済（-¥${selectedTicket.face_value?.toLocaleString()}）` : "1枚使用する（-¥1,000）"}
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </>
                     ) : (
                       <div style={{ color: "#aaa", fontSize: 12, textAlign: "center", padding: 12 }}>顧客情報がある予約のみ金券を利用できます</div>
@@ -1700,6 +1774,109 @@ export default function AdminPage() {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {tab === "gifts" && (
+          <div>
+            {giftModal && (
+              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setGiftModal(null)}>
+                <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 480, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>{giftModal.mode === 'sell' ? "🎫 金券販売" : "🎁 金券プレゼント"}</div>
+                    <button onClick={() => setGiftModal(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+                  </div>
+                  {giftDone ? (
+                    <div style={{ textAlign: "center", padding: 40 }}>
+                      <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>発行完了しました！</div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ marginBottom: 20 }}>
+                        <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>顧客検索</label>
+                        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                          <input value={giftCustomerSearch} onChange={e => setGiftCustomerSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && searchGiftCustomer(giftCustomerSearch)}
+                            placeholder="名前・電話番号で検索" style={{ flex: 1, padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+                          <button onClick={() => searchGiftCustomer(giftCustomerSearch)}
+                            style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>検索</button>
+                        </div>
+                        {giftCustomerResult && giftCustomerResult.map(c => (
+                          <div key={c.id} onClick={() => { setGiftSelectedCustomer(c); setGiftCustomerResult(null); setGiftCustomerSearch(c.name); }}
+                            style={{ padding: "10px 14px", background: "#f9f6f2", borderRadius: 10, cursor: "pointer", marginBottom: 4, fontSize: 13 }}>
+                            {c.name} / {c.tel}
+                          </div>
+                        ))}
+                        {giftSelectedCustomer && <div style={{ fontSize: 12, color: "#5a9e7a", marginTop: 4 }}>✓ {giftSelectedCustomer.name} を選択中</div>}
+                      </div>
+                      <div style={{ marginBottom: 20 }}>
+                        <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>金券種類</label>
+                        <select value={giftForm.templateId || ""} onChange={e => setGiftForm({ ...giftForm, templateId: e.target.value })}
+                          style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, background: "white", boxSizing: "border-box" }}>
+                          <option value="">選択してください</option>
+                          {giftTicketTemplates.filter(t => t.is_active).map(t => (
+                            <option key={t.id} value={t.id}>
+                              {t.name}（¥{t.face_value?.toLocaleString()}券 × {giftModal.mode === 'sell' ? (t.ticket_count || 10) : 1}枚{giftModal.mode === 'sell' && t.sale_price ? ` / 販売価格¥${t.sale_price?.toLocaleString()}` : ""}）
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {giftModal.mode === 'sell' && giftForm.templateId && (() => {
+                        const t = giftTicketTemplates.find(t => t.id === giftForm.templateId);
+                        return t ? (
+                          <div style={{ background: "#f0f8f4", borderRadius: 12, padding: "12px 16px", marginBottom: 20 }}>
+                            <div style={{ fontSize: 13, color: "#3a5a3a" }}>発行枚数: <strong>{t.ticket_count || 10}枚</strong></div>
+                            <div style={{ fontSize: 13, color: "#3a5a3a" }}>額面合計: <strong>¥{((t.ticket_count || 10) * t.face_value)?.toLocaleString()}</strong></div>
+                            {t.sale_price && <div style={{ fontSize: 13, color: "#e0a040" }}>販売価格: <strong>¥{t.sale_price?.toLocaleString()}</strong></div>}
+                          </div>
+                        ) : null;
+                      })()}
+                      <button onClick={issueGiftTickets} disabled={giftSaving || !giftSelectedCustomer || !giftForm.templateId}
+                        style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: !giftSelectedCustomer || !giftForm.templateId ? "#e8ddd0" : giftModal.mode === 'sell' ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "linear-gradient(135deg, #e0a040, #c07020)", color: !giftSelectedCustomer || !giftForm.templateId ? "#bbb" : "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>
+                        {giftSaving ? "発行中..." : giftModal.mode === 'sell' ? "💳 販売して発行する" : "🎁 プレゼントとして発行する"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", margin: 0 }}>🎫 金券管理</h2>
+            </div>
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 32 }}>
+              <div onClick={() => { setGiftModal({ mode: 'sell' }); setGiftSelectedCustomer(null); setGiftForm({}); setGiftCustomerSearch(""); setGiftCustomerResult(null); }}
+                style={{ flex: 1, minWidth: 200, background: "linear-gradient(135deg, #eaf5ec, #d0ecd8)", borderRadius: 20, padding: "28px 24px", cursor: "pointer", boxShadow: "0 4px 16px rgba(90,158,122,0.15)", border: "2px solid #5a9e7a20" }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>🎫</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 4 }}>金券を販売する</div>
+                <div style={{ fontSize: 12, color: "#7a9a7a" }}>10枚セットを顧客に販売</div>
+              </div>
+              <div onClick={() => { setGiftModal({ mode: 'present' }); setGiftSelectedCustomer(null); setGiftForm({}); setGiftCustomerSearch(""); setGiftCustomerResult(null); }}
+                style={{ flex: 1, minWidth: 200, background: "linear-gradient(135deg, #fdf5e0, #fce8c0)", borderRadius: 20, padding: "28px 24px", cursor: "pointer", boxShadow: "0 4px 16px rgba(224,160,64,0.15)", border: "2px solid #e0a04020" }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>🎁</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#7a4a00", marginBottom: 4 }}>金券をプレゼントする</div>
+                <div style={{ fontSize: 12, color: "#a07040" }}>キャンペーン等で1枚プレゼント</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>金券テンプレート設定</div>
+            <div style={{ fontSize: 12, color: "#888", marginBottom: 16 }}>⚙️ 設定 → 金券管理 でテンプレートを編集できます</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {giftTicketTemplates.length === 0 ? (
+                <div style={{ textAlign: "center", padding: 40, background: "white", borderRadius: 16, color: "#aaa" }}>金券テンプレートがありません</div>
+              ) : (
+                giftTicketTemplates.map(t => (
+                  <div key={t.id} style={{ background: "white", borderRadius: 14, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a" }}>🎫 {t.name}</div>
+                        <div style={{ fontSize: 12, color: "#888" }}>¥{t.face_value?.toLocaleString()}券 × {t.ticket_count || 10}枚セット</div>
+                        {t.sale_price && <div style={{ fontSize: 12, color: "#e0a040" }}>販売価格: ¥{t.sale_price?.toLocaleString()}</div>}
+                      </div>
+                      <div style={{ fontSize: 11, background: t.is_active ? "#eaf5ec" : "#f0ebe4", color: t.is_active ? "#5a9e7a" : "#aaa", borderRadius: 20, padding: "4px 12px" }}>{t.is_active ? "有効" : "無効"}</div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
