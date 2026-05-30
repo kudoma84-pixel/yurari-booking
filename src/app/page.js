@@ -232,10 +232,11 @@ export default function App() {
           <img src={LOGO_URL} alt="癒楽里ロゴ" style={{ height: 44, width: "auto" }} />
         </div>
         {!showBack && (
-          <button onClick={() => setScreen("auth")} style={{ padding: "10px 20px", borderRadius: 25, border: "none", background: ORANGE, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-            ご予約はこちら
-          </button>
-        )}
+  <div style={{ display: "flex", gap: 8 }}>
+    <a href="/mypage" style={{ padding: "10px 20px", borderRadius: 25, border: `2px solid ${GREEN}`, background: "white", color: GREEN, fontSize: 13, fontWeight: 700, textDecoration: "none" }}>マイページ</a>
+    <button onClick={() => setScreen("auth")} style={{ padding: "10px 20px", borderRadius: 25, border: "none", background: ORANGE, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>ご予約はこちら</button>
+  </div>
+)}
       </div>
     </div>
   );
