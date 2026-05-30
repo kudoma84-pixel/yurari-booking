@@ -515,6 +515,7 @@ export default function App() {
             LINEでお問い合わせ・変更はこちら
           </a>
           <button onClick={reset} style={{ width: "100%", padding: "14px", borderRadius: 14, border: `2px solid ${GREEN}`, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>別の予約をする</button>
+<a href="/mypage" style={{ display: "block", textAlign: "center", marginTop: 16, fontSize: 13, color: LIGHT_GREEN, textDecoration: "none" }}>マイページで予約を確認する →</a>
         </div>
       </div>
     );
