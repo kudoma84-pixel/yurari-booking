@@ -92,10 +92,33 @@ function AppInner() {
     if (session && notificationMethod === "line") { checkExistingCustomer(); }
   }, [session]);
 
-  // 予約変更モードの場合は直接予約画面へ
+  // 予約変更モードの場合は顧客情報を取得して予約画面へ
   useEffect(() => {
     if (changeBookingId) {
       setNotificationMethod("email");
+      // 予約情報から顧客情報を取得
+      const fetchBookingCustomer = async () => {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${changeBookingId}&select=*,customers(*)`, {
+          headers: {
+            "apikey": SUPABASE_KEY,
+            "Authorization": `Bearer ${SUPABASE_KEY}`,
+          }
+        });
+        const data = await res.json();
+        if (data && data[0]?.customers) {
+          const c = data[0].customers;
+          setProfile({
+            name: c.name || "", kana: c.kana || "",
+            tel: c.tel || "", email: c.email || "",
+            address: c.address || "", zipcode: c.zipcode || "",
+            birthYear: "", birthMonth: "", birthDay: "",
+            birthday: c.birthday || "", firstVisit: "2回目以降", notes: "",
+          });
+          setExistingCustomer(c);
+          setNotificationMethod(c.notification_method || "email");
+        }
+      };
+      fetchBookingCustomer();
       setScreen("booking");
     }
   }, [changeBookingId]);
