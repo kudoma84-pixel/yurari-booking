@@ -186,8 +186,13 @@ function AppInner() {
     const existing = await searchRes.json();
     if (existing && existing.length > 0) {
       // 既存顧客の情報を更新
+      const patchHeaders = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": `Bearer ${SUPABASE_KEY}`,
+        "Content-Type": "application/json",
+      };
       await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${existing[0].id}`, {
-        method: "PATCH", headers,
+        method: "PATCH", headers: patchHeaders,
         body: JSON.stringify({
           name: profile.name, kana: profile.kana,
           email: profile.email, address: profile.address,
@@ -198,8 +203,14 @@ function AppInner() {
       setExistingCustomer({ ...existing[0], ...profile });
     } else {
       // 新規顧客を登録
+      const postHeaders = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": `Bearer ${SUPABASE_KEY}`,
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+      };
       const newRes = await fetch(`${SUPABASE_URL}/rest/v1/customers`, {
-        method: "POST", headers,
+        method: "POST", headers: postHeaders,
         body: JSON.stringify({
           name: profile.name, kana: profile.kana, tel: profile.tel,
           email: profile.email, address: profile.address,
@@ -212,7 +223,6 @@ function AppInner() {
       const newCustomer = await newRes.json();
       if (newCustomer[0]) {
         setExistingCustomer(newCustomer[0]);
-        // localStorageに保存
         localStorage.setItem('yurari_customer_id', newCustomer[0].id);
         localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
       }
