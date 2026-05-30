@@ -171,14 +171,18 @@ function AppInner() {
   };
 
   const handleRegisterSubmit = async () => {
-    console.log("profile:", profile);
     if (!profile.name || !profile.kana || !profile.tel || !profile.email || !profile.address || !profile.zipcode || !profile.birthday) {
       setError("全ての項目を入力してください");
       return;
     }
     setError("");
     // 既存顧客チェック
-    const searchRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?tel=eq.${profile.tel}&select=id,name,kana,tel,email,address,zipcode,birthday`, { headers });
+    const getHeaders = {
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": "application/json",
+    };
+    const searchRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?tel=eq.${encodeURIComponent(profile.tel)}&select=id,name,kana,tel,email,address,zipcode,birthday`, { headers: getHeaders });
     const existing = await searchRes.json();
     if (existing && existing.length > 0) {
       // 既存顧客の情報を更新
