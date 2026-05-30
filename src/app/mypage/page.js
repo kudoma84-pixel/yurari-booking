@@ -130,6 +130,16 @@ export default function MyPage() {
     setTickets(Array.isArray(data) ? data : []);
   };
 
+  const groupTicketsByExpiry = (tickets) => {
+    const groups = {};
+    tickets.forEach(t => {
+      const key = `${t.issued_at}_${t.expires_at}_${t.ticket_name}`;
+      if (!groups[key]) groups[key] = { ...t, count: 0 };
+      groups[key].count++;
+    });
+    return Object.values(groups).sort((a, b) => new Date(a.expires_at) - new Date(b.expires_at));
+  };
+
   const fetchAllStaff = async () => {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/staff_members?is_active=eq.true&order=sort_order.asc`,
@@ -392,7 +402,10 @@ export default function MyPage() {
         {/* 金券タブ */}
         {activeTab === "ticket" && (
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 16 }}>🎫 保有中の金券</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: GREEN }}>🎫 保有中の金券</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: ORANGE }}>{tickets.length}枚</div>
+            </div>
             {tickets.length === 0 ? (
               <div style={{ textAlign: "center", padding: "40px 20px", background: "white", borderRadius: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 40, marginBottom: 12 }}>🎫</div>
@@ -400,20 +413,19 @@ export default function MyPage() {
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {tickets.map(t => (
-                  <div key={t.id} style={{ background: "white", borderRadius: 16, padding: "20px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.08)", border: `2px solid ${ORANGE}30` }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: DARK }}>{t.ticket_name}</div>
-                      <div style={{ fontSize: 11, color: "#aaa" }}>期限 {t.expires_at}</div>
+                {groupTicketsByExpiry(tickets).map((g, i) => (
+                  <div key={i} style={{ background: "white", borderRadius: 16, padding: "20px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.08)", border: `2px solid ${ORANGE}30` }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>{g.ticket_name}</div>
+                      <div style={{ fontSize: 11, color: "#aaa" }}>期限 {g.expires_at}</div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
-                      <div style={{ fontSize: 11, color: "#888" }}>残高</div>
-                      <div style={{ fontSize: 28, fontWeight: 700, color: ORANGE }}>¥{t.remaining_value?.toLocaleString()}</div>
-                      <div style={{ fontSize: 12, color: "#aaa" }}>/ ¥{t.face_value?.toLocaleString()}</div>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                      <div style={{ fontSize: 36, fontWeight: 700, color: ORANGE }}>{g.count}</div>
+                      <div style={{ fontSize: 16, color: "#888" }}>枚</div>
+                      <div style={{ fontSize: 13, color: "#aaa" }}>（¥{g.face_value?.toLocaleString()}券 × {g.count}枚）</div>
                     </div>
-                    <div style={{ height: 8, background: "#f0ebe4", borderRadius: 4, marginTop: 8, overflow: "hidden" }}>
-                      <div style={{ height: "100%", background: ORANGE, borderRadius: 4, width: `${(t.remaining_value / t.face_value) * 100}%` }} />
-                    </div>
+                    <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>入手日: {g.issued_at}</div>
+                    <div style={{ fontSize: 11, color: g.ticket_type === 'present' ? ORANGE : "#aaa", marginTop: 2 }}>{g.ticket_type === 'present' ? '🎁 プレゼント券' : '🎫 購入券'}</div>
                   </div>
                 ))}
               </div>
