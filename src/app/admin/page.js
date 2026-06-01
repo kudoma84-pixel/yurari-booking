@@ -709,6 +709,21 @@ export default function AdminPage() {
 
   const updateBookingStatus = async (id, status) => {
     await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${id}`, { method: "PATCH", headers, body: JSON.stringify({ status }) });
+    
+    // 受付時に顧客番号を付番
+    if (status === 'received') {
+      const booking = bookings.find(b => b.id === id);
+      if (booking?.customer_id) {
+        await fetch(`${SUPABASE_URL}/rest/v1/rpc/assign_customer_number`, {
+          method: "POST", headers,
+          body: JSON.stringify({
+            p_customer_id: booking.customer_id,
+            p_store_id: currentStore.id
+          }),
+        });
+      }
+    }
+
     fetchBookings(selectedDate);
     if (selectedBooking?.id === id) setSelectedBooking({ ...selectedBooking, status });
   };
