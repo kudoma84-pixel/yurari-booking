@@ -939,17 +939,6 @@ export default function AdminPage() {
             </div>
             <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
               {["confirmed","received","treatment_done","cancelled"].map(s => (
-                <button key={s} onClick={async () => {
-                  await updateBookingStatus(selectedBooking.id, s);
-                  if (s === 'received' && selectedBooking.customer_id) {
-                    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${selectedBooking.customer_id}`, { headers });
-                    const data = await res.json();
-                    if (data[0]?.customer_number) {
-                      alert(`受付完了！顧客番号：${data[0].customer_number}`);
-                    }
-                  }
-                }} disabled={selectedBooking.status === 'received' && s === 'received'} style={{ flex: 1, padding: "10px", borderRadius: 10, border: `2px solid ${statusColor(s)}`, background: selectedBooking.status === s ? statusColor(s) : "white", color: selectedBooking.status === s ? "white" : statusColor(s), fontSize: 11, fontWeight: 600, cursor: selectedBooking.status === 'received' && s === 'received' ? "not-allowed" : "pointer", opacity: selectedBooking.status === 'received' && s === 'received' ? 0.5 : 1 }}>{statusLabel(s)}</button>
-              ))}
                 <button key={s} onClick={() => updateBookingStatus(selectedBooking.id, s)} style={{ flex: 1, padding: "10px", borderRadius: 10, border: `2px solid ${statusColor(s)}`, background: selectedBooking.status === s ? statusColor(s) : "white", color: selectedBooking.status === s ? "white" : statusColor(s), fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{statusLabel(s)}</button>
               ))}
             </div>
