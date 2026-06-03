@@ -104,6 +104,7 @@ export default function AdminPage() {
   const [notifySent, setNotifySent] = useState(false);
   const [notifyCustomerSearch, setNotifyCustomerSearch] = useState("");
   const [notifyCustomerResult, setNotifyCustomerResult] = useState(null);
+  const [editingCustomer, setEditingCustomer] = useState(null);
 
   const popoverRef = useRef(null);
 
