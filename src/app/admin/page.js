@@ -946,41 +946,122 @@ export default function AdminPage() {
         </div>
       )}
 
-      {selectedCustomer && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setSelectedCustomer(null)}>
-          <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 560, maxHeight: "80vh", overflow: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>{selectedCustomer.name} 様</div>
-              <button onClick={() => setSelectedCustomer(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+    {selectedCustomer && (
+  <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => { setSelectedCustomer(null); setEditingCustomer(null); }}>
+    <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 560, maxHeight: "90vh", overflow: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>{selectedCustomer.name} 様</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {!editingCustomer && (
+            <button onClick={() => setEditingCustomer({ ...selectedCustomer })} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>編集</button>
+          )}
+          <button onClick={() => { setSelectedCustomer(null); setEditingCustomer(null); }} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+        </div>
+      </div>
+
+      {editingCustomer ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
+          {[
+            { label: "顧客番号", key: "customer_number" },
+            { label: "氏名", key: "name" },
+            { label: "フリガナ", key: "kana" },
+            { label: "生年月日", key: "birthday", type: "date" },
+            { label: "郵便番号", key: "zipcode" },
+            { label: "住所", key: "address" },
+            { label: "電話番号1", key: "tel" },
+            { label: "電話番号2", key: "tel2" },
+            { label: "メールアドレス", key: "email" },
+          ].map(f => (
+            <div key={f.key}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 4 }}>{f.label}</label>
+              <input
+                type={f.type || "text"}
+                value={editingCustomer[f.key] || ""}
+                onChange={e => setEditingCustomer({ ...editingCustomer, [f.key]: e.target.value })}
+                style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box" }}
+              />
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24, background: "#f9f6f2", borderRadius: 12, padding: 16 }}>
-              {[
-                { label: "電話番号", value: selectedCustomer.tel },
-                { label: "メール", value: selectedCustomer.email },
-                { label: "LINE", value: selectedCustomer.line_user_id ? "✓ 連携済" : "未連携" },
-              ].map((row, i) => (
-                <div key={i} style={{ display: "flex" }}>
-                  <div style={{ fontSize: 12, color: "#7a9a7a", fontWeight: 700, width: 80, flexShrink: 0 }}>{row.label}</div>
-                  <div style={{ fontSize: 13, color: "#3a5a3a" }}>{row.value}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>来院履歴（{customerHistory.length}件）</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {customerHistory.length === 0 && <div style={{ color: "#aaa", fontSize: 13 }}>来院履歴がありません</div>}
-              {customerHistory.map((b, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", background: "#f5f5f5", borderRadius: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{b.booking_date} {b.booking_time}</div>
-                    <div style={{ fontSize: 12, color: "#888" }}>{b.course_name} / {b.staff_name}</div>
-                  </div>
-                  <div style={{ fontSize: 11, background: statusColor(b.status), color: "white", borderRadius: 20, padding: "3px 10px" }}>{statusLabel(b.status)}</div>
-                </div>
+          ))}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 4 }}>通知方法</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              {["line", "email", "sms"].map(m => (
+                <button key={m} onClick={() => setEditingCustomer({ ...editingCustomer, notification_method: m })}
+                  style={{ flex: 1, padding: "8px", borderRadius: 8, border: `2px solid ${editingCustomer.notification_method === m ? "#5a9e7a" : "#e8ddd0"}`, background: editingCustomer.notification_method === m ? "#eaf5ec" : "white", color: editingCustomer.notification_method === m ? "#3a5a3a" : "#aaa", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                  {m === "line" ? "LINE" : m === "email" ? "メール" : "SMS"}
+                </button>
               ))}
             </div>
           </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 4 }}>LINE連携</label>
+            <div style={{ padding: "8px 12px", borderRadius: 8, background: "#f9f6f2", fontSize: 13, color: "#3a5a3a" }}>
+              {selectedCustomer.line_user_id ? "✓ 連携済" : "未連携"}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+            <button onClick={() => setEditingCustomer(null)} style={{ flex: 1, padding: "12px", borderRadius: 12, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>キャンセル</button>
+            <button onClick={async () => {
+              await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${editingCustomer.id}`, {
+                method: "PATCH", headers,
+                body: JSON.stringify({
+                  customer_number: editingCustomer.customer_number,
+                  name: editingCustomer.name,
+                  kana: editingCustomer.kana,
+                  birthday: editingCustomer.birthday || null,
+                  zipcode: editingCustomer.zipcode,
+                  address: editingCustomer.address,
+                  tel: editingCustomer.tel,
+                  tel2: editingCustomer.tel2,
+                  email: editingCustomer.email,
+                  notification_method: editingCustomer.notification_method,
+                }),
+              });
+              setSelectedCustomer({ ...selectedCustomer, ...editingCustomer });
+              setEditingCustomer(null);
+              fetchCustomers();
+            }} style={{ flex: 2, padding: "12px", borderRadius: 12, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>保存</button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24, background: "#f9f6f2", borderRadius: 12, padding: 16 }}>
+          {[
+            { label: "顧客番号", value: selectedCustomer.customer_number },
+            { label: "氏名", value: selectedCustomer.name },
+            { label: "フリガナ", value: selectedCustomer.kana },
+            { label: "生年月日", value: selectedCustomer.birthday },
+            { label: "郵便番号", value: selectedCustomer.zipcode },
+            { label: "住所", value: selectedCustomer.address },
+            { label: "電話番号1", value: selectedCustomer.tel },
+            { label: "電話番号2", value: selectedCustomer.tel2 },
+            { label: "メール", value: selectedCustomer.email },
+            { label: "通知方法", value: selectedCustomer.notification_method },
+            { label: "LINE", value: selectedCustomer.line_user_id ? "✓ 連携済" : "未連携" },
+          ].map((row, i) => (
+            <div key={i} style={{ display: "flex", borderBottom: "1px solid #f0ebe4", paddingBottom: 6 }}>
+              <div style={{ fontSize: 12, color: "#7a9a7a", fontWeight: 700, width: 90, flexShrink: 0 }}>{row.label}</div>
+              <div style={{ fontSize: 13, color: "#3a5a3a" }}>{row.value || "-"}</div>
+            </div>
+          ))}
         </div>
       )}
+
+      <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>来院履歴（{customerHistory.length}件）</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {customerHistory.length === 0 && <div style={{ color: "#aaa", fontSize: 13 }}>来院履歴がありません</div>}
+        {customerHistory.map((b, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", background: "#f5f5f5", borderRadius: 10 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{b.booking_date} {b.booking_time}</div>
+              <div style={{ fontSize: 12, color: "#888" }}>{b.course_name} / {b.staff_name}</div>
+            </div>
+            <div style={{ fontSize: 11, background: statusColor(b.status), color: "white", borderRadius: 20, padding: "3px 10px" }}>{statusLabel(b.status)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>
+)}
 
       {editingPlan !== null && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setEditingPlan(null)}>
