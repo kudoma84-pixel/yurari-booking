@@ -794,7 +794,7 @@ export default function AdminPage() {
 
   const ShiftPopover = ({ staffId, staffName, date, shift, closed }) => {
     const [startTime, setStartTime] = useState(shift?.start_time?.slice(0,5) || "10:00");
-    const [endTime, setEndTime] = useState(shift?.end_time?.slice(0,5) || "19:00");
+    const [endTime, setEndTime] = useState(shift?.end_time?.slice(0,5) || "19:30");
     const [showTime, setShowTime] = useState(!!shift);
     return (
       <div ref={popoverRef} style={{ position: "absolute", zIndex: 100, background: "white", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", padding: 16, minWidth: 220, top: "100%", left: 0 }} onClick={e => e.stopPropagation()}>
