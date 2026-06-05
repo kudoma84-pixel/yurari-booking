@@ -657,7 +657,7 @@ export default function AdminPage() {
       const dateStr = formatDate(d);
       for (const staffId of Object.keys(planData)) {
         const dayData = planData[staffId]?.[dayOfWeek];
-        if (dayData?.enabled) await saveShift(staffId, dateStr, dayData.start || "10:00", dayData.end || "19:00", "出勤");
+        if (dayData?.enabled) await saveShift(staffId, dateStr, dayData.start || "10:00", dayData.end || "19:30", "出勤");
       }
       d.setDate(d.getDate() + 1);
     }
