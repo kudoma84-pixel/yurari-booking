@@ -626,7 +626,7 @@ function AppInner() {
             当日は予約時間の5分前にお越しください。<br/>キャンセル・変更は前日17時まで承ります。
           </div>
           <a href="/mypage" style={{ display: "block", width: "100%", padding: "14px", borderRadius: 14, background: GREEN, color: "white", fontSize: 15, fontWeight: 700, textDecoration: "none", textAlign: "center", marginBottom: 12, boxSizing: "border-box" }}>マイページで予約を確認する</a>
-          <button onClick={reset} style={{ width: "100%", padding: "14px", borderRadius: 14, border: `2px solid ${GREEN}`, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>別の予約をする</button>
+          <button onClick={() => { reset(); setScreen("store"); }} style={{ width: "100%", padding: "14px", borderRadius: 14, border: `2px solid ${GREEN}`, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>別の予約をする</button>
         </div>
       </div>
     );
