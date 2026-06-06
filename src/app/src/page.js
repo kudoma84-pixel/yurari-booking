@@ -42,7 +42,7 @@ function generateDates() {
 }
 
 function formatDate(d) {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
 }
 
 const bookingSteps = ["店舗選択","コース選択","スタッフ・日時","確認"];
@@ -57,6 +57,8 @@ function AppInner() {
   const [step, setStep] = useState(0);
   const [store, setStore] = useState(null);
   const [course, setCourse] = useState(null);
+  const [courseCategory, setCourseCategory] = useState(null);
+  const [courseVisitType, setCourseVisitType] = useState(null);
   const [staff, setStaff] = useState(null);
   const [date, setDate] = useState(null);
   const [time, setTime] = useState(null);
@@ -77,7 +79,7 @@ function AppInner() {
 
   const headers = {
     "apikey": SUPABASE_KEY,
-    "Authorization": `Bearer ${SUPABASE_KEY}`,
+    "Authorization": "Bearer " + SUPABASE_KEY,
     "Content-Type": "application/json",
     "Prefer": "return=representation",
   };
@@ -88,8 +90,8 @@ function AppInner() {
     const expire = localStorage.getItem('yurari_login_expire');
     if (customerId && expire && Date.now() < parseInt(expire) && !changeBookingId) {
       const fetchMyPageCustomer = async () => {
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}&select=*`, {
-          headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
+        const res = await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + customerId + "&select=*", {
+          headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
         });
         const data = await res.json();
         if (data && data[0]) {
@@ -118,17 +120,12 @@ function AppInner() {
     if (session && notificationMethod === "line") { checkExistingCustomer(); }
   }, [session]);
 
-  // 予約変更モードの場合は顧客情報を取得して予約画面へ
   useEffect(() => {
     if (changeBookingId) {
       setNotificationMethod("email");
-      // 予約情報から顧客情報を取得
       const fetchBookingCustomer = async () => {
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${changeBookingId}&select=*,customers(*)`, {
-          headers: {
-            "apikey": SUPABASE_KEY,
-            "Authorization": `Bearer ${SUPABASE_KEY}`,
-          }
+        const res = await fetch(SUPABASE_URL + "/rest/v1/bookings?id=eq." + changeBookingId + "&select=*,customers(*)", {
+          headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
         });
         const data = await res.json();
         if (data && data[0]?.customers) {
@@ -150,26 +147,26 @@ function AppInner() {
   }, [changeBookingId]);
 
   const fetchCourses = async () => {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/course_menus?is_active=eq.true&order=sort_order.asc`, { headers });
+    const res = await fetch(SUPABASE_URL + "/rest/v1/course_menus?is_active=eq.true&order=sort_order.asc", { headers });
     const data = await res.json();
     setCourses(Array.isArray(data) ? data : []);
   };
 
   const fetchStaff = async (storeId) => {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/staff_members?store_id=eq.${storeId}&is_active=eq.true&order=sort_order.asc`, { headers });
+    const res = await fetch(SUPABASE_URL + "/rest/v1/staff_members?store_id=eq." + storeId + "&is_active=eq.true&order=sort_order.asc", { headers });
     const data = await res.json();
     setStaffList(Array.isArray(data) ? data : []);
   };
 
   const fetchStoreSettings = async (storeId) => {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/store_settings?store_id=eq.${storeId}`, { headers });
+    const res = await fetch(SUPABASE_URL + "/rest/v1/store_settings?store_id=eq." + storeId, { headers });
     const data = await res.json();
     if (data[0]) setSameDayLeadTime(data[0].same_day_lead_time);
   };
 
   const checkExistingCustomer = async () => {
     if (!session?.lineUserId) return;
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?line_user_id=eq.${session.lineUserId}&select=*`, { headers });
+    const res = await fetch(SUPABASE_URL + "/rest/v1/customers?line_user_id=eq." + session.lineUserId + "&select=*", { headers });
     const data = await res.json();
     if (data && data.length > 0) {
       setExistingCustomer(data[0]);
@@ -202,22 +199,20 @@ function AppInner() {
       return;
     }
     setError("");
-    // 既存顧客チェック
     const getHeaders = {
       "apikey": SUPABASE_KEY,
-      "Authorization": `Bearer ${SUPABASE_KEY}`,
+      "Authorization": "Bearer " + SUPABASE_KEY,
       "Content-Type": "application/json",
     };
-    const searchRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?tel=eq.${encodeURIComponent(profile.tel)}&select=id,name,kana,tel,email,address,zipcode,birthday`, { headers: getHeaders });
+    const searchRes = await fetch(SUPABASE_URL + "/rest/v1/customers?tel=eq." + encodeURIComponent(profile.tel) + "&select=id,name,kana,tel,email,address,zipcode,birthday", { headers: getHeaders });
     const existing = await searchRes.json();
     if (existing && existing.length > 0) {
-      // 既存顧客の情報を更新
       const patchHeaders = {
         "apikey": SUPABASE_KEY,
-        "Authorization": `Bearer ${SUPABASE_KEY}`,
+        "Authorization": "Bearer " + SUPABASE_KEY,
         "Content-Type": "application/json",
       };
-      await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${existing[0].id}`, {
+      await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + existing[0].id, {
         method: "PATCH", headers: patchHeaders,
         body: JSON.stringify({
           name: profile.name, kana: profile.kana,
@@ -228,14 +223,13 @@ function AppInner() {
       });
       setExistingCustomer({ ...existing[0], ...profile });
     } else {
-      // 新規顧客を登録
       const postHeaders = {
         "apikey": SUPABASE_KEY,
-        "Authorization": `Bearer ${SUPABASE_KEY}`,
+        "Authorization": "Bearer " + SUPABASE_KEY,
         "Content-Type": "application/json",
         "Prefer": "return=representation",
       };
-      const newRes = await fetch(`${SUPABASE_URL}/rest/v1/customers`, {
+      const newRes = await fetch(SUPABASE_URL + "/rest/v1/customers", {
         method: "POST", headers: postHeaders,
         body: JSON.stringify({
           name: profile.name, kana: profile.kana, tel: profile.tel,
@@ -268,12 +262,12 @@ function AppInner() {
     try {
       let customerId = existingCustomer?.id;
       if (!customerId) {
-        const searchRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?tel=eq.${profile.tel}&select=id`, { headers });
+        const searchRes = await fetch(SUPABASE_URL + "/rest/v1/customers?tel=eq." + profile.tel + "&select=id", { headers });
         const customers = await searchRes.json();
         if (customers && customers.length > 0) {
           customerId = customers[0].id;
         } else {
-          const newRes = await fetch(`${SUPABASE_URL}/rest/v1/customers`, {
+          const newRes = await fetch(SUPABASE_URL + "/rest/v1/customers", {
             method: "POST", headers,
             body: JSON.stringify({
               name: profile.name, kana: profile.kana, tel: profile.tel,
@@ -289,7 +283,7 @@ function AppInner() {
           customerId = newCustomer[0]?.id;
         }
       }
-      await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
+      await fetch(SUPABASE_URL + "/rest/v1/bookings", {
         method: "POST", headers,
         body: JSON.stringify({
           customer_id: customerId, store_id: store.id,
@@ -299,14 +293,12 @@ function AppInner() {
           status: "confirmed", notes: profile.notes, booking_number: num,
         }),
       });
-      // 予約変更の場合は古い予約をキャンセル
       if (changeBookingId) {
-        await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${changeBookingId}`, {
+        await fetch(SUPABASE_URL + "/rest/v1/bookings?id=eq." + changeBookingId, {
           method: "PATCH", headers,
           body: JSON.stringify({ status: "cancelled" }),
         });
       }
-      // メール送信
       if (profile.email && notificationMethod === "email") {
         try {
           const storeName = store.id === "minamiurawa" ? "南浦和店" : "戸田店";
@@ -335,15 +327,15 @@ function AppInner() {
 
   const reset = () => {
     setScreen("top"); setNotificationMethod(null); setStep(0);
-    setStore(null); setCourse(null); setStaff(null);
-    setDate(null); setTime(null);
+    setStore(null); setCourse(null); setCourseCategory(null); setCourseVisitType(null);
+    setStaff(null); setDate(null); setTime(null);
     setProfile({ name: "", kana: "", zipcode: "", address: "", tel: "", birthYear: "", birthMonth: "", birthDay: "", birthday: "", email: "", firstVisit: "初めて", notes: "" });
     setBookingNum(""); setError(""); setExistingCustomer(null);
   };
 
   const updateBirthday = (year, month, day) => {
     if (year && month && day) {
-      return `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+      return year + "-" + String(month).padStart(2,"0") + "-" + String(day).padStart(2,"0");
     }
     return "";
   };
@@ -353,21 +345,21 @@ function AppInner() {
     const isToday = formatDate(date) === formatDate(new Date());
     if (!isToday) return false;
     const now = new Date();
-    const [h, m] = t.split(":").map(Number);
+    const parts = t.split(":").map(Number);
     const slotTime = new Date();
-    slotTime.setHours(h, m, 0, 0);
+    slotTime.setHours(parts[0], parts[1], 0, 0);
     return slotTime.getTime() - now.getTime() < sameDayLeadTime * 60 * 1000;
   };
 
   const Header = ({ showBack }) => (
-    <div style={{ background: "white", borderBottom: `3px solid ${GREEN}`, padding: "12px 20px", position: "sticky", top: 0, zIndex: 100 }}>
+    <div style={{ background: "white", borderBottom: "3px solid " + GREEN, padding: "12px 20px", position: "sticky", top: 0, zIndex: 100 }}>
       <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div onClick={showBack ? reset : undefined} style={{ cursor: showBack ? "pointer" : "default" }}>
           <img src={LOGO_URL} alt="癒楽里ロゴ" style={{ height: 44, width: "auto" }} />
         </div>
         {!showBack && (
           <div style={{ display: "flex", gap: 8 }}>
-            <a href="/mypage" style={{ padding: "10px 20px", borderRadius: 25, border: `2px solid ${GREEN}`, background: "white", color: GREEN, fontSize: 13, fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center" }}>マイページ</a>
+            <a href="/mypage" style={{ padding: "10px 20px", borderRadius: 25, border: "2px solid " + GREEN, background: "white", color: GREEN, fontSize: 13, fontWeight: 700, textDecoration: "none", display: "flex", alignItems: "center" }}>マイページ</a>
             <button onClick={() => setScreen("auth")} style={{ padding: "10px 20px", borderRadius: 25, border: "none", background: ORANGE, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
               ご予約はこちら
             </button>
@@ -481,7 +473,7 @@ function AppInner() {
               { id: "email", icon: "📧", label: "メールで登録する", desc: "メールアドレスで登録。確認・リマインドをメールで受け取れます。", color: GREEN },
               { id: "sms", icon: "📱", label: "SMS（ショートメール）で登録する", desc: "携帯番号で登録。確認・リマインドをSMSで受け取れます。", color: ORANGE },
             ].map(m => (
-              <button key={m.id} onClick={() => handleAuthSelect(m.id)} style={{ display: "flex", alignItems: "center", gap: 16, padding: "20px 24px", borderRadius: 16, border: `2px solid ${m.color}30`, background: "white", cursor: "pointer", textAlign: "left", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+              <button key={m.id} onClick={() => handleAuthSelect(m.id)} style={{ display: "flex", alignItems: "center", gap: 16, padding: "20px 24px", borderRadius: 16, border: "2px solid " + m.color + "30", background: "white", cursor: "pointer", textAlign: "left", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
                 <div style={{ fontSize: 36, flexShrink: 0 }}>{m.icon}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 15, fontWeight: 700, color: m.color, marginBottom: 4 }}>{m.label}</div>
@@ -535,11 +527,11 @@ function AppInner() {
                   const zip = e.target.value.replace(/[^0-9]/g, "");
                   setProfile({ ...profile, zipcode: zip });
                   if (zip.length === 7) {
-                    const res = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${zip}`);
+                    const res = await fetch("https://zipcloud.ibsnet.co.jp/api/search?zipcode=" + zip);
                     const data = await res.json();
                     if (data.results) {
                       const r = data.results[0];
-                      setProfile(p => ({ ...p, zipcode: zip, address: `${r.address1}${r.address2}${r.address3}` }));
+                      setProfile(p => ({ ...p, zipcode: zip, address: r.address1 + r.address2 + r.address3 }));
                     }
                   }
                 }}
@@ -574,7 +566,7 @@ function AppInner() {
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>ご来院歴</label>
               <div style={{ display: "flex", gap: 10 }}>
                 {["初めて","2回目以降"].map(v => (
-                  <div key={v} onClick={() => setProfile({ ...profile, firstVisit: v })} style={{ flex: 1, padding: "12px", borderRadius: 12, border: `2px solid ${profile.firstVisit === v ? GREEN : "#e8ddd0"}`, background: profile.firstVisit === v ? `${GREEN}10` : "white", textAlign: "center", cursor: "pointer", fontSize: 14, fontWeight: 700, color: profile.firstVisit === v ? GREEN : "#aaa" }}>{v}</div>
+                  <div key={v} onClick={() => setProfile({ ...profile, firstVisit: v })} style={{ flex: 1, padding: "12px", borderRadius: 12, border: "2px solid " + (profile.firstVisit === v ? GREEN : "#e8ddd0"), background: profile.firstVisit === v ? GREEN + "10" : "white", textAlign: "center", cursor: "pointer", fontSize: 14, fontWeight: 700, color: profile.firstVisit === v ? GREEN : "#aaa" }}>{v}</div>
                 ))}
               </div>
             </div>
@@ -585,7 +577,7 @@ function AppInner() {
             </div>
           </div>
         </div>
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(12px)", borderTop: `3px solid ${GREEN}20`, padding: "12px 16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom))" }}>
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(12px)", borderTop: "3px solid " + GREEN + "20", padding: "12px 16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom))" }}>
           <div style={{ maxWidth: 640, margin: "0 auto" }}>
             <button onClick={handleRegisterSubmit} style={{ width: "100%", padding: "16px", borderRadius: 14, border: "none", background: GREEN, color: "white", fontSize: 16, fontWeight: 700, cursor: "pointer" }}>
               次へ → 予約内容を選ぶ
@@ -604,17 +596,17 @@ function AppInner() {
           <div style={{ fontSize: 64, marginBottom: 16 }}>🌿</div>
           <div style={{ fontSize: 24, fontWeight: 700, color: GREEN, marginBottom: 8 }}>{changeBookingId ? "予約を変更しました！" : "ご予約が完了しました！"}</div>
           <div style={{ fontSize: 14, color: "#888", marginBottom: 32 }}>ありがとうございます</div>
-          <div style={{ background: "white", borderRadius: 20, padding: "24px", marginBottom: 24, boxShadow: "0 4px 20px rgba(0,0,0,0.08)", border: `2px solid ${LIGHT_GREEN}` }}>
+          <div style={{ background: "white", borderRadius: 20, padding: "24px", marginBottom: 24, boxShadow: "0 4px 20px rgba(0,0,0,0.08)", border: "2px solid " + LIGHT_GREEN }}>
             <div style={{ fontSize: 11, color: LIGHT_GREEN, marginBottom: 4 }}>予約番号</div>
             <div style={{ fontSize: 28, fontWeight: 700, color: GREEN, letterSpacing: "0.1em" }}>{bookingNum}</div>
           </div>
           <div style={{ background: "white", borderRadius: 16, padding: "20px 24px", marginBottom: 28, textAlign: "left", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 12 }}>ご予約詳細</div>
             {[
-              { label: "店舗", value: `癒楽里 ${store?.name}` },
-              { label: "コース", value: course?.name },
-              { label: "担当", value: staff?.name },
-              { label: "日時", value: date && time ? `${date.getMonth()+1}月${date.getDate()}日（${DAYS_JP[date.getDay()]}） ${time}〜` : "" },
+              { label: "店舗", value: "癒楽里 " + (store ? store.name : "") },
+              { label: "コース", value: course ? course.name : "" },
+              { label: "担当", value: staff ? staff.name : "" },
+              { label: "日時", value: date && time ? (date.getMonth()+1) + "月" + date.getDate() + "日（" + DAYS_JP[date.getDay()] + "） " + time + "〜" : "" },
             ].map((row, i) => (
               <div key={i} style={{ display: "flex", padding: "8px 0", borderBottom: i < 3 ? "1px solid #f0ebe4" : "none" }}>
                 <div style={{ fontSize: 12, color: "#888", width: 60, flexShrink: 0 }}>{row.label}</div>
@@ -626,7 +618,7 @@ function AppInner() {
             当日は予約時間の5分前にお越しください。<br/>キャンセル・変更は前日17時まで承ります。
           </div>
           <a href="/mypage" style={{ display: "block", width: "100%", padding: "14px", borderRadius: 14, background: GREEN, color: "white", fontSize: 15, fontWeight: 700, textDecoration: "none", textAlign: "center", marginBottom: 12, boxSizing: "border-box" }}>マイページで予約を確認する</a>
-          <button onClick={() => { reset(); setScreen("store"); }} style={{ width: "100%", padding: "14px", borderRadius: 14, border: `2px solid ${GREEN}`, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>別の予約をする</button>
+          <button onClick={() => { reset(); setScreen("store"); }} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "2px solid " + GREEN, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>別の予約をする</button>
         </div>
       </div>
     );
@@ -658,7 +650,7 @@ function AppInner() {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {STORES.map(s => (
-                <div key={s.id} onClick={() => setStore(s)} style={{ background: store?.id === s.id ? `${GREEN}15` : "white", border: `2px solid ${store?.id === s.id ? GREEN : "#e8ddd0"}`, borderRadius: 16, padding: "20px 24px", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <div key={s.id} onClick={() => setStore(s)} style={{ background: store && store.id === s.id ? GREEN + "15" : "white", border: "2px solid " + (store && store.id === s.id ? GREEN : "#e8ddd0"), borderRadius: 16, padding: "20px 24px", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     <img src={LOGO_URL} alt="ロゴ" style={{ height: 36, width: "auto" }} />
                     <div style={{ flex: 1 }}>
@@ -667,7 +659,7 @@ function AppInner() {
                       <div style={{ fontSize: 12, color: LIGHT_GREEN, marginTop: 2 }}>📞 {s.tel}</div>
                       <div style={{ fontSize: 11, color: "#aaa", marginTop: 4 }}>🕐 {s.hours}</div>
                     </div>
-                    {store?.id === s.id && <div style={{ color: GREEN, fontSize: 24 }}>✓</div>}
+                    {store && store.id === s.id && <div style={{ color: GREEN, fontSize: 24 }}>✓</div>}
                   </div>
                 </div>
               ))}
@@ -681,27 +673,65 @@ function AppInner() {
               <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>STEP 2</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>コースを選んでください</div>
             </div>
-            {courses.length === 0 ? (
-              <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div>
-            ) : (
+            {!courseCategory ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {courses.map(c => (
-                  <div key={c.id} onClick={() => setCourse(c)} style={{ background: course?.id === c.id ? `${GREEN}15` : "white", border: `2px solid ${course?.id === c.id ? GREEN : "#e8ddd0"}`, borderRadius: 16, padding: "18px 20px", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                          <span style={{ fontSize: 15, fontWeight: 700, color: GREEN }}>{c.name}</span>
-                          {c.is_first_only && <span style={{ fontSize: 10, background: ORANGE, color: "white", borderRadius: 10, padding: "2px 8px", fontWeight: 700 }}>初回限定</span>}
-                        </div>
-                        <div style={{ fontSize: 12, color: "#888" }}>{c.description}</div>
-                      </div>
-                      <div style={{ textAlign: "right", marginLeft: 12 }}>
-                        <div style={{ fontSize: 18, fontWeight: 700, color: ORANGE }}>¥{c.price?.toLocaleString()}</div>
-                        <div style={{ fontSize: 11, color: "#aaa" }}>{c.duration}</div>
-                      </div>
-                    </div>
+                {["整体", "エステ"].map(cat => (
+                  <div key={cat} onClick={() => setCourseCategory(cat)} style={{ background: "white", border: "2px solid #e8ddd0", borderRadius: 16, padding: "28px 20px", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", textAlign: "center" }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: GREEN }}>{cat}</div>
+                    <div style={{ fontSize: 12, color: "#aaa", marginTop: 6 }}>タップして選ぶ</div>
                   </div>
                 ))}
+              </div>
+            ) : !courseVisitType ? (
+              <div>
+                <button onClick={() => { setCourseCategory(null); setCourse(null); }} style={{ marginBottom: 16, padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 13, cursor: "pointer" }}>← 戻る</button>
+                <div style={{ fontSize: 16, fontWeight: 700, color: GREEN, marginBottom: 16 }}>{courseCategory}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {["初回の方", "2回目以降の方"].map(vt => (
+                    <div key={vt} onClick={() => setCourseVisitType(vt)} style={{ background: "white", border: "2px solid #e8ddd0", borderRadius: 16, padding: "28px 20px", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", textAlign: "center" }}>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: GREEN }}>{vt}</div>
+                      <div style={{ fontSize: 12, color: "#aaa", marginTop: 6 }}>タップして選ぶ</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div>
+                <button onClick={() => { setCourseVisitType(null); setCourse(null); }} style={{ marginBottom: 16, padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 13, cursor: "pointer" }}>← 戻る</button>
+                <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 16 }}>{courseCategory} / {courseVisitType}</div>
+                {courses.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {courses.filter(c => {
+                      const catMatch = (c.category || "整体") === courseCategory;
+                      const visitMatch = courseVisitType === "初回の方" ? c.is_first_only === true : c.is_first_only !== true;
+                      return catMatch && visitMatch;
+                    }).map(c => (
+                      <div key={c.id} onClick={() => setCourse(c)} style={{ background: course && course.id === c.id ? GREEN + "15" : "white", border: "2px solid " + (course && course.id === c.id ? GREEN : "#e8ddd0"), borderRadius: 16, padding: "18px 20px", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: GREEN, marginBottom: 4 }}>{c.name}</div>
+                            <div style={{ fontSize: 12, color: "#888" }}>{c.description}</div>
+                          </div>
+                          <div style={{ textAlign: "right", marginLeft: 12 }}>
+                            <div style={{ fontSize: 18, fontWeight: 700, color: ORANGE }}>{"¥" + (c.price ? c.price.toLocaleString() : "0")}</div>
+                            <div style={{ fontSize: 11, color: "#aaa" }}>{c.duration}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {courses.filter(c => {
+                      const catMatch = (c.category || "整体") === courseCategory;
+                      const visitMatch = courseVisitType === "初回の方" ? c.is_first_only === true : c.is_first_only !== true;
+                      return catMatch && visitMatch;
+                    }).length === 0 && (
+                      <div style={{ textAlign: "center", padding: 40, color: "#aaa", background: "white", borderRadius: 16 }}>
+                        該当するコースがありません。<br/>管理画面でコースのカテゴリーを設定してください。
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -714,10 +744,10 @@ function AppInner() {
               <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>スタッフ・日時を選んでください</div>
             </div>
             <div style={{ marginBottom: 28 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: `2px solid ${GREEN}20` }}>担当スタッフ</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: "2px solid " + GREEN + "20" }}>担当スタッフ</div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 {[{ id: "any", name: "指名なし", title: "おまかせ" }, ...staffList].map(s => (
-                  <div key={s.id} onClick={() => setStaff(s)} style={{ background: staff?.id === s.id ? `${GREEN}15` : "white", border: `2px solid ${staff?.id === s.id ? GREEN : "#e8ddd0"}`, borderRadius: 12, padding: "12px 16px", cursor: "pointer", textAlign: "center", minWidth: 90 }}>
+                  <div key={s.id} onClick={() => setStaff(s)} style={{ background: staff && staff.id === s.id ? GREEN + "15" : "white", border: "2px solid " + (staff && staff.id === s.id ? GREEN : "#e8ddd0"), borderRadius: 12, padding: "12px 16px", cursor: "pointer", textAlign: "center", minWidth: 90 }}>
                     <div style={{ fontSize: 28 }}>👤</div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: GREEN, marginTop: 4 }}>{s.name}</div>
                     <div style={{ fontSize: 10, color: "#888" }}>{s.title}</div>
@@ -726,13 +756,13 @@ function AppInner() {
               </div>
             </div>
             <div style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: `2px solid ${GREEN}20` }}>ご希望日</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: "2px solid " + GREEN + "20" }}>ご希望日</div>
               <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
                 {dates.map((d, i) => {
                   const dayIdx = d.getDay();
                   const isSelected = date && d.toDateString() === date.toDateString();
                   return (
-                    <div key={i} onClick={() => { setDate(d); if (store) fetchStoreSettings(store.id); }} style={{ background: isSelected ? GREEN : "white", border: `2px solid ${isSelected ? GREEN : "#e8ddd0"}`, borderRadius: 12, padding: "10px 12px", cursor: "pointer", textAlign: "center", flexShrink: 0, minWidth: 52 }}>
+                    <div key={i} onClick={() => { setDate(d); if (store) fetchStoreSettings(store.id); }} style={{ background: isSelected ? GREEN : "white", border: "2px solid " + (isSelected ? GREEN : "#e8ddd0"), borderRadius: 12, padding: "10px 12px", cursor: "pointer", textAlign: "center", flexShrink: 0, minWidth: 52 }}>
                       <div style={{ fontSize: 10, color: isSelected ? "rgba(255,255,255,0.8)" : dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : "#aaa" }}>{DAYS_JP[dayIdx]}</div>
                       <div style={{ fontSize: 18, fontWeight: 700, color: isSelected ? "white" : DARK }}>{d.getDate()}</div>
                       <div style={{ fontSize: 10, color: isSelected ? "rgba(255,255,255,0.8)" : "#aaa" }}>{d.getMonth()+1}月</div>
@@ -743,13 +773,13 @@ function AppInner() {
             </div>
             {date && (
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: `2px solid ${GREEN}20` }}>ご希望時間</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: "2px solid " + GREEN + "20" }}>ご希望時間</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {TIME_SLOTS.map(t => {
                     const isSelected = time === t;
                     const disabled = isSlotDisabled(t);
                     return (
-                      <div key={t} onClick={() => !disabled && setTime(t)} style={{ background: isSelected ? GREEN : disabled ? "#f0f0f0" : "white", border: `2px solid ${isSelected ? GREEN : disabled ? "#ddd" : "#e8ddd0"}`, borderRadius: 10, padding: "8px 14px", cursor: disabled ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, color: isSelected ? "white" : disabled ? "#bbb" : DARK }}>
+                      <div key={t} onClick={() => !disabled && setTime(t)} style={{ background: isSelected ? GREEN : disabled ? "#f0f0f0" : "white", border: "2px solid " + (isSelected ? GREEN : disabled ? "#ddd" : "#e8ddd0"), borderRadius: 10, padding: "8px 14px", cursor: disabled ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, color: isSelected ? "white" : disabled ? "#bbb" : DARK }}>
                         {t}
                       </div>
                     );
@@ -766,12 +796,12 @@ function AppInner() {
               <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>STEP 4</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>ご予約内容を確認してください</div>
             </div>
-            <div style={{ background: "white", borderRadius: 16, padding: "20px 24px", border: `2px solid ${GREEN}20`, marginBottom: 20, boxShadow: "0 4px 20px rgba(0,0,0,0.06)" }}>
+            <div style={{ background: "white", borderRadius: 16, padding: "20px 24px", border: "2px solid " + GREEN + "20", marginBottom: 20, boxShadow: "0 4px 20px rgba(0,0,0,0.06)" }}>
               {[
-                { label: "店舗", value: `癒楽里 ${store?.name}` },
-                { label: "コース", value: `${course?.name}（${course?.duration} / ¥${course?.price?.toLocaleString()}）` },
-                { label: "担当", value: staff?.name },
-                { label: "日時", value: date && time ? `${date.getFullYear()}年${date.getMonth()+1}月${date.getDate()}日（${DAYS_JP[date.getDay()]}） ${time}〜` : "" },
+                { label: "店舗", value: "癒楽里 " + (store ? store.name : "") },
+                { label: "コース", value: course ? course.name + "（" + course.duration + " / ¥" + (course.price ? course.price.toLocaleString() : "0") + "）" : "" },
+                { label: "担当", value: staff ? staff.name : "" },
+                { label: "日時", value: date && time ? date.getFullYear() + "年" + (date.getMonth()+1) + "月" + date.getDate() + "日（" + DAYS_JP[date.getDay()] + "） " + time + "〜" : "" },
                 { label: "お名前", value: profile.name },
                 { label: "電話番号", value: profile.tel },
                 { label: "通知方法", value: notificationMethod === "line" ? "LINE" : notificationMethod === "email" ? "メール" : "SMS" },
@@ -794,9 +824,9 @@ function AppInner() {
         )}
 
         {step < 3 && (
-          <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(12px)", borderTop: `3px solid ${GREEN}20`, padding: "12px 16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom))" }}>
+          <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(12px)", borderTop: "3px solid " + GREEN + "20", padding: "12px 16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom))" }}>
             <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", gap: 12 }}>
-              {step > 0 && <button onClick={() => { setStep(step - 1); setDate(null); setTime(null); }} style={{ flex: 1, padding: "14px", borderRadius: 14, border: `2px solid ${GREEN}40`, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>← 戻る</button>}
+              {step > 0 && <button onClick={() => { setStep(step - 1); setDate(null); setTime(null); if (step === 1) { setCourseCategory(null); setCourseVisitType(null); setCourse(null); } }} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "2px solid " + GREEN + "40", background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>← 戻る</button>}
               <button onClick={() => { if (canNext()) { if (step < 2) { setDate(null); setTime(null); } setStep(step + 1); } }} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: canNext() ? GREEN : "#e8ddd0", color: canNext() ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: canNext() ? "pointer" : "not-allowed" }}>次へ →</button>
             </div>
           </div>
