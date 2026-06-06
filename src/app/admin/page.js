@@ -1320,48 +1320,46 @@ export default function AdminPage() {
            {settingsSubTab === "courses" && (
               <div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>メニュー一覧</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>メニュー一覧</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {["整体", "エステ"].map(cat => (
+                        <button key={cat} onClick={() => setCourseTabCategory(cat)} style={{ padding: "6px 16px", borderRadius: 20, border: "2px solid " + (courseTabCategory === cat ? "#5a9e7a" : "#e8ddd0"), background: courseTabCategory === cat ? "#eaf5ec" : "white", color: courseTabCategory === cat ? "#3a5a3a" : "#aaa", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{cat}</button>
+                      ))}
+                    </div>
+                  </div>
                   <button onClick={() => setEditingCourse({})} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>+ コース追加</button>
                 </div>
-                {courseMenus.length === 0 && <div style={{ textAlign: "center", padding: 40, background: "white", borderRadius: 16, color: "#aaa" }}>コースが登録されていません</div>}
-                {["整体", "エステ"].map(cat => {
-                  const catCourses = courseMenus.filter(c => (c.category || "整体") === cat);
-                  if (catCourses.length === 0) return null;
+                {courseMenus.filter(c => (c.category || "整体") === courseTabCategory).length === 0 && <div style={{ textAlign: "center", padding: 40, background: "white", borderRadius: 16, color: "#aaa" }}>コースが登録されていません</div>}
+                {["初回の方", "2回目以降の方"].map(visitType => {
+                  const filtered = courseMenus.filter(c => (c.category || "整体") === courseTabCategory && (visitType === "初回の方" ? c.is_first_only : !c.is_first_only));
+                  if (filtered.length === 0) return null;
                   return (
-                    <div key={cat} style={{ marginBottom: 24 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#5a9e7a", marginBottom: 10, paddingBottom: 6, borderBottom: "2px solid #eaf5ec" }}>{cat}</div>
-                      {["初回の方", "2回目以降の方"].map(visitType => {
-                        const filtered = catCourses.filter(c => visitType === "初回の方" ? c.is_first_only : !c.is_first_only);
-                        if (filtered.length === 0) return null;
-                        return (
-                          <div key={visitType} style={{ marginBottom: 16 }}>
-                            <div style={{ fontSize: 12, color: "#888", fontWeight: 700, marginBottom: 8, marginLeft: 4 }}>{visitType}</div>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                              {filtered.map((c, idx) => {
-                                const globalIdx = courseMenus.findIndex(x => x.id === c.id);
-                                return (
-                                  <div key={c.id} style={{ background: "white", borderRadius: 14, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                                    <div style={{ flex: 1 }}>
-                                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                                        <div style={{ fontSize: 14, fontWeight: 700, color: c.is_active ? "#3a5a3a" : "#aaa" }}>{c.name}</div>
-                                        {c.is_first_only && <div style={{ fontSize: 10, background: "#ff8c69", color: "white", borderRadius: 10, padding: "2px 8px" }}>初回限定</div>}
-                                        {!c.is_active && <div style={{ fontSize: 10, background: "#f0ebe4", color: "#aaa", borderRadius: 10, padding: "2px 8px" }}>非公開</div>}
-                                      </div>
-                                      <div style={{ fontSize: 12, color: "#888" }}>{c.duration} / {c.price ? "¥" + c.price.toLocaleString() : ""}</div>
-                                    </div>
-                                    <div style={{ display: "flex", gap: 8 }}>
-                                      <button onClick={async () => { if (globalIdx > 0) { await fetch(SUPABASE_URL + "/rest/v1/course_menus?id=eq." + c.id, { method: "PATCH", headers, body: JSON.stringify({ sort_order: courseMenus[globalIdx-1].sort_order }) }); await fetch(SUPABASE_URL + "/rest/v1/course_menus?id=eq." + courseMenus[globalIdx-1].id, { method: "PATCH", headers, body: JSON.stringify({ sort_order: c.sort_order }) }); fetchCourseMenus(); } }} style={{ padding: "6px 10px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, cursor: "pointer" }}>↑</button>
-                                      <button onClick={async () => { if (globalIdx < courseMenus.length - 1) { await fetch(SUPABASE_URL + "/rest/v1/course_menus?id=eq." + c.id, { method: "PATCH", headers, body: JSON.stringify({ sort_order: courseMenus[globalIdx+1].sort_order }) }); await fetch(SUPABASE_URL + "/rest/v1/course_menus?id=eq." + courseMenus[globalIdx+1].id, { method: "PATCH", headers, body: JSON.stringify({ sort_order: c.sort_order }) }); fetchCourseMenus(); } }} style={{ padding: "6px 10px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, cursor: "pointer" }}>↓</button>
-                                      <button onClick={() => setEditingCourse(c)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, cursor: "pointer" }}>編集</button>
-                                      <button onClick={() => deleteCourse(c.id)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #ffcccc", background: "white", color: "#e07070", fontSize: 12, cursor: "pointer" }}>削除</button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
+                    <div key={visitType} style={{ marginBottom: 24 }}>
+                      <div style={{ fontSize: 12, color: "#888", fontWeight: 700, marginBottom: 8, marginLeft: 4 }}>{visitType}</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {filtered.map((c, idx) => {
+                          const globalIdx = courseMenus.findIndex(x => x.id === c.id);
+                          return (
+                            <div key={c.id} style={{ background: "white", borderRadius: 14, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                                  <div style={{ fontSize: 14, fontWeight: 700, color: c.is_active ? "#3a5a3a" : "#aaa" }}>{c.name}</div>
+                                  {c.is_first_only && <div style={{ fontSize: 10, background: "#ff8c69", color: "white", borderRadius: 10, padding: "2px 8px" }}>初回限定</div>}
+                                  {!c.is_active && <div style={{ fontSize: 10, background: "#f0ebe4", color: "#aaa", borderRadius: 10, padding: "2px 8px" }}>非公開</div>}
+                                </div>
+                                <div style={{ fontSize: 12, color: "#888" }}>{c.duration} / {c.price ? "¥" + c.price.toLocaleString() : ""}</div>
+                              </div>
+                              <div style={{ display: "flex", gap: 8 }}>
+                                <button onClick={async () => { if (globalIdx > 0) { await fetch(SUPABASE_URL + "/rest/v1/course_menus?id=eq." + c.id, { method: "PATCH", headers, body: JSON.stringify({ sort_order: courseMenus[globalIdx-1].sort_order }) }); await fetch(SUPABASE_URL + "/rest/v1/course_menus?id=eq." + courseMenus[globalIdx-1].id, { method: "PATCH", headers, body: JSON.stringify({ sort_order: c.sort_order }) }); fetchCourseMenus(); } }} style={{ padding: "6px 10px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, cursor: "pointer" }}>↑</button>
+                                <button onClick={async () => { if (globalIdx < courseMenus.length - 1) { await fetch(SUPABASE_URL + "/rest/v1/course_menus?id=eq." + c.id, { method: "PATCH", headers, body: JSON.stringify({ sort_order: courseMenus[globalIdx+1].sort_order }) }); await fetch(SUPABASE_URL + "/rest/v1/course_menus?id=eq." + courseMenus[globalIdx+1].id, { method: "PATCH", headers, body: JSON.stringify({ sort_order: c.sort_order }) }); fetchCourseMenus(); } }} style={{ padding: "6px 10px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, cursor: "pointer" }}>↓</button>
+                                <button onClick={() => setEditingCourse(c)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, cursor: "pointer" }}>編集</button>
+                                <button onClick={() => deleteCourse(c.id)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #ffcccc", background: "white", color: "#e07070", fontSize: 12, cursor: "pointer" }}>削除</button>
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
                   );
                 })}
