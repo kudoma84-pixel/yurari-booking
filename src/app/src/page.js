@@ -57,8 +57,6 @@ function AppInner() {
   const [step, setStep] = useState(0);
   const [store, setStore] = useState(null);
   const [course, setCourse] = useState(null);
-  const [courseCategory, setCourseCategory] = useState(null);
-const [courseVisitType, setCourseVisitType] = useState(null);
   const [staff, setStaff] = useState(null);
   const [date, setDate] = useState(null);
   const [time, setTime] = useState(null);
@@ -683,54 +681,27 @@ const [courseVisitType, setCourseVisitType] = useState(null);
               <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>STEP 2</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>コースを選んでください</div>
             </div>
-            {!courseCategory ? (
+            {courses.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div>
+            ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {["整体", "エステ"].map(cat => (
-                  <div key={cat} onClick={() => setCourseCategory(cat)} style={{ background: "white", border: "2px solid #e8ddd0", borderRadius: 16, padding: "24px 20px", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", textAlign: "center" }}>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: GREEN }}>{cat}</div>
+                {courses.map(c => (
+                  <div key={c.id} onClick={() => setCourse(c)} style={{ background: course?.id === c.id ? `${GREEN}15` : "white", border: `2px solid ${course?.id === c.id ? GREEN : "#e8ddd0"}`, borderRadius: 16, padding: "18px 20px", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontSize: 15, fontWeight: 700, color: GREEN }}>{c.name}</span>
+                          {c.is_first_only && <span style={{ fontSize: 10, background: ORANGE, color: "white", borderRadius: 10, padding: "2px 8px", fontWeight: 700 }}>初回限定</span>}
+                        </div>
+                        <div style={{ fontSize: 12, color: "#888" }}>{c.description}</div>
+                      </div>
+                      <div style={{ textAlign: "right", marginLeft: 12 }}>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: ORANGE }}>¥{c.price?.toLocaleString()}</div>
+                        <div style={{ fontSize: 11, color: "#aaa" }}>{c.duration}</div>
+                      </div>
+                    </div>
                   </div>
                 ))}
-              </div>
-            ) : !courseVisitType ? (
-              <div>
-                <button onClick={() => setCourseCategory(null)} style={{ marginBottom: 16, padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 13, cursor: "pointer" }}>← 戻る</button>
-                <div style={{ fontSize: 16, fontWeight: 700, color: GREEN, marginBottom: 12 }}>{courseCategory}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {["初回の方", "2回目以降の方"].map(vt => (
-                    <div key={vt} onClick={() => setCourseVisitType(vt)} style={{ background: "white", border: "2px solid #e8ddd0", borderRadius: 16, padding: "24px 20px", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", textAlign: "center" }}>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: GREEN }}>{vt}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div>
-                <button onClick={() => setCourseVisitType(null)} style={{ marginBottom: 16, padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 13, cursor: "pointer" }}>← 戻る</button>
-                <div style={{ fontSize: 16, fontWeight: 700, color: GREEN, marginBottom: 12 }}>{courseCategory} / {courseVisitType}</div>
-                {courses.length === 0 ? (
-                  <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    {courses.filter(c => {
-                      const catMatch = c.category === courseCategory;
-                      const visitMatch = courseVisitType === "初回の方" ? c.is_first_only : !c.is_first_only;
-                      return catMatch && visitMatch;
-                    }).map(c => (
-                      <div key={c.id} onClick={() => setCourse(c)} style={{ background: course?.id === c.id ? GREEN + "15" : "white", border: "2px solid " + (course?.id === c.id ? GREEN : "#e8ddd0"), borderRadius: 16, padding: "18px 20px", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                              <span style={{ fontSize: 15, fontWeight: 700, color: GREEN }}>{c.name}</span>
-                            </div>
-                            <div style={{ fontSize: 12, color: "#888" }}>{c.description}</div>
-                          </div>
-                          <div style={{ textAlign: "right", marginLeft: 12 }}>
-                            <div style={{ fontSize: 18, fontWeight: 700, color: ORANGE }}>¥{c.price?.toLocaleString()}</div>
-                            <div style={{ fontSize: 11, color: "#aaa" }}>{c.duration}</div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
               </div>
             )}
           </div>
