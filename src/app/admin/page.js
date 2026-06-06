@@ -797,7 +797,7 @@ export default function AdminPage() {
     const [endTime, setEndTime] = useState(shift?.end_time?.slice(0,5) || "19:30");
     const [showTime, setShowTime] = useState(!!shift);
     return (
-      <div ref={popoverRef} style={{ position: "absolute", zIndex: 100, background: "white", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", padding: 16, minWidth: 220, bottom: "100%", left: 0, marginBottom: 8 }} onClick={e => e.stopPropagation()}>
+      <div ref={popoverRef} style={{ position: "absolute", zIndex: 100, background: "white", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", padding: 16, minWidth: 220, position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 200 }} onClick={e => e.stopPropagation()}>
         <div style={{ fontSize: 12, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>{staffName} / {date}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <button onClick={() => setShowTime(true)} style={{ padding: "8px 12px", borderRadius: 8, border: `2px solid ${showTime ? "#5a9e7a" : "#e8ddd0"}`, background: showTime ? "#eaf5ec" : "white", color: showTime ? "#3a5a3a" : "#888", fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>〇 出勤</button>
