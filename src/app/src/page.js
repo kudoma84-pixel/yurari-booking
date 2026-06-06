@@ -371,43 +371,92 @@ function AppInner() {
 
   if (screen === "top") {
     return (
-      <div style={{ fontFamily: "'Noto Sans JP', sans-serif", background: CREAM, height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        <div style={{ background: "white", borderBottom: "3px solid " + GREEN, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-          <img src={LOGO_URL} alt="癒楽里ロゴ" style={{ height: 40, width: "auto" }} />
-          <a href="/mypage" style={{ padding: "8px 16px", borderRadius: 20, border: "2px solid " + GREEN, background: "white", color: GREEN, fontSize: 13, fontWeight: 700, textDecoration: "none" }}>マイページ</a>
-        </div>
-        <div style={{ position: "relative", flex: 1, overflow: "hidden" }}>
+      <div style={{ fontFamily: "'Noto Sans JP', sans-serif", background: CREAM, minHeight: "100vh" }}>
+        <Header showBack={false} />
+        <div style={{ position: "relative", height: 420, overflow: "hidden" }}>
           <img src={IMAGES.hero} alt="癒楽里" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-          <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,0.2), rgba(0,0,0,0.6))" }} />
-          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "20px" }}>
+          <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,0.2), rgba(0,0,0,0.5))" }} />
+          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 20 }}>
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-              {["歪み","痛み","痺れ"].map(t => <div key={t} style={{ background: GREEN, color: "white", padding: "4px 16px", borderRadius: 4, fontSize: 15, fontWeight: 700 }}>{t}</div>)}
+              {["歪み","痛み","痺れ"].map(t => <div key={t} style={{ background: GREEN, color: "white", padding: "4px 16px", borderRadius: 4, fontSize: 16, fontWeight: 700 }}>{t}</div>)}
             </div>
-            <div style={{ fontSize: 42, fontWeight: 900, color: ORANGE, textShadow: "2px 2px 8px rgba(0,0,0,0.5)", marginBottom: 12 }}>根本改善へ</div>
-            <div style={{ background: "rgba(255,255,255,0.9)", borderRadius: 12, padding: "8px 20px", marginBottom: 20 }}>
+            <div style={{ fontSize: 48, fontWeight: 900, color: ORANGE, textShadow: "2px 2px 8px rgba(0,0,0,0.5)", marginBottom: 12 }}>根本改善へ</div>
+            <div style={{ background: "rgba(255,255,255,0.9)", borderRadius: 12, padding: "10px 24px", marginBottom: 20 }}>
               <div style={{ fontSize: 13, fontWeight: 700 }}>
                 <span style={{ color: "#4285f4" }}>G</span><span style={{ color: "#ea4335" }}>o</span><span style={{ color: "#fbbc05" }}>o</span><span style={{ color: "#4285f4" }}>g</span><span style={{ color: "#34a853" }}>l</span><span style={{ color: "#ea4335" }}>e</span>
-                　口コミ評価　<span style={{ fontSize: 18, color: ORANGE, fontWeight: 900 }}>4.9</span>
+                　口コミ評価　<span style={{ fontSize: 20, color: ORANGE, fontWeight: 900 }}>4.9</span>
               </div>
               <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>多数のお喜びの声を頂いております！</div>
             </div>
-            <button onClick={() => setScreen("auth")} style={{ padding: "16px 40px", borderRadius: 30, border: "none", background: ORANGE, color: "white", fontSize: 16, fontWeight: 700, cursor: "pointer", marginBottom: 20, boxShadow: "0 4px 16px rgba(224,123,57,0.5)" }}>
+            <button onClick={() => setScreen("auth")} style={{ padding: "16px 40px", borderRadius: 30, border: "none", background: ORANGE, color: "white", fontSize: 16, fontWeight: 700, cursor: "pointer" }}>
               今すぐ予約する →
             </button>
-            <div style={{ display: "flex", gap: 10, width: "100%", maxWidth: 400 }}>
-              {STORES.map(s => (
-                <div key={s.id} style={{ flex: 1, background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: "10px 12px", backdropFilter: "blur(4px)", border: "1px solid rgba(255,255,255,0.3)" }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "white", marginBottom: 4 }}>癒楽里 {s.name}</div>
-                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.85)" }}>📞 {s.tel}</div>
-                  <div style={{ fontSize: 10, color: "rgba(255,255,255,0.75)", marginTop: 2 }}>🕐 {s.hours}</div>
-                </div>
-              ))}
+          </div>
+        </div>
+
+        <div style={{ background: GREEN, padding: "20px" }}>
+          <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", gap: 12, flexWrap: "wrap" }}>
+            {STORES.map(s => (
+              <div key={s.id} style={{ flex: 1, minWidth: 240, background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "14px 16px" }}>
+                <div style={{ fontSize: 13, color: "rgba(255,255,255,0.7)", marginBottom: 4 }}>SHOP</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "white", marginBottom: 6 }}>癒楽里 {s.name}</div>
+                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", marginBottom: 4 }}>📞 {s.tel}</div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.7)" }}>🕐 {s.hours}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ maxWidth: 640, margin: "0 auto", padding: "40px 20px" }}>
+          <div style={{ textAlign: "center", marginBottom: 24 }}>
+            <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>FEATURES</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>癒楽里の特徴</div>
+            <div style={{ width: 40, height: 3, background: ORANGE, margin: "8px auto 0" }} />
+          </div>
+          <img src={IMAGES.features} alt="特徴" style={{ width: "100%", borderRadius: 16, boxShadow: "0 4px 20px rgba(0,0,0,0.1)" }} />
+        </div>
+
+        <div style={{ background: "white", padding: "40px 20px" }}>
+          <div style={{ maxWidth: 640, margin: "0 auto" }}>
+            <div style={{ textAlign: "center", marginBottom: 24 }}>
+              <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>SYMPTOMS</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>こんなお悩みありませんか？</div>
+              <div style={{ width: 40, height: 3, background: ORANGE, margin: "8px auto 0" }} />
             </div>
+            <div style={{ display: "flex", gap: 12 }}>
+              <img src={IMAGES.symptoms1} alt="症状1" style={{ flex: 1, width: "50%", borderRadius: 12 }} />
+              <img src={IMAGES.symptoms2} alt="症状2" style={{ flex: 1, width: "50%", borderRadius: 12 }} />
+            </div>
+          </div>
+        </div>
+
+        <div style={{ maxWidth: 640, margin: "0 auto", padding: "40px 20px" }}>
+          <div style={{ textAlign: "center", marginBottom: 24 }}>
+            <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>MESSAGE</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>院長からのメッセージ</div>
+            <div style={{ width: 40, height: 3, background: ORANGE, margin: "8px auto 0" }} />
+          </div>
+          <img src={IMAGES.message} alt="メッセージ" style={{ width: "100%", borderRadius: 16 }} />
+        </div>
+
+        <div style={{ background: GREEN, padding: "40px 20px", textAlign: "center" }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "white", marginBottom: 8 }}>まずはお気軽にご予約ください</div>
+          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", marginBottom: 24 }}>初回体験コース ¥3,300〜</div>
+          <button onClick={() => setScreen("auth")} style={{ padding: "18px 48px", borderRadius: 30, border: "none", background: ORANGE, color: "white", fontSize: 18, fontWeight: 700, cursor: "pointer" }}>
+            オンライン予約する
+          </button>
+        </div>
+
+        <div style={{ background: DARK, padding: "30px 20px" }}>
+          <div style={{ maxWidth: 640, margin: "0 auto" }}>
+            <img src={IMAGES.footer} alt="フッター" style={{ width: "100%", borderRadius: 12, marginBottom: 20, opacity: 0.8 }} />
+            <div style={{ textAlign: "center", fontSize: 11, color: "#666" }}>© 2024 整体院 癒楽里 All Rights Reserved.</div>
           </div>
         </div>
       </div>
     );
   }
+
   if (screen === "auth") {
     return (
       <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
