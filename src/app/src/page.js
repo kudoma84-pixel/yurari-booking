@@ -57,6 +57,8 @@ function AppInner() {
   const [step, setStep] = useState(0);
   const [store, setStore] = useState(null);
   const [course, setCourse] = useState(null);
+  const [courseCategory, setCourseCategory] = useState(null);
+const [courseVisitType, setCourseVisitType] = useState(null);
   const [staff, setStaff] = useState(null);
   const [date, setDate] = useState(null);
   const [time, setTime] = useState(null);
