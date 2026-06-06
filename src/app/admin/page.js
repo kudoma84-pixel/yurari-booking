@@ -105,6 +105,7 @@ export default function AdminPage() {
   const [notifyCustomerSearch, setNotifyCustomerSearch] = useState("");
   const [notifyCustomerResult, setNotifyCustomerResult] = useState(null);
   const [editingCustomer, setEditingCustomer] = useState(null);
+  const [courseTabCategory, setCourseTabCategory] = useState("整体");
 
   const popoverRef = useRef(null);
 
