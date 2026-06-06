@@ -60,7 +60,7 @@ export default function AdminPage() {
   const [editingPlan, setEditingPlan] = useState(null);
   const [newPlanName, setNewPlanName] = useState("");
   const [applyPlanModal, setApplyPlanModal] = useState(null);
-  const [applyWeekStart, setApplyWeekStart] = useState("");
+  const [applyWeekStart, setApplyWeekStart] = useState(new Date().toISOString().split("T")[0]);
   const [applyWeekEnd, setApplyWeekEnd] = useState("");
   const [products, setProducts] = useState([]);
   const [checkoutBooking, setCheckoutBooking] = useState(null);
