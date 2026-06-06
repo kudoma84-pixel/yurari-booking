@@ -83,6 +83,32 @@ function AppInner() {
   };
 
   useEffect(() => { fetchCourses(); }, []);
+  useEffect(() => {
+    const customerId = localStorage.getItem('yurari_customer_id');
+    const expire = localStorage.getItem('yurari_login_expire');
+    if (customerId && expire && Date.now() < parseInt(expire) && !changeBookingId) {
+      const fetchMyPageCustomer = async () => {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}&select=*`, {
+          headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` }
+        });
+        const data = await res.json();
+        if (data && data[0]) {
+          const c = data[0];
+          setProfile({
+            name: c.name || "", kana: c.kana || "",
+            tel: c.tel || "", email: c.email || "",
+            address: c.address || "", zipcode: c.zipcode || "",
+            birthYear: "", birthMonth: "", birthDay: "",
+            birthday: c.birthday || "", firstVisit: "2回目以降", notes: "",
+          });
+          setExistingCustomer(c);
+          setNotificationMethod(c.notification_method || "email");
+          setScreen("store");
+        }
+      };
+      fetchMyPageCustomer();
+    }
+  }, []);
 
   useEffect(() => {
     if (store) { fetchStaff(store.id); fetchStoreSettings(store.id); }
