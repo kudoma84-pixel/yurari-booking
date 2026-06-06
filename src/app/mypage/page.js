@@ -580,7 +580,7 @@ export default function MyPage() {
       {/* 下部ナビ */}
       <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(12px)", borderTop: `3px solid ${GREEN}20`, padding: "12px 16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom))" }}>
         <div style={{ maxWidth: 640, margin: "0 auto", textAlign: "center" }}>
-          <a href="/"
+          <a href="/src"
             style={{ display: "inline-block", padding: "12px 32px", borderRadius: 25, background: ORANGE, color: "white", fontSize: 14, fontWeight: 700, textDecoration: "none" }}>
             ＋ 新しい予約をする
           </a>
