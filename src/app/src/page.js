@@ -280,6 +280,23 @@ function AppInner() {
           body: JSON.stringify({ status: "cancelled" }),
         });
       }
+      // メール送信
+      if (profile.email && notificationMethod === "email") {
+        try {
+          const storeName = store.id === "minamiurawa" ? "南浦和店" : "戸田店";
+          await fetch("/api/send-email", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: profile.email,
+              subject: "ご予約確定のお知らせ｜整体院 癒楽里",
+              html: "<div style='font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;'><h2 style='color:#3a5a3a;'>ご予約確定のお知らせ</h2><p>" + profile.name + " 様</p><p>ご予約が確定しました。</p><div style='background:#f9f6f2;border-radius:8px;padding:16px;margin:20px 0;'><table style='width:100%;border-collapse:collapse;'><tr><td style='padding:6px 0;color:#7a9a7a;width:120px;'>予約番号</td><td style='padding:6px 0;'>" + num + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>店舗</td><td style='padding:6px 0;'>整体院 癒楽里 " + storeName + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>日時</td><td style='padding:6px 0;'>" + formatDate(date) + " " + time + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>コース</td><td style='padding:6px 0;'>" + course.name + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>担当</td><td style='padding:6px 0;'>" + staff.name + "</td></tr></table></div><p>ご来院をお待ちしております。</p><p style='color:#aaa;font-size:12px;'>整体院 癒楽里</p></div>",
+            }),
+          });
+        } catch (mailErr) {
+          console.error("メール送信エラー:", mailErr);
+        }
+      }
       setBookingNum(num);
       setScreen("complete");
     } catch (e) {
