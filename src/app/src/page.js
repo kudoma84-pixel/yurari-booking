@@ -371,9 +371,9 @@ function AppInner() {
 
   if (screen === "top") {
     return (
-      <div style={{ fontFamily: "'Noto Sans JP', sans-serif", background: CREAM, minHeight: "100vh" }}>
+      <div style={{ fontFamily: "'Noto Sans JP', sans-serif", background: CREAM, height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
         <Header showBack={false} />
-        <div style={{ position: "relative", height: 420, overflow: "hidden" }}>
+        <div style={{ position: "relative", flex: 1, overflow: "hidden" }}>
           <img src={IMAGES.hero} alt="癒楽里" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,0.2), rgba(0,0,0,0.5))" }} />
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 20 }}>
@@ -393,7 +393,6 @@ function AppInner() {
             </button>
           </div>
         </div>
-
         <div style={{ background: GREEN, padding: "20px" }}>
           <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", gap: 12, flexWrap: "wrap" }}>
             {STORES.map(s => (
