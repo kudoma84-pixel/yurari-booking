@@ -407,52 +407,7 @@ function AppInner() {
           </div>
         </div>
 
-        <div style={{ maxWidth: 640, margin: "0 auto", padding: "40px 20px" }}>
-          <div style={{ textAlign: "center", marginBottom: 24 }}>
-            <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>FEATURES</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>癒楽里の特徴</div>
-            <div style={{ width: 40, height: 3, background: ORANGE, margin: "8px auto 0" }} />
-          </div>
-          <img src={IMAGES.features} alt="特徴" style={{ width: "100%", borderRadius: 16, boxShadow: "0 4px 20px rgba(0,0,0,0.1)" }} />
-        </div>
-
-        <div style={{ background: "white", padding: "40px 20px" }}>
-          <div style={{ maxWidth: 640, margin: "0 auto" }}>
-            <div style={{ textAlign: "center", marginBottom: 24 }}>
-              <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>SYMPTOMS</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>こんなお悩みありませんか？</div>
-              <div style={{ width: 40, height: 3, background: ORANGE, margin: "8px auto 0" }} />
-            </div>
-            <div style={{ display: "flex", gap: 12 }}>
-              <img src={IMAGES.symptoms1} alt="症状1" style={{ flex: 1, width: "50%", borderRadius: 12 }} />
-              <img src={IMAGES.symptoms2} alt="症状2" style={{ flex: 1, width: "50%", borderRadius: 12 }} />
-            </div>
-          </div>
-        </div>
-
-        <div style={{ maxWidth: 640, margin: "0 auto", padding: "40px 20px" }}>
-          <div style={{ textAlign: "center", marginBottom: 24 }}>
-            <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>MESSAGE</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>院長からのメッセージ</div>
-            <div style={{ width: 40, height: 3, background: ORANGE, margin: "8px auto 0" }} />
-          </div>
-          <img src={IMAGES.message} alt="メッセージ" style={{ width: "100%", borderRadius: 16 }} />
-        </div>
-
-        <div style={{ background: GREEN, padding: "40px 20px", textAlign: "center" }}>
-          <div style={{ fontSize: 20, fontWeight: 700, color: "white", marginBottom: 8 }}>まずはお気軽にご予約ください</div>
-          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.8)", marginBottom: 24 }}>初回体験コース ¥3,300〜</div>
-          <button onClick={() => setScreen("auth")} style={{ padding: "18px 48px", borderRadius: 30, border: "none", background: ORANGE, color: "white", fontSize: 18, fontWeight: 700, cursor: "pointer" }}>
-            オンライン予約する
-          </button>
-        </div>
-
-        <div style={{ background: DARK, padding: "30px 20px" }}>
-          <div style={{ maxWidth: 640, margin: "0 auto" }}>
-            <img src={IMAGES.footer} alt="フッター" style={{ width: "100%", borderRadius: 12, marginBottom: 20, opacity: 0.8 }} />
-            <div style={{ textAlign: "center", fontSize: 11, color: "#666" }}>© 2024 整体院 癒楽里 All Rights Reserved.</div>
-          </div>
-        </div>
+        
       </div>
     );
   }
