@@ -15,6 +15,8 @@ const LOGO_URL = "https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp
 const DAYS_JP = ["日","月","火","水","木","金","土"];
 
 export default function MyPage() {
+  const searchParams = useSearchParams();
+  const isCheckin = searchParams?.get('checkin') === 'true';
   const [screen, setScreen] = useState("login");
   const [loginCode, setLoginCode] = useState("");
   const [customer, setCustomer] = useState(null);
