@@ -1643,7 +1643,7 @@ export default function AdminPage() {
                             const isBreak = BREAK_SLOTS.includes(time);
                             const isExt = ["09:00","09:30","20:00","20:30"].includes(time) && isSlotExtended(time);
                             const breakActive = isBreak && !isSlotBreakReleased(time);
-                            return <th key={time} style={{ padding: "10px 8px", textAlign: "center", fontSize: 11, fontWeight: 700, color: breakActive ? "#e0a040" : isExt ? "#5a9e7a" : "#7a9a7a", minWidth: 70, borderLeft: "1px solid #f0ebe4", background: breakActive ? "#fdf5f0" : isExt ? "#f0f8f4" : "#f5f5f5" }}>{time}{breakActive && <div style={{ fontSize: 9, color: "#e0a040" }}>休憩</div>}{isExt && <div style={{ fontSize: 9, color: "#5a9e7a" }}>拡張</div>}</th>;
+                            return <th key={time} style={{ padding: "10px 8px", textAlign: "center", fontSize: 11, fontWeight: 700, color: breakActive ? "#e0a040" : isExt ? "#5a9e7a" : "#7a9a7a", minWidth: 52, borderLeft: "1px solid #f0ebe4", background: breakActive ? "#fdf5f0" : isExt ? "#f0f8f4" : "#f5f5f5" }}>{time}{breakActive && <div style={{ fontSize: 9, color: "#e0a040" }}>休憩</div>}{isExt && <div style={{ fontSize: 9, color: "#5a9e7a" }}>拡張</div>}</th>;
                           })}
                         </tr>
                       </thead>
@@ -1698,7 +1698,7 @@ export default function AdminPage() {
                   <table style={{ borderCollapse: "collapse", width: "100%" }}>
                     <thead>
                       <tr style={{ background: "#f5f5f5" }}>
-                        <th style={{ padding: "12px 16px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", minWidth: 100, position: "sticky", left: 0, background: "#f5f5f5" }}>スタッフ</th>
+                        <th style={{ padding: "12px 16px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", minWidth: 80, position: "sticky", left: 0, background: "#f5f5f5" }}>スタッフ</th>
                         {getDaysInMonth(shiftMonth).filter(d => d).map(d => {
                           const dayIdx = d.getDay();
                           const dateStr = formatDate(d);
