@@ -190,7 +190,7 @@ function AppInner() {
     setNotificationMethod(method);
     if (method === "line") {
       localStorage.setItem('yurari_notification_method', 'line');
-      signIn("line", { callbackUrl: "/src" });
+      signIn("line", { callbackUrl: "/src?notify=line" });
     } else {
       setScreen("register");
     }
