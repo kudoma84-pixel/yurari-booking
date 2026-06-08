@@ -87,10 +87,13 @@ function AppInner() {
 
   useEffect(() => { fetchCourses(); }, []);
   useEffect(() => {
-    if (notifyFromUrl === 'line' && session) {
+    if (notifyFromUrl === 'line') {
       setNotificationMethod('line');
-      checkExistingCustomer();
+      if (session) {
+        checkExistingCustomer();
+      }
     }
+  }, [notifyFromUrl, session]);
   }, [notifyFromUrl, session]);
   useEffect(() => {
     const customerId = localStorage.getItem('yurari_customer_id');
