@@ -169,6 +169,19 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
     const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?customer_id=eq.${customerId}&order=booking_date.desc&select=*`, { headers });
     const data = await res.json();
     setCustomerHistory(Array.isArray(data) ? data : []);
+    const fetchVisitDetail = async (bookingId) => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/payments?booking_id=eq.${bookingId}&select=*`, { headers });
+    const data = await res.json();
+    if (data && data.length > 0) {
+      setVisitPayment(data[0]);
+      const itemRes = await fetch(`${SUPABASE_URL}/rest/v1/payment_items?payment_id=eq.${data[0].id}&select=*`, { headers });
+      const itemData = await itemRes.json();
+      setVisitPaymentItems(Array.isArray(itemData) ? itemData : []);
+    } else {
+      setVisitPayment(null);
+      setVisitPaymentItems([]);
+    }
+  };
   };
 
   const fetchBlocks = async (date) => {
