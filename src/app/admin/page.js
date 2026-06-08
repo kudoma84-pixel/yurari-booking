@@ -105,6 +105,9 @@ export default function AdminPage() {
   const [notifyCustomerSearch, setNotifyCustomerSearch] = useState("");
   const [notifyCustomerResult, setNotifyCustomerResult] = useState(null);
   const [editingCustomer, setEditingCustomer] = useState(null);
+  const [selectedVisit, setSelectedVisit] = useState(null);
+const [visitPayment, setVisitPayment] = useState(null);
+const [visitPaymentItems, setVisitPaymentItems] = useState([]);
   const [courseTabCategory, setCourseTabCategory] = useState("整体");
 
   const popoverRef = useRef(null);
