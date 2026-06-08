@@ -165,6 +165,7 @@ function AppInner() {
   };
 
   const checkExistingCustomer = async () => {
+    console.log("session:", JSON.stringify(session));
     if (!session?.lineUserId) return;
     const res = await fetch(SUPABASE_URL + "/rest/v1/customers?line_user_id=eq." + session.lineUserId + "&select=*", { headers });
     const data = await res.json();
