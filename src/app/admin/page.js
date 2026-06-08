@@ -119,9 +119,13 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
     "Prefer": "return=representation",
   };
 
-  const handleLogin = () => {
+ const handleLogin = () => {
     const user = ADMIN_USERS.find(u => u.id === selectedStore && u.password === password);
-    if (user) { setLoggedIn(true); setCurrentStore(user); setError(""); }
+    if (user) {
+      setLoggedIn(true); setCurrentStore(user); setError("");
+      localStorage.setItem('yurari_admin_store', user.id);
+      localStorage.setItem('yurari_admin_expire', Date.now() + 12 * 60 * 60 * 1000);
+    }
     else setError("パスワードが違います");
   };
 
