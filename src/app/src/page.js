@@ -204,6 +204,11 @@ function AppInner() {
     setNotificationMethod(method);
     if (method === "line") {
       localStorage.setItem('yurari_notification_method', 'line');
+      const ua = navigator.userAgent;
+      if (ua.indexOf('Line/') > -1) {
+        window.location.href = 'https://yurari-booking.vercel.app/src?openExternalBrowser=1';
+        return;
+      }
       signIn("line", { callbackUrl: "/src?notify=line" });
     } else {
       setScreen("register");
