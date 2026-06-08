@@ -410,7 +410,7 @@ if (notifyFromUrl === 'line' && screen === "top") {
    return (
       <>
       <style>{`@media (min-width: 640px) { .store-grid { grid-template-columns: repeat(2, 1fr) !important; } }`}</style>
-      <div style={{ fontFamily: "'Noto Sans JP', sans-serif", background: CREAM, height: "100dvh", overflow: "hidden", position: "fixed", width: "100%", display: "flex", flexDirection: "column" }}>
+      <div style={{ fontFamily: "'Noto Sans JP', sans-serif", background: CREAM, height: "100dvh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
         <Header showBack={false} />
         <div style={{ position: "relative", flex: 1, overflow: "hidden" }}>
           <img src={IMAGES.hero} alt="癒楽里" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
