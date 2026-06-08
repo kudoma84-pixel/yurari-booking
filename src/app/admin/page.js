@@ -1657,7 +1657,7 @@ export default function AdminPage() {
                               const onShift = isOnShift(s.id);
                               const isExt = ["09:00","09:30","20:00","20:30"].includes(time) && isSlotExtended(time);
                               return (
-                                <td key={time} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: (BREAK_SLOTS.includes(time) && !isSlotBreakReleased(time)) ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", minWidth: 38 }}>
+                                <td key={time} style={{ padding: "8px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: (BREAK_SLOTS.includes(time) && !isSlotBreakReleased(time)) ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", minWidth: 38 }}>
                                   {isBreak && !isSlotBreakReleased(time) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
                                   : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
                                   : booking && booking.status !== "cancelled" ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "2px 4px", fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", lineHeight: 1.3 }} onClick={() => setSelectedBooking(booking)}><div>{(booking.customers?.name || "予約").slice(0, 3)}</div><div style={{ fontSize: 9, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 3)}</div></div>                                  : blocked ? <div onClick={() => toggleBlock(s.id, time)} style={{ background: "#f0ebe4", color: "#bbb", borderRadius: 6, padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>🔒</div>
