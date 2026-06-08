@@ -8,6 +8,9 @@ const handler = NextAuth({
       clientSecret: process.env.LINE_CLIENT_SECRET,
     }),
   ],
+  pages: {
+    signIn: '/src',
+  },
   callbacks: {
     async jwt({ token, account }) {
       if (account) {
