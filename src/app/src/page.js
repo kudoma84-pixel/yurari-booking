@@ -51,6 +51,7 @@ function AppInner() {
   const { data: session } = useSession();
   const searchParams = useSearchParams();
   const changeBookingId = searchParams?.get('change');
+  const notifyFromUrl = searchParams?.get('notify');
 
   const [screen, setScreen] = useState("top");
   const [notificationMethod, setNotificationMethod] = useState(null);
