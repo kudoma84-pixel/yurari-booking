@@ -110,6 +110,14 @@ const [visitPayment, setVisitPayment] = useState(null);
 const [visitPaymentItems, setVisitPaymentItems] = useState([]);
   const [courseTabCategory, setCourseTabCategory] = useState("整体");
 
+  useEffect(() => {
+    const storeId = localStorage.getItem('yurari_admin_store');
+    const expire = localStorage.getItem('yurari_admin_expire');
+    if (storeId && expire && Date.now() < parseInt(expire)) {
+      const user = ADMIN_USERS.find(u => u.id === storeId);
+      if (user) { setLoggedIn(true); setCurrentStore(user); }
+    }
+  }, []);
   const popoverRef = useRef(null);
 
   const headers = {
