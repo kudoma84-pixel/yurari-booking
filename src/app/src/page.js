@@ -396,7 +396,7 @@ function AppInner() {
     </div>
   );
 
-  if (screen === "top") {
+  if (screen === "top" && !notifyFromUrl) {
     return (
       <div style={{ fontFamily: "'Noto Sans JP', sans-serif", background: CREAM, height: "100dvh", maxHeight: "100dvh", overflow: "hidden", position: "fixed", width: "100%", display: "flex", flexDirection: "column" }}>
         <Header showBack={false} />
