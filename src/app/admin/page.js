@@ -1271,8 +1271,7 @@ export default function AdminPage() {
         ))}
       </div>
 
-      <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto" }}>
-
+      <div style={{ padding: 24, margin: "0 auto" }}>
         {tab === "settings" && (
           <div>
             <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
