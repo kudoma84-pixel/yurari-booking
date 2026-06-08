@@ -924,7 +924,7 @@ export default function AdminPage() {
                 { label: "日時", value: `${selectedBooking.booking_date} ${selectedBooking.booking_time}` },
                 { label: "コース", value: selectedBooking.course_name },
                 { label: "担当", value: selectedBooking.staff_name },
-                { label: "お名前", value: selectedBooking.customers?.name || "未登録" },
+                { label: "お名前", value: selectedBooking.customers?.name || "未登録", isName: true },
                 { label: "電話番号", value: selectedBooking.customers?.tel || "-" },
                 { label: "メール", value: selectedBooking.customers?.email || "-" },
                 { label: "LINE", value: selectedBooking.customers?.line_user_id ? "連携済" : "未連携" },
@@ -932,7 +932,11 @@ export default function AdminPage() {
               ].map((row, i) => (
                 <div key={i} style={{ display: "flex", borderBottom: "1px solid #f0ebe4", paddingBottom: 8 }}>
                   <div style={{ fontSize: 12, color: "#7a9a7a", fontWeight: 700, width: 80, flexShrink: 0 }}>{row.label}</div>
-                  <div style={{ fontSize: 13, color: "#3a5a3a" }}>{row.value}</div>
+                  {row.isName && selectedBooking.customer_id ? (
+                    <div onClick={() => { setSelectedBooking(null); setSelectedCustomer(selectedBooking.customers); fetchCustomerHistory(selectedBooking.customer_id); }} style={{ fontSize: 13, color: "#5a9e7a", fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>{row.value} →</div>
+                  ) : (
+                    <div style={{ fontSize: 13, color: "#3a5a3a" }}>{row.value}</div>
+                  )}
                 </div>
               ))}
             </div>
