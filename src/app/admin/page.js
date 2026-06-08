@@ -1260,7 +1260,7 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
             <div style={{ fontSize: 11, color: "#aaa" }}>管理画面</div>
           </div>
         </div>
-        <button onClick={() => { window.location.reload(); }} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 13, cursor: "pointer", marginRight: 8 }}>🔄 更新</button>
+        <button onClick={() => { fetchAll(selectedDate); fetchStaffMembers(); }} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 13, cursor: "pointer", marginRight: 8 }}>🔄 更新</button>
         <button onClick={() => { setLoggedIn(false); setPassword(""); }} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 13, cursor: "pointer" }}>ログアウト</button>
       </div>
 
