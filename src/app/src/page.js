@@ -407,8 +407,10 @@ if (notifyFromUrl === 'line' && screen === "top") {
     );
   }
   if (screen === "top" && !notifyFromUrl) {
-    return (
-      <div style={{ fontFamily: "'Noto Sans JP', sans-serif", background: CREAM, height: "100dvh", maxHeight: "100dvh", overflow: "hidden", position: "fixed", width: "100%", display: "flex", flexDirection: "column" }}>
+   return (
+      <>
+      <style>{`@media (min-width: 640px) { .store-grid { grid-template-columns: repeat(2, 1fr) !important; } }`}</style>
+      <div style={{ fontFamily: "'Noto Sans JP', sans-serif", background: CREAM, height: "100dvh",, overflow: "hidden", position: "fixed", width: "100%", display: "flex", flexDirection: "column" }}>
         <Header showBack={false} />
         <div style={{ position: "relative", flex: 1, overflow: "hidden" }}>
           <img src={IMAGES.hero} alt="癒楽里" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
@@ -431,7 +433,7 @@ if (notifyFromUrl === 'line' && screen === "top") {
           </div>
         </div>
         <div style={{ background: GREEN, padding: "16px 20px" }}>
-          <div style={{ maxWidth: 640, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+          <div className="store-grid" style={{ maxWidth: 640, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
             <a href="https://seitai-yurari.com" target="_blank" rel="noopener noreferrer" style={{ flex: 1, minWidth: 240, background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px", textDecoration: "none" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "white", marginBottom: 4 }}>整体院癒楽里　南浦和本院</div>
               <div style={{ fontSize: 11, color: "rgba(255,255,255,0.8)", marginBottom: 2 }}>〒336-0025　埼玉県さいたま市南区文蔵2-17-6</div>
@@ -449,12 +451,13 @@ if (notifyFromUrl === 'line' && screen === "top") {
 
         
       </div>
+      </>
     );
   }
 
   if (screen === "auth") {
     return (
-      <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
+            <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
         <Header showBack={true} />
         <div style={{ maxWidth: 480, margin: "0 auto", padding: "40px 20px" }}>
           <div style={{ textAlign: "center", marginBottom: 32 }}>
