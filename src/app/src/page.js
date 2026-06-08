@@ -433,14 +433,14 @@ if (notifyFromUrl === 'line' && screen === "top") {
           </div>
         </div>
         <div style={{ background: GREEN, padding: "16px 20px" }}>
-          <div className="store-grid" style={{ maxWidth: 640, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-            <a href="https://seitai-yurari.com" target="_blank" rel="noopener noreferrer" style={{ flex: 1, minWidth: 240, background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px", textDecoration: "none" }}>
+          <div style={{ maxWidth: 640, margin: "0 auto", display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
+            <a href="https://seitai-yurari.com" target="_blank" rel="noopener noreferrer" style={{ background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px", textDecoration: "none" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "white", marginBottom: 4 }}>整体院癒楽里　南浦和本院</div>
               <div style={{ fontSize: 11, color: "rgba(255,255,255,0.8)", marginBottom: 2 }}>〒336-0025　埼玉県さいたま市南区文蔵2-17-6</div>
               <div style={{ fontSize: 12, color: "rgba(255,255,255,0.9)", marginBottom: 2 }}>📞 048-762-8333</div>
               <div style={{ fontSize: 11, color: "rgba(255,255,255,0.8)" }}>⏱ 10:00〜19:30　定休日：日曜日・月曜日</div>
             </a>
-            <a href="https://seitai-yurari-kitatoda.com" target="_blank" rel="noopener noreferrer" style={{ flex: 1, minWidth: 240, background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px", textDecoration: "none" }}>
+            <a href="https://seitai-yurari-kitatoda.com" target="_blank" rel="noopener noreferrer" style={{ background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px", textDecoration: "none" }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "white", marginBottom: 4 }}>整体院癒楽里　戸田院</div>
               <div style={{ fontSize: 11, color: "rgba(255,255,255,0.8)", marginBottom: 2 }}>〒335-0021　埼玉県戸田市新曽736-1</div>
               <div style={{ fontSize: 12, color: "rgba(255,255,255,0.9)", marginBottom: 2 }}>📞 048-287-3318</div>
@@ -448,7 +448,6 @@ if (notifyFromUrl === 'line' && screen === "top") {
             </a>
           </div>
         </div>
-
         
       </div>
       </>
