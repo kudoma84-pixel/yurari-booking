@@ -187,7 +187,7 @@ function AppInner() {
   const handleAuthSelect = (method) => {
     setNotificationMethod(method);
     if (method === "line") {
-      signIn("line");
+      signIn("line", { callbackUrl: "/src" });
     } else {
       setScreen("register");
     }
