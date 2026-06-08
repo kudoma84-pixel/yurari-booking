@@ -184,9 +184,10 @@ function AppInner() {
     }
   };
 
-  const handleAuthSelect = (method) => {
+ const handleAuthSelect = (method) => {
     setNotificationMethod(method);
     if (method === "line") {
+      localStorage.setItem('yurari_notification_method', 'line');
       signIn("line", { callbackUrl: "/src" });
     } else {
       setScreen("register");
