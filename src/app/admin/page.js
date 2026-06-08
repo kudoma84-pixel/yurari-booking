@@ -1104,8 +1104,9 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
                   { label: "割引", value: visitPayment.discount > 0 ? "-¥" + visitPayment.discount?.toLocaleString() : "-" },
                   { label: "合計金額", value: "¥" + visitPayment.total?.toLocaleString() },
                   { label: "支払い方法", value: { cash: "現金", card: "カード", paypay: "PayPay", linepay: "LINE Pay", other: "その他" }[visitPayment.payment_method] || visitPayment.payment_method },
+                  { label: "領収書発行", value: { line: "LINE", email: "メール", sms: "SMS" }[selectedCustomer?.notification_method] || "-" },
                 ].map((row, j) => (
-                  <div key={j} style={{ display: "flex", padding: "6px 0", borderBottom: j < 7 ? "1px solid #f0ebe4" : "none" }}>
+                  <div key={j} style={{ display: "flex", padding: "6px 0", borderBottom: j < 8 ? "1px solid #f0ebe4" : "none" }}>
                     <div style={{ fontSize: 11, color: "#7a9a7a", fontWeight: 700, width: 90, flexShrink: 0 }}>{row.label}</div>
                     <div style={{ fontSize: 12, color: "#3a5a3a" }}>{row.value}</div>
                   </div>
