@@ -1082,19 +1082,42 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {customerHistory.length === 0 && <div style={{ color: "#aaa", fontSize: 13 }}>来院履歴がありません</div>}
         {customerHistory.map((b, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", background: "#f5f5f5", borderRadius: 10 }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{b.booking_date} {b.booking_time}</div>
-              <div style={{ fontSize: 12, color: "#888" }}>{b.course_name} / {b.staff_name}</div>
+          <div key={i}>
+            <div onClick={() => { if (b.status === "completed") { setSelectedVisit(selectedVisit?.id === b.id ? null : b); fetchVisitDetail(b.id); } }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", background: "#f5f5f5", borderRadius: 10, cursor: b.status === "completed" ? "pointer" : "default" }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{b.booking_date} {b.booking_time}</div>
+                <div style={{ fontSize: 12, color: "#888" }}>{b.course_name} / {b.staff_name}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ fontSize: 11, background: statusColor(b.status), color: "white", borderRadius: 20, padding: "3px 10px" }}>{statusLabel(b.status)}</div>
+                {b.status === "completed" && <div style={{ fontSize: 11, color: "#5a9e7a" }}>{selectedVisit?.id === b.id ? "▲" : "▼"}</div>}
+              </div>
             </div>
-            <div style={{ fontSize: 11, background: statusColor(b.status), color: "white", borderRadius: 20, padding: "3px 10px" }}>{statusLabel(b.status)}</div>
+            {selectedVisit?.id === b.id && visitPayment && (
+              <div style={{ background: "white", border: "1px solid #e8ddd0", borderRadius: 10, padding: "12px 16px", marginTop: 4 }}>
+                {[
+                  { label: "来院日時", value: b.booking_date + " " + b.booking_time },
+                  { label: "担当者", value: b.staff_name },
+                  { label: "施術メニュー", value: visitPaymentItems.filter(i => i.item_type === "course").map(i => i.item_name).join(", ") || "-" },
+                  { label: "購入物品", value: visitPaymentItems.filter(i => i.item_type === "product").map(i => i.item_name + "×" + i.quantity).join(", ") || "-" },
+                  { label: "小計", value: "¥" + visitPayment.subtotal?.toLocaleString() },
+                  { label: "割引", value: visitPayment.discount > 0 ? "-¥" + visitPayment.discount?.toLocaleString() : "-" },
+                  { label: "合計金額", value: "¥" + visitPayment.total?.toLocaleString() },
+                  { label: "支払い方法", value: { cash: "現金", card: "カード", paypay: "PayPay", linepay: "LINE Pay", other: "その他" }[visitPayment.payment_method] || visitPayment.payment_method },
+                ].map((row, j) => (
+                  <div key={j} style={{ display: "flex", padding: "6px 0", borderBottom: j < 7 ? "1px solid #f0ebe4" : "none" }}>
+                    <div style={{ fontSize: 11, color: "#7a9a7a", fontWeight: 700, width: 90, flexShrink: 0 }}>{row.label}</div>
+                    <div style={{ fontSize: 12, color: "#3a5a3a" }}>{row.value}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>
     </div>
   </div>
 )}
-
       {editingPlan !== null && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setEditingPlan(null)}>
           <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 700, maxHeight: "85vh", overflow: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
