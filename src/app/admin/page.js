@@ -1078,7 +1078,7 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
         </div>
       )}
 
-      <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>来院履歴（{customerHistory.length}件）</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>予約履歴（{customerHistory.length}件）</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {customerHistory.length === 0 && <div style={{ color: "#aaa", fontSize: 13 }}>来院履歴がありません</div>}
         {customerHistory.map((b, i) => (
