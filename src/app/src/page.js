@@ -315,6 +315,22 @@ function AppInner() {
           console.error("メール送信エラー:", mailErr);
         }
       }
+      // LINE通知
+      if (notificationMethod === "line" && session?.lineUserId) {
+        try {
+          const storeName = store.id === "minamiurawa" ? "南浦和店" : "戸田店";
+          await fetch("/api/send-line", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: session.lineUserId,
+              messages: [{ type: "text", text: "ご予約が確定しました！\n\n" + "予約番号：" + num + "\n店舗：整体院 癒楽里 " + storeName + "\n日時：" + formatDate(date) + " " + time + "\nコース：" + course.name + "\n担当：" + staff.name + "\n\nご来院をお待ちしております。" }],
+            }),
+          });
+        } catch (lineErr) {
+          console.error("LINE送信エラー:", lineErr);
+        }
+      }
       setBookingNum(num);
       setScreen("complete");
     } catch (e) {
