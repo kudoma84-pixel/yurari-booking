@@ -87,6 +87,12 @@ function AppInner() {
 
   useEffect(() => { fetchCourses(); }, []);
   useEffect(() => {
+    if (notifyFromUrl === 'line' && session) {
+      setNotificationMethod('line');
+      checkExistingCustomer();
+    }
+  }, [notifyFromUrl, session]);
+  useEffect(() => {
     const customerId = localStorage.getItem('yurari_customer_id');
     const expire = localStorage.getItem('yurari_login_expire');
     if (customerId && expire && Date.now() < parseInt(expire) && !changeBookingId) {
