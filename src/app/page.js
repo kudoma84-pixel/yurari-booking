@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function Page() {
-  redirect("/src");
+  redirect("/src?openExternalBrowser=1");
 }
