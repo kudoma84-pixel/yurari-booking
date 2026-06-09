@@ -12,12 +12,6 @@ const handler = NextAuth({
     signIn: '/src',
   },
   callbacks: {
-    async redirect({ url, baseUrl }) {
-      if (url.includes('/src')) {
-        return baseUrl + '/src?notify=line&openExternalBrowser=1';
-      }
-      return url;
-    },
     async jwt({ token, account }) {
       if (account) {
         token.lineUserId = account.providerAccountId;
