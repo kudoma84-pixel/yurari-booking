@@ -88,8 +88,11 @@ function AppInner() {
   useEffect(() => {
     const ua = navigator.userAgent;
     const params = new URLSearchParams(window.location.search);
-    if ((ua.indexOf('Line/') > -1 || ua.indexOf('LIFF') > -1) && !params.get('openExternalBrowser')) {
-      window.location.href = 'https://yurari-booking.vercel.app/src?openExternalBrowser=1';
+    if (!params.get('openExternalBrowser')) {
+      const isLine = ua.indexOf('Line') > -1 || ua.indexOf('LIFF') > -1;
+      if (isLine) {
+        window.location.href = 'https://yurari-booking.vercel.app/src?openExternalBrowser=1';
+      }
     }
   }, []);
   useEffect(() => { fetchCourses(); }, []);
