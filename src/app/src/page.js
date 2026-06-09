@@ -97,6 +97,7 @@ function AppInner() {
     useEffect(() => {
     const customerId = localStorage.getItem('yurari_customer_id');
     const expire = localStorage.getItem('yurari_login_expire');
+    const lineUserId = localStorage.getItem('yurari_line_user_id');
     if (customerId && expire && Date.now() < parseInt(expire) && !changeBookingId) {
       const fetchMyPageCustomer = async () => {
         const res = await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + customerId + "&select=*", {
@@ -118,6 +119,29 @@ function AppInner() {
         }
       };
       fetchMyPageCustomer();
+    } else if (lineUserId && !changeBookingId) {
+      const fetchLineCustomer = async () => {
+        const res = await fetch(SUPABASE_URL + "/rest/v1/customers?line_user_id=eq." + lineUserId + "&select=*", {
+          headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+        });
+        const data = await res.json();
+        if (data && data[0]) {
+          const c = data[0];
+          setProfile({
+            name: c.name || "", kana: c.kana || "",
+            tel: c.tel || "", email: c.email || "",
+            address: c.address || "", zipcode: c.zipcode || "",
+            birthYear: "", birthMonth: "", birthDay: "",
+            birthday: c.birthday || "", firstVisit: "2回目以降", notes: "",
+          });
+          setExistingCustomer(c);
+          setNotificationMethod("line");
+          localStorage.setItem('yurari_customer_id', c.id);
+          localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
+          setScreen("store");
+        }
+      };
+      fetchLineCustomer();
     }
   }, []);
 
