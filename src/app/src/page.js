@@ -219,15 +219,22 @@ function AppInner() {
       setScreen("register");
     }
   };
- const handleAuthSelect = (method) => {
+ const handleAuthSelect = async (method) => {
     setNotificationMethod(method);
     if (method === "line") {
       localStorage.setItem('yurari_notification_method', 'line');
-      signIn("line", { callbackUrl: "/src?notify=line" });
-    } else {
-      setScreen("register");
-    }
-  };
+      try {
+        const liff = (await import('@line/liff')).default;
+        await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
+        if (!liff.isLoggedIn()) {
+          liff.login({ redirectUri: window.location.href });
+          return;
+        }
+        const profile = await liff.getProfile();
+        const lineUserId = profile.userId;
+        localStorage.setItem('yurari_line_user_id', lineUserId);
+        const res = await fetch(SUPABASE_URL + "/rest/v1/customers?line_user_id=eq." + lineUserId + "&select=*", { headers });
+        const dat
   const handleRegisterSubmit = async () => {
     if (!profile.name || !profile.kana || !profile.tel || !profile.email || !profile.address || !profile.zipcode || !profile.birthday) {
       setError("全ての項目を入力してください");
