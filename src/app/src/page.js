@@ -17,11 +17,6 @@ const LOGO_URL = "https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp
 
 const IMAGES = {
   hero: "https://seitai-yurari.com/wp-content/themes/lightning_child/img/top/mainimg.webp",
-  features: "https://seitai-yurari.com/wp-content/themes/lightning_child/img/top/features.png",
-  symptoms1: "https://seitai-yurari.com/wp-content/themes/lightning_child/img/top/symptoms1.png",
-  symptoms2: "https://seitai-yurari.com/wp-content/themes/lightning_child/img/top/symptoms2.png",
-  message: "https://seitai-yurari.com/wp-content/themes/lightning_child/img/top/message.png",
-  footer: "https://seitai-yurari.com/wp-content/themes/lightning_child/img/common/foot4.jpg",
 };
 
 const GREEN = "#2d6a4f";
@@ -85,7 +80,8 @@ function AppInner() {
     "Prefer": "return=representation",
   };
 
-      useEffect(() => { fetchCourses(); }, []);
+  useEffect(() => { fetchCourses(); }, []);
+
   useEffect(() => {
     if (notifyFromUrl === 'line') {
       setNotificationMethod('line');
@@ -94,7 +90,8 @@ function AppInner() {
       }
     }
   }, [notifyFromUrl, session]);
-    useEffect(() => {
+
+  useEffect(() => {
     const customerId = localStorage.getItem('yurari_customer_id');
     const expire = localStorage.getItem('yurari_login_expire');
     const lineUserId = localStorage.getItem('yurari_line_user_id');
@@ -219,7 +216,8 @@ function AppInner() {
       setScreen("register");
     }
   };
- const handleAuthSelect = async (method) => {
+
+  const handleAuthSelect = async (method) => {
     setNotificationMethod(method);
     if (method === "line") {
       localStorage.setItem('yurari_notification_method', 'line');
@@ -234,7 +232,34 @@ function AppInner() {
         const lineUserId = liffProfile.userId;
         localStorage.setItem('yurari_line_user_id', lineUserId);
         const res = await fetch(SUPABASE_URL + "/rest/v1/customers?line_user_id=eq." + lineUserId + "&select=*", { headers });
-          const handleRegisterSubmit = async () => {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          const c = data[0];
+          setExistingCustomer(c);
+          setProfile({
+            name: c.name || "", kana: c.kana || "",
+            tel: c.tel || "", email: c.email || "",
+            address: c.address || "", zipcode: c.zipcode || "",
+            birthYear: "", birthMonth: "", birthDay: "",
+            birthday: c.birthday || "", firstVisit: "2回目以降", notes: "",
+          });
+          localStorage.setItem('yurari_customer_id', c.id);
+          localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
+          setScreen("booking");
+        } else {
+          setProfile(p => ({ ...p, name: liffProfile.displayName || "" }));
+          setScreen("register");
+        }
+      } catch (e) {
+        console.error("LIFF error:", e);
+        signIn("line", { callbackUrl: "/src?notify=line" });
+      }
+    } else {
+      setScreen("register");
+    }
+  };
+
+  const handleRegisterSubmit = async () => {
     if (!profile.name || !profile.kana || !profile.tel || !profile.email || !profile.address || !profile.zipcode || !profile.birthday) {
       setError("全ての項目を入力してください");
       return;
@@ -356,20 +381,22 @@ function AppInner() {
           console.error("メール送信エラー:", mailErr);
         }
       }
-      // LINE通知
-      if (notificationMethod === "line" && session?.lineUserId) {
-        try {
-          const storeName = store.id === "minamiurawa" ? "南浦和店" : "戸田店";
-          await fetch("/api/send-line", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              to: session.lineUserId,
-              messages: [{ type: "text", text: "ご予約が確定しました！\n\n" + "予約番号：" + num + "\n店舗：整体院 癒楽里 " + storeName + "\n日時：" + formatDate(date) + " " + time + "\nコース：" + course.name + "\n担当：" + staff.name + "\n\nご来院をお待ちしております。" }],
-            }),
-          });
-        } catch (lineErr) {
-          console.error("LINE送信エラー:", lineErr);
+      if (notificationMethod === "line") {
+        const liffLineUserId = localStorage.getItem('yurari_line_user_id');
+        if (liffLineUserId) {
+          try {
+            const storeName = store.id === "minamiurawa" ? "南浦和店" : "戸田店";
+            await fetch("/api/send-line", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                to: liffLineUserId,
+                messages: [{ type: "text", text: "ご予約が確定しました！\n\n予約番号：" + num + "\n店舗：整体院 癒楽里 " + storeName + "\n日時：" + formatDate(date) + " " + time + "\nコース：" + course.name + "\n担当：" + staff.name + "\n\nご来院をお待ちしております。" }],
+              }),
+            });
+          } catch (lineErr) {
+            console.error("LINE送信エラー:", lineErr);
+          }
         }
       }
       setBookingNum(num);
@@ -426,7 +453,7 @@ function AppInner() {
     </div>
   );
 
-if (notifyFromUrl === 'line' && screen === "top") {
+  if (notifyFromUrl === 'line' && screen === "top") {
     return (
       <div style={{ minHeight: "100vh", background: CREAM, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Noto Sans JP', sans-serif" }}>
         <div style={{ textAlign: "center" }}>
@@ -436,8 +463,9 @@ if (notifyFromUrl === 'line' && screen === "top") {
       </div>
     );
   }
+
   if (screen === "top" && !notifyFromUrl) {
-   return (
+    return (
       <>
       <style>{`@media (min-width: 640px) { .store-grid { grid-template-columns: repeat(2, 1fr) !important; } }`}</style>
       <div style={{ fontFamily: "'Noto Sans JP', sans-serif", background: CREAM, height: "100dvh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
@@ -478,7 +506,6 @@ if (notifyFromUrl === 'line' && screen === "top") {
             </a>
           </div>
         </div>
-        
       </div>
       </>
     );
@@ -486,7 +513,7 @@ if (notifyFromUrl === 'line' && screen === "top") {
 
   if (screen === "auth") {
     return (
-            <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
+      <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
         <Header showBack={true} />
         <div style={{ maxWidth: 480, margin: "0 auto", padding: "40px 20px" }}>
           <div style={{ textAlign: "center", marginBottom: 32 }}>
