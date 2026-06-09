@@ -420,16 +420,6 @@ function AppInner() {
     </div>
   );
 
-if (searchParams?.get('openExternalBrowser') && screen === "top") {
-    return (
-      <div style={{ minHeight: "100vh", background: CREAM, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Noto Sans JP', sans-serif" }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>🌿</div>
-          <div style={{ fontSize: 14, color: "#888" }}>読み込み中...</div>
-        </div>
-      </div>
-    );
-  }
 if (notifyFromUrl === 'line' && screen === "top") {
     return (
       <div style={{ minHeight: "100vh", background: CREAM, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Noto Sans JP', sans-serif" }}>
