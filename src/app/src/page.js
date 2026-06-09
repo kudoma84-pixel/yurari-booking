@@ -231,7 +231,7 @@ function AppInner() {
           return;
         }
         const profile = await liff.getProfile();
-        const lineUserId = profile.userId;
+        const lineUserId = liffProfile.userId;
         localStorage.setItem('yurari_line_user_id', lineUserId);
         const res = await fetch(SUPABASE_URL + "/rest/v1/customers?line_user_id=eq." + lineUserId + "&select=*", { headers });
         const dat
