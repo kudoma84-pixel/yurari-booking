@@ -230,7 +230,7 @@ function AppInner() {
           liff.login({ redirectUri: window.location.href });
           return;
         }
-        const profile = await liff.getProfile();
+        const liffProfile = await liff.getProfile();
         const lineUserId = liffProfile.userId;
         localStorage.setItem('yurari_line_user_id', lineUserId);
         const res = await fetch(SUPABASE_URL + "/rest/v1/customers?line_user_id=eq." + lineUserId + "&select=*", { headers });
