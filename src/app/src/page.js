@@ -85,6 +85,15 @@ function AppInner() {
     "Prefer": "return=representation",
   };
 
+  useEffect(() => {
+    const ua = navigator.userAgent;
+    if (ua.indexOf('Line/') > -1) {
+      const params = new URLSearchParams(window.location.search);
+      if (!params.get('openExternalBrowser')) {
+        window.location.href = 'https://yurari-booking.vercel.app/src?openExternalBrowser=1';
+      }
+    }
+  }, []);
     useEffect(() => { fetchCourses(); }, []);
   useEffect(() => {
     if (notifyFromUrl === 'line') {
