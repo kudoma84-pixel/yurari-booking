@@ -87,7 +87,8 @@ function AppInner() {
 
   useEffect(() => {
     const ua = navigator.userAgent;
-    if (ua.indexOf('Line/') > -1) {
+    const params = new URLSearchParams(window.location.search);
+    if (ua.indexOf('Line/') > -1 && !params.get('openExternalBrowser')) {
       window.location.href = 'https://yurari-booking.vercel.app/src?openExternalBrowser=1';
     }
   }, []);
