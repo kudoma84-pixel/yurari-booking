@@ -430,7 +430,7 @@ if (notifyFromUrl === 'line' && screen === "top") {
       </div>
     );
   }
-  if (screen === "top" && !notifyFromUrl && !searchParams?.get('openExternalBrowser')) {
+  if (screen === "top" && !notifyFromUrl) {
    return (
       <>
       <style>{`@media (min-width: 640px) { .store-grid { grid-template-columns: repeat(2, 1fr) !important; } }`}</style>
