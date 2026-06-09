@@ -20,38 +20,6 @@ const handler = NextAuth({
         secure: true,
       },
     },
-    callbackUrl: {
-      options: {
-        httpOnly: true,
-        sameSite: "none",
-        path: "/",
-        secure: true,
-      },
-    },
-    csrfToken: {
-      options: {
-        httpOnly: true,
-        sameSite: "none",
-        path: "/",
-        secure: true,
-      },
-    },
-    pkceCodeVerifier: {
-      options: {
-        httpOnly: true,
-        sameSite: "none",
-        path: "/",
-        secure: true,
-      },
-    },
-    state: {
-      options: {
-        httpOnly: true,
-        sameSite: "none",
-        path: "/",
-        secure: true,
-      },
-    },
   },
   callbacks: {
     async jwt({ token, account }) {
