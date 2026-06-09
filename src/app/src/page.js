@@ -174,12 +174,14 @@ function AppInner() {
   };
 
   const checkExistingCustomer = async () => {
-    console.log("session:", JSON.stringify(session));
     if (!session?.lineUserId) return;
+    localStorage.setItem('yurari_line_user_id', session.lineUserId);
     const res = await fetch(SUPABASE_URL + "/rest/v1/customers?line_user_id=eq." + session.lineUserId + "&select=*", { headers });
     const data = await res.json();
     if (data && data.length > 0) {
       setExistingCustomer(data[0]);
+      localStorage.setItem('yurari_customer_id', data[0].id);
+      localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
       setProfile({
         name: data[0].name || "", kana: data[0].kana || "",
         zipcode: data[0].zipcode || "", address: data[0].address || "",
@@ -193,7 +195,6 @@ function AppInner() {
       setScreen("register");
     }
   };
-
  const handleAuthSelect = (method) => {
     setNotificationMethod(method);
     if (method === "line") {
