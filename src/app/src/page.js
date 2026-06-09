@@ -205,17 +205,11 @@ function AppInner() {
     setNotificationMethod(method);
     if (method === "line") {
       localStorage.setItem('yurari_notification_method', 'line');
-      const ua = navigator.userAgent;
-      if (ua.indexOf('Line/') > -1) {
-        window.location.href = 'https://yurari-booking.vercel.app/src?openExternalBrowser=1';
-        return;
-      }
-      signIn("line", { callbackUrl: "/src?notify=line&openExternalBrowser=1" });
+      signIn("line", { callbackUrl: "/src?notify=line" });
     } else {
       setScreen("register");
     }
   };
-
   const handleRegisterSubmit = async () => {
     if (!profile.name || !profile.kana || !profile.tel || !profile.email || !profile.address || !profile.zipcode || !profile.birthday) {
       setError("全ての項目を入力してください");
