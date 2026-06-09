@@ -234,8 +234,7 @@ function AppInner() {
         const lineUserId = liffProfile.userId;
         localStorage.setItem('yurari_line_user_id', lineUserId);
         const res = await fetch(SUPABASE_URL + "/rest/v1/customers?line_user_id=eq." + lineUserId + "&select=*", { headers });
-        const dat
-  const handleRegisterSubmit = async () => {
+          const handleRegisterSubmit = async () => {
     if (!profile.name || !profile.kana || !profile.tel || !profile.email || !profile.address || !profile.zipcode || !profile.birthday) {
       setError("全ての項目を入力してください");
       return;
