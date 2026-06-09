@@ -11,6 +11,16 @@ const handler = NextAuth({
   pages: {
     signIn: '/src',
   },
+  cookies: {
+    sessionToken: {
+      options: {
+        httpOnly: true,
+        sameSite: "none",
+        path: "/",
+        secure: true,
+      },
+    },
+  },
   callbacks: {
     async jwt({ token, account }) {
       if (account) {
