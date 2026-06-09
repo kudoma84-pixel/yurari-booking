@@ -210,7 +210,7 @@ function AppInner() {
         window.location.href = 'https://yurari-booking.vercel.app/src?openExternalBrowser=1';
         return;
       }
-      signIn("line", { callbackUrl: "/src?notify=line" });
+      signIn("line", { callbackUrl: "/src?notify=line&openExternalBrowser=1" });
     } else {
       setScreen("register");
     }
