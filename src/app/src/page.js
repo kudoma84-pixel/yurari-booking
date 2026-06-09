@@ -85,14 +85,7 @@ function AppInner() {
     "Prefer": "return=representation",
   };
 
-  useEffect(() => {
-    const ua = navigator.userAgent;
-    const params = new URLSearchParams(window.location.search);
-    if (!params.get('openExternalBrowser')) {
-      window.location.href = 'https://yurari-booking.vercel.app/src?openExternalBrowser=1';
-    }
-  }, []);
-  useEffect(() => { fetchCourses(); }, []);
+    useEffect(() => { fetchCourses(); }, []);
   useEffect(() => {
     if (notifyFromUrl === 'line') {
       setNotificationMethod('line');
