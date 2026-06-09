@@ -2,7 +2,7 @@
   "name": "癒楽里 予約",
   "short_name": "癒楽里",
   "start_url": "/src?openExternalBrowser=1",
-  "display": "standalone",
+  "display": "browser",
   "background_color": "#fdf8f0",
   "theme_color": "#2d6a4f",
   "icons": [
