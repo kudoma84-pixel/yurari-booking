@@ -991,7 +991,7 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
                 <div key={i} style={{ display: "flex", borderBottom: "1px solid #f0ebe4", paddingBottom: 8 }}>
                   <div style={{ fontSize: 12, color: "#7a9a7a", fontWeight: 700, width: 80, flexShrink: 0 }}>{row.label}</div>
                   {row.isName && selectedBooking.customer_id ? (
-                    <div onClick={() => { ssetSelectedBooking(null); fetchCustomerHistory(selectedBooking.customer_id); fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + selectedBooking.customer_id + "&select=*", { headers }).then(r => r.json()).then(d => { if (d[0]) setSelectedCustomer(d[0]); }); }} style={{ fontSize: 13, color: "#5a9e7a", fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>{row.value} →</div>
+                    <div onClick={() => { const cid = selectedBooking.customer_id; setSelectedBooking(null); fetchCustomerHistory(cid); fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + cid + "&select=*", { headers }).then(r => r.json()).then(d => { if (d && d[0]) setSelectedCustomer(d[0]); }); }} style={{ fontSize: 13, color: "#5a9e7a", fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>{row.value} →</div>
                   ) : (
                     <div style={{ fontSize: 13, color: "#3a5a3a" }}>{row.value}</div>
                   )}
