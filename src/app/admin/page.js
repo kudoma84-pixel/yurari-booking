@@ -1012,6 +1012,9 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
               <button onClick={() => setEditingCustomer({ ...selectedCustomer })} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>編集</button>
             </>
           )}
+          <button onClick={() => { setSelectedCustomer(null); setEditingCustomer(null); }} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+        </div>
+      </div>
       {editingCustomer ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
           {[
