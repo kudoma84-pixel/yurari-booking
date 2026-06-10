@@ -987,11 +987,24 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
           {!editingCustomer && (
             <button onClick={() => {
   const win = window.open('', '_blank');
-  const storeName = currentStore?.name || '南浦和店';
-  const customerNumber = selectedCustomer.customer_number || '';
-  const customerName = selectedCustomer.name || '';
-  const qrUrl = `https://yurari-booking.vercel.app/admin?checkin=${customerNumber}`;
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>会員カード</title><script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\/script><style>@page{size:85.6mm 54mm;margin:0}body{width:85.6mm;height:54mm;margin:0;padding:0;font-family:'Noto Sans JP',sans-serif}*{box-sizing:border-box}.card{width:85.6mm;height:54mm;background:white;border:1px solid #ddd;display:flex;flex-direction:column;justify-content:space-between;padding:4mm}.store{font-size:8pt;color:#2d6a4f;font-weight:700}.name{font-size:11pt;font-weight:700;color:#1a1a1a}.number{font-size:8pt;color:#666}.bottom{display:flex;justify-content:space-between;align-items:flex-end}#qr canvas,#qr img{width:18mm!important;height:18mm!important}@media print{body{margin:0}}</style></head><body><div class="card"><div class="store">整体院 癒楽里 ${storeName}</div><div class="name">${customerName}</div><div class="number">会員番号：${customerNumber}</div><div class="bottom"><div style="font-size:7pt;color:#aaa">yurari-booking.vercel.app</div><div id="qr"></div></div></div><script>new QRCode(document.getElementById('qr'),{text:'${qrUrl}',width:68,height:68,correctLevel:QRCode.CorrectLevel.M});setTimeout(()=>window.print(),800);<\/script></body></html>`);
+  const sName = currentStore?.name || '南浦和店';
+  const cNum = selectedCustomer.customer_number || '';
+  const cName = selectedCustomer.name || '';
+  const qUrl = 'https://yurari-booking.vercel.app/admin?checkin=' + cNum;
+  const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>会員カード</title>'
+    + '<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\/script>'
+    + '<style>@page{size:85.6mm 54mm;margin:0}body{width:85.6mm;height:54mm;margin:0;padding:0;font-family:sans-serif}'
+    + '.card{width:85.6mm;height:54mm;background:white;display:flex;flex-direction:column;justify-content:space-between;padding:4mm}'
+    + '.store{font-size:8pt;color:#2d6a4f;font-weight:700}.name{font-size:11pt;font-weight:700}'
+    + '.number{font-size:8pt;color:#666}.bottom{display:flex;justify-content:space-between;align-items:flex-end}'
+    + '#qr canvas,#qr img{width:18mm!important;height:18mm!important}</style></head><body>'
+    + '<div class="card"><div class="store">整体院 癒楽里 ' + sName + '</div>'
+    + '<div class="name">' + cName + '</div>'
+    + '<div class="number">会員番号：' + cNum + '</div>'
+    + '<div class="bottom"><div style="font-size:7pt;color:#aaa">yurari-booking.vercel.app</div><div id="qr"></div></div></div>'
+    + '<script>new QRCode(document.getElementById("qr"),{text:"' + qUrl + '",width:68,height:68});setTimeout(()=>window.print(),800);<\/script>'
+    + '</body></html>';
+  win.document.write(html);
   win.document.close();
 }} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #e07b39", background: "white", color: "#e07b39", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>🖨 カード印刷</button>
             <button onClick={() => setEditingCustomer({ ...selectedCustomer })} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>編集</button>
