@@ -168,24 +168,31 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
       + '<style>'
       + '* { margin: 0; padding: 0; box-sizing: border-box; }'
       + '@page { size: 85.6mm 54mm; margin: 0; }'
-      + 'html, body { width: 85.6mm; height: 54mm; overflow: hidden; }'
-      + 'body { font-family: sans-serif; background: white; }'
+      + 'html, body { width: 85.6mm; height: 54mm; overflow: hidden; background: white; }'
+      + 'body { font-family: sans-serif; }'
       + '.card { width: 85.6mm; height: 54mm; padding: 3mm; display: flex; flex-direction: column; justify-content: space-between; }'
-      + '.store { font-size: 7pt; color: #2d6a4f; font-weight: bold; margin-bottom: 1mm; }'
-      + '.name { font-size: 12pt; font-weight: bold; color: #1a1a1a; margin-bottom: 1mm; }'
-      + '.number { font-size: 7pt; color: #666; }'
-      + '.bottom { display: flex; justify-content: space-between; align-items: flex-end; }'
-      + '.url { font-size: 6pt; color: #aaa; }'
-      + '#qr img, #qr canvas { width: 15mm !important; height: 15mm !important; }'
+      + '.top { display: flex; justify-content: space-between; align-items: center; }'
+      + '.logo { height: 16mm; width: auto; }'
+      + '#qr img, #qr canvas { width: 16mm !important; height: 16mm !important; }'
+      + '.bottom { display: flex; justify-content: space-between; align-items: flex-end; padding-top: 2mm; border-top: 0.3pt solid #ddd; }'
+      + '.name { font-size: 11pt; font-weight: bold; color: #1a1a1a; }'
+      + '.number { font-size: 9pt; color: #2d6a4f; font-weight: bold; }'
       + '<\/style><\/head><body>'
-      + '<div class="card"><div><div class="store">整体院 癒楽里 ' + sName + '<\/div>'
+      + '<div class="card">'
+      + '<div class="top">'
+      + '<img class="logo" src="https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp" \/>'
+      + '<div id="qr"><\/div>'
+      + '<\/div>'
+      + '<div class="bottom">'
       + '<div class="name">' + cName + '<\/div>'
-      + '<div class="number">会員番号：' + cNum + '<\/div><\/div>'
-      + '<div class="bottom"><div class="url">yurari-booking.vercel.app<\/div><div id="qr"><\/div><\/div><\/div>'
-      + '<script>new QRCode(document.getElementById("qr"),{text:"' + qUrl + '",width:57,height:57,correctLevel:QRCode.CorrectLevel.M});setTimeout(()=>window.print(),800);<\/script>'
+      + '<div class="number">' + cNum + '<\/div>'
+      + '<\/div>'
+      + '<\/div>'
+      + '<script>new QRCode(document.getElementById("qr"),{text:"' + qUrl + '",width:61,height:61,correctLevel:QRCode.CorrectLevel.M});setTimeout(()=>window.print(),800);<\/script>'
       + '<\/body><\/html>';
     win.document.write(html);
     win.document.close();
+  };
   };
   const fetchCustomers = async () => {
     setLoading(true);
