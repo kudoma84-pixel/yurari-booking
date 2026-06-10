@@ -193,7 +193,6 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
     win.document.write(html);
     win.document.close();
   };
-  };
   const fetchCustomers = async () => {
     setLoading(true);
     const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?order=created_at.desc`, { headers });
