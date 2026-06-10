@@ -157,6 +157,28 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
     setTodayBookings(Array.isArray(data) ? data : []);
   };
 
+  const printMemberCard = (customer) => {
+    const win = window.open('', '_blank');
+    const sName = currentStore?.name || '南浦和店';
+    const cNum = customer.customer_number || '';
+    const cName = customer.name || '';
+    const qUrl = 'https://yurari-booking.vercel.app/admin?checkin=' + cNum;
+    const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>会員カード</title>'
+      + '<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\/script>'
+      + '<style>@page{size:85.6mm 54mm;margin:0}body{width:85.6mm;height:54mm;margin:0;padding:0;font-family:sans-serif}'
+      + '.card{width:85.6mm;height:54mm;background:white;display:flex;flex-direction:column;justify-content:space-between;padding:4mm}'
+      + '.store{font-size:8pt;color:#2d6a4f;font-weight:700}.name{font-size:11pt;font-weight:700}'
+      + '.number{font-size:8pt;color:#666}.bottom{display:flex;justify-content:space-between;align-items:flex-end}'
+      + '#qr canvas,#qr img{width:18mm!important;height:18mm!important}<\/style><\/head><body>'
+      + '<div class="card"><div class="store">整体院 癒楽里 ' + sName + '<\/div>'
+      + '<div class="name">' + cName + '<\/div>'
+      + '<div class="number">会員番号：' + cNum + '<\/div>'
+      + '<div class="bottom"><div style="font-size:7pt;color:#aaa">yurari-booking.vercel.app<\/div><div id="qr"><\/div><\/div><\/div>'
+      + '<script>new QRCode(document.getElementById("qr"),{text:"' + qUrl + '",width:68,height:68});setTimeout(()=>window.print(),800);<\/script>'
+      + '<\/body><\/html>';
+    win.document.write(html);
+    win.document.close();
+  };
   const fetchCustomers = async () => {
     setLoading(true);
     const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?order=created_at.desc`, { headers });
