@@ -1007,8 +1007,11 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
         <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>{selectedCustomer.name} 様</div>
         <div style={{ display: "flex", gap: 8 }}>
           {!editingCustomer && (
-                        <button onClick={() => printMemberCard(selectedCustomer)} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #e07b39", background: "white", color: "#e07b39", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>🖨 カード印刷</button>
-            <button onClick={() => setEditingCustomer({ ...selectedCustomer })} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>編集</button>
+                        {!editingCustomer && (
+            <>
+              <button onClick={() => printMemberCard(selectedCustomer)} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #e07b39", background: "white", color: "#e07b39", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>🖨 カード印刷</button>
+              <button onClick={() => setEditingCustomer({ ...selectedCustomer })} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>編集</button>
+            </>
           )}
           <button onClick={() => { setSelectedCustomer(null); setEditingCustomer(null); }} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
         </div>
