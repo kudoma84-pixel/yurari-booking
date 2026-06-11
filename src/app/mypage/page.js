@@ -361,14 +361,21 @@ function MyPageInner() {
           <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>{customer?.name} 様のマイページ</div>
         </div>
 
-        <div style={{ display: "flex", gap: 8, marginBottom: 24, overflowX: "auto", paddingTop: 8, paddingBottom: 4 }}>
+        <div style={{ marginBottom: 24 }}>
+          <style>{`
+            @media (max-width: 640px) {
+              .tab-wrap { display: grid !important; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+              .tab-btn { justify-content: center; }
+            }
+          `}</style>
+          <div className="tab-wrap" style={{ display: "flex", gap: 8, paddingTop: 8, paddingBottom: 4, overflowX: "auto" }}>
           {[
             { id: "booking", label: "📅 予約" },
             { id: "notice", label: "🔔 通知", badge: unreadCount },
-{ id: "ticket", label: "🎫 金券" },
-{ id: "staff", label: "👤 担当" },
-{ id: "profile", label: "⚙️ 設定" },
-{ id: "qr", label: "🔲 マイQR" },
+            { id: "ticket", label: "🎫 金券" },
+            { id: "staff", label: "👤 担当" },
+            { id: "profile", label: "⚙️ 設定" },
+            { id: "qr", label: "🔲 マイQR" },
           ].map(t => (
             <button key={t.id} onClick={() => {
               setActiveTab(t.id);
@@ -381,9 +388,10 @@ function MyPageInner() {
               {t.badge > 0 && <span style={{ position: "absolute", top: -6, right: -16, background: "#e07070", color: "white", borderRadius: "50%", width: 18, height: 18, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 0 2px white", zIndex: 1 }}>{t.badge}</span>}
             </button>
           ))}
+          </div>
         </div>
 
-{activeTab === "qr" && (
+        {activeTab === "qr" && (
   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "32px 20px" }}>
     <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 8 }}>🔲 マイQRコード</div>
     <div style={{ fontSize: 12, color: "#888", marginBottom: 24 }}>来院時にスタッフに提示してください</div>
