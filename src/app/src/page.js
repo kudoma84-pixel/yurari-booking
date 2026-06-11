@@ -112,7 +112,7 @@ function AppInner() {
           });
           setExistingCustomer(c);
           setNotificationMethod(c.notification_method || "email");
-          setScreen("store");
+          setScreen("booking");
         }
       };
       fetchMyPageCustomer();
