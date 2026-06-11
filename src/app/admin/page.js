@@ -141,6 +141,64 @@ const [todayReceived, setTodayReceived] = useState([]);
   };
 
   const formatDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const fetchTodayReceived = async () => {
+  const today = formatDate(new Date());
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${today}&status=in.(received,treatment_done)&select=*,customers(name)&order=booking_time.asc`,
+    { headers }
+  );
+  const data = await res.json();
+  setTodayReceived(Array.isArray(data) ? data : []);
+};
+
+const handleAdminQrInput = async (value) => {
+  setQrInput("");
+  const match = value.match(/checkin=([^&\s]+)/);
+  if (!match) {
+    setCheckinResult({ status: "error", message: "QRコードが正しくありません" });
+    setTimeout(() => setCheckinResult(null), 3000);
+    return;
+  }
+  const identifier = match[1];
+  let customer = null;
+  const resId = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${identifier}&select=*`, { headers });
+  const dataId = await resId.json();
+  if (dataId && dataId.length > 0) {
+    customer = dataId[0];
+  } else {
+    const resNum = await fetch(`${SUPABASE_URL}/rest/v1/customers?customer_number=eq.${identifier}&select=*`, { headers });
+    const dataNum = await resNum.json();
+    if (dataNum && dataNum.length > 0) customer = dataNum[0];
+  }
+  if (!customer) {
+    setCheckinResult({ status: "error", message: "顧客が見つかりません" });
+    setTimeout(() => setCheckinResult(null), 3000);
+    return;
+  }
+  const today = formatDate(new Date());
+  const resBooking = await fetch(
+    `${SUPABASE_URL}/rest/v1/bookings?customer_id=eq.${customer.id}&booking_date=eq.${today}&status=eq.confirmed&order=booking_time.asc&limit=1`,
+    { headers }
+  );
+  const bookingData = await resBooking.json();
+  if (!bookingData || bookingData.length === 0) {
+    setCheckinResult({ status: "error", message: `${customer.name}様の本日の予約が見つかりません` });
+    setTimeout(() => setCheckinResult(null), 4000);
+    return;
+  }
+  const booking = bookingData[0];
+  await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${booking.id}`, {
+    method: "PATCH", headers,
+    body: JSON.stringify({ status: "received" }),
+  });
+  await fetch(`${SUPABASE_URL}/rest/v1/rpc/assign_customer_number`, {
+    method: "POST", headers,
+    body: JSON.stringify({ p_customer_id: customer.id, p_store_id: currentStore.id }),
+  });
+  setCheckinResult({ status: "ok", message: `${customer.name}様 受付完了！` });
+  setTimeout(() => setCheckinResult(null), 4000);
+  fetchTodayReceived();
+};
   const formatPrice = (p) => `¥${p.toLocaleString()}`;
 
   const fetchBookings = async (date) => {
@@ -556,6 +614,8 @@ const [todayReceived, setTodayReceived] = useState([]);
     if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchProducts(); fetchCourseMenus(); fetchGiftTicketTemplates(); }
     if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); fetchStoreSettings(); fetchGiftTicketTemplates(); }
     if (loggedIn && tab === "calendar") { fetchStaffMembers(); if (selectedDate) fetchAll(selectedDate); }
+    if (loggedIn && tab === "calendar") { fetchStaffMembers(); if (selectedDate) fetchAll(selectedDate); }
+if (loggedIn && tab === "checkin") { fetchTodayReceived(); }
     if (loggedIn && tab === "bookings") { fetchBookings(selectedDate || new Date()); }
     if (loggedIn && tab === "notifications") { fetchNotifications(); fetchCustomers(); }
     if (loggedIn && tab === "gifts") { fetchGiftTicketTemplates(); }
