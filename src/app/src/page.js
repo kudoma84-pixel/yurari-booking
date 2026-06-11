@@ -542,6 +542,10 @@ function AppInner() {
     );
   }
 
+if (screen === "register" && existingCustomer) {
+    setScreen("booking");
+    return null;
+  }
   if (screen === "register") {
     return (
       <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
