@@ -25,17 +25,6 @@ const ORANGE = "#e07b39";
 const CREAM = "#fdf8f0";
 const DARK = "#1a1a1a";
 
-function generateDates() {
-  const dates = [];
-  const today = new Date();
-  for (let i = 0; i <= 14; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    dates.push(d);
-  }
-  return dates;
-}
-
 function formatDate(d) {
   return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
 }
@@ -70,8 +59,8 @@ function AppInner() {
   const [staffList, setStaffList] = useState([]);
   const [existingCustomer, setExistingCustomer] = useState(null);
   const [sameDayLeadTime, setSameDayLeadTime] = useState(60);
-
-  const dates = generateDates();
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
+  const [staffShiftDates, setStaffShiftDates] = useState({});
 
   const headers = {
     "apikey": SUPABASE_KEY,
@@ -135,7 +124,7 @@ function AppInner() {
           setNotificationMethod("line");
           localStorage.setItem('yurari_customer_id', c.id);
           localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
-          setScreen("store");
+          setScreen("booking");
         }
       };
       fetchLineCustomer();
@@ -145,6 +134,10 @@ function AppInner() {
   useEffect(() => {
     if (store) { fetchStaff(store.id); fetchStoreSettings(store.id); }
   }, [store]);
+
+  useEffect(() => {
+    if (staff && store) fetchStaffShifts(staff.id, store.id);
+  }, [staff, store]);
 
   useEffect(() => {
     if (session && notificationMethod === "line") { checkExistingCustomer(); }
@@ -192,6 +185,47 @@ function AppInner() {
     const res = await fetch(SUPABASE_URL + "/rest/v1/store_settings?store_id=eq." + storeId, { headers });
     const data = await res.json();
     if (data[0]) setSameDayLeadTime(data[0].same_day_lead_time);
+  };
+
+  const fetchStaffShifts = async (staffId, storeId) => {
+    const today = new Date();
+    const maxDate = new Date();
+    maxDate.setMonth(maxDate.getMonth() + 2);
+    const from = today.getFullYear() + "-" + String(today.getMonth()+1).padStart(2,"0") + "-01";
+    const toYear = maxDate.getFullYear();
+    const toMonth = maxDate.getMonth();
+    const toDay = new Date(toYear, toMonth + 1, 0).getDate();
+    const to = toYear + "-" + String(toMonth+1).padStart(2,"0") + "-" + String(toDay).padStart(2,"0");
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${storeId}&work_date=gte.${from}&work_date=lte.${to}`, {
+      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+    });
+    const data = await res.json();
+    const shifts = Array.isArray(data) ? data : [];
+    const dateMap = {};
+    if (staffId === "any") {
+      const activeStaffRes = await fetch(`${SUPABASE_URL}/rest/v1/staff_members?store_id=eq.${storeId}&is_active=eq.true`, {
+        headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+      });
+      const activeStaff = await activeStaffRes.json();
+      const activeIds = activeStaff.map(s => s.id);
+      const allDates = [...new Set(shifts.map(s => s.work_date))];
+      allDates.forEach(d => {
+        const workingStaff = shifts.filter(s => s.work_date === d && activeIds.includes(s.staff_id));
+        if (workingStaff.length === 0) dateMap[d] = "alloff";
+      });
+    } else {
+      const onDates = new Set(shifts.filter(s => s.staff_id === staffId).map(s => s.work_date));
+      shifts.forEach(s => {
+        if (!onDates.has(s.work_date)) {
+          dateMap[s.work_date] = dateMap[s.work_date] || "off";
+        }
+      });
+      onDates.forEach(d => { dateMap[d] = "on"; });
+      Object.keys(dateMap).forEach(d => {
+        if (dateMap[d] !== "on") dateMap[d] = "off";
+      });
+    }
+    setStaffShiftDates(dateMap);
   };
 
   const checkExistingCustomer = async () => {
@@ -415,6 +449,7 @@ function AppInner() {
     setStaff(null); setDate(null); setTime(null);
     setProfile({ name: "", kana: "", zipcode: "", address: "", tel: "", birthYear: "", birthMonth: "", birthDay: "", birthday: "", email: "", firstVisit: "初めて", notes: "" });
     setBookingNum(""); setError(""); setExistingCustomer(null);
+    setStaffShiftDates({});
   };
 
   const updateBirthday = (year, month, day) => {
@@ -542,11 +577,11 @@ function AppInner() {
     );
   }
 
-if (screen === "register" && existingCustomer) {
-    setScreen("booking");
-    return null;
-  }
   if (screen === "register") {
+    if (existingCustomer) {
+      setScreen("booking");
+      return null;
+    }
     return (
       <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
         <Header showBack={true} />
@@ -676,7 +711,7 @@ if (screen === "register" && existingCustomer) {
             当日は予約時間の5分前にお越しください。<br/>キャンセル・変更は前日17時まで承ります。
           </div>
           <a href="/mypage" style={{ display: "block", width: "100%", padding: "14px", borderRadius: 14, background: GREEN, color: "white", fontSize: 15, fontWeight: 700, textDecoration: "none", textAlign: "center", marginBottom: 12, boxSizing: "border-box" }}>マイページで予約を確認する</a>
-          <button onClick={() => { reset(); setScreen("store"); }} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "2px solid " + GREEN, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>別の予約をする</button>
+          <button onClick={() => { reset(); setScreen("booking"); }} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "2px solid " + GREEN, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>別の予約をする</button>
         </div>
       </div>
     );
@@ -801,11 +836,13 @@ if (screen === "register" && existingCustomer) {
               <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>STEP 3</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>スタッフ・日時を選んでください</div>
             </div>
+
+            {/* 担当スタッフ選択 */}
             <div style={{ marginBottom: 28 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: "2px solid " + GREEN + "20" }}>担当スタッフ</div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 {[{ id: "any", name: "指名なし", title: "おまかせ" }, ...staffList].map(s => (
-                  <div key={s.id} onClick={() => setStaff(s)} style={{ background: staff && staff.id === s.id ? GREEN + "15" : "white", border: "2px solid " + (staff && staff.id === s.id ? GREEN : "#e8ddd0"), borderRadius: 12, padding: "12px 16px", cursor: "pointer", textAlign: "center", minWidth: 90 }}>
+                  <div key={s.id} onClick={() => { setStaff(s); setDate(null); setTime(null); }} style={{ background: staff && staff.id === s.id ? GREEN + "15" : "white", border: "2px solid " + (staff && staff.id === s.id ? GREEN : "#e8ddd0"), borderRadius: 12, padding: "12px 16px", cursor: "pointer", textAlign: "center", minWidth: 90 }}>
                     <div style={{ fontSize: 28 }}>👤</div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: GREEN, marginTop: 4 }}>{s.name}</div>
                     <div style={{ fontSize: 10, color: "#888" }}>{s.title}</div>
@@ -813,23 +850,74 @@ if (screen === "register" && existingCustomer) {
                 ))}
               </div>
             </div>
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: "2px solid " + GREEN + "20" }}>ご希望日</div>
-              <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
-                {dates.map((d, i) => {
-                  const dayIdx = d.getDay();
-                  const isSelected = date && d.toDateString() === date.toDateString();
-                  return (
-                    <div key={i} onClick={() => { setDate(d); if (store) fetchStoreSettings(store.id); }} style={{ background: isSelected ? GREEN : "white", border: "2px solid " + (isSelected ? GREEN : "#e8ddd0"), borderRadius: 12, padding: "10px 12px", cursor: "pointer", textAlign: "center", flexShrink: 0, minWidth: 52 }}>
-                      <div style={{ fontSize: 10, color: isSelected ? "rgba(255,255,255,0.8)" : dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : "#aaa" }}>{DAYS_JP[dayIdx]}</div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: isSelected ? "white" : DARK }}>{d.getDate()}</div>
-                      <div style={{ fontSize: 10, color: isSelected ? "rgba(255,255,255,0.8)" : "#aaa" }}>{d.getMonth()+1}月</div>
-                    </div>
-                  );
-                })}
+
+            {/* 日付選択カレンダー */}
+            {staff && (
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: "2px solid " + GREEN + "20" }}>ご希望日</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                  <button onClick={() => {
+                    const now = new Date();
+                    if (calendarMonth.getFullYear() > now.getFullYear() || calendarMonth.getMonth() > now.getMonth()) {
+                      setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1));
+                    }
+                  }}
+                    style={{ border: "none", background: "none", fontSize: 22, cursor: "pointer", color: GREEN, padding: "4px 8px" }}>‹</button>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: GREEN }}>{calendarMonth.getFullYear()}年{calendarMonth.getMonth() + 1}月</div>
+                  <button onClick={() => {
+                    const maxMonth = new Date();
+                    maxMonth.setMonth(maxMonth.getMonth() + 2);
+                    if (calendarMonth < new Date(maxMonth.getFullYear(), maxMonth.getMonth(), 1)) {
+                      setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1));
+                    }
+                  }} style={{ border: "none", background: "none", fontSize: 22, cursor: "pointer", color: GREEN, padding: "4px 8px" }}>›</button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 8 }}>
+                  {["日","月","火","水","木","金","土"].map(d => (
+                    <div key={d} style={{ textAlign: "center", fontSize: 11, color: "#aaa", padding: "4px 0" }}>{d}</div>
+                  ))}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+                  {(() => {
+                    const year = calendarMonth.getFullYear();
+                    const month = calendarMonth.getMonth();
+                    const firstDay = new Date(year, month, 1).getDay();
+                    const daysInMonth = new Date(year, month + 1, 0).getDate();
+                    const today = new Date();
+                    today.setHours(0,0,0,0);
+                    const maxDate = new Date();
+                    maxDate.setMonth(maxDate.getMonth() + 2);
+                    maxDate.setHours(0,0,0,0);
+                    const cells = [];
+                    for (let i = 0; i < firstDay; i++) cells.push(null);
+                    for (let i = 1; i <= daysInMonth; i++) {
+                      cells.push(new Date(year, month, i));
+                    }
+                    return cells.map((d, i) => {
+                      if (!d) return <div key={i} />;
+                      const dateStr = formatDate(d);
+                      const isPast = d < today;
+                      const isFuture = d > maxDate;
+                      const isSelected = date && d.toDateString() === date.toDateString();
+                      const dayIdx = d.getDay();
+                      const isOff = staff.id === "any"
+                        ? staffShiftDates[dateStr] === "alloff"
+                        : staffShiftDates[dateStr] === "off";
+                      const disabled = isPast || isFuture || isOff;
+                      return (
+                        <div key={i} onClick={() => { if (!disabled) { setDate(d); setTime(null); if (store) fetchStoreSettings(store.id); } }}
+                          style={{ textAlign: "center", padding: "8px 4px", borderRadius: 8, cursor: disabled ? "not-allowed" : "pointer", background: isSelected ? GREEN : "white", color: isSelected ? "white" : disabled ? "#ccc" : dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : DARK, fontWeight: isSelected ? 700 : 400, fontSize: 13, border: isSelected ? "2px solid " + GREEN : "2px solid transparent", opacity: disabled ? 0.4 : 1 }}>
+                          {d.getDate()}
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
               </div>
-            </div>
-            {date && (
+            )}
+
+            {/* 時間選択 */}
+            {staff && date && (
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: "2px solid " + GREEN + "20" }}>ご希望時間</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
