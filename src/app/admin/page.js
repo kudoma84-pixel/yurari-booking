@@ -1356,8 +1356,9 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
       <div style={{ display: "flex", borderBottom: "1px solid #e8ddd0", background: "white", padding: "0 24px", overflowX: "auto" }}>
         {[
           { id: "calendar", label: "📅 カレンダー" },
-          { id: "bookings", label: "📋 予約一覧" },
-          { id: "checkout", label: "💴 会計" },
+{ id: "bookings", label: "📋 予約一覧" },
+{ id: "checkin", label: "🔲 受付" },
+{ id: "checkout", label: "💴 会計" },
           { id: "shifts", label: "👤 シフト管理" },
           { id: "customers", label: "👥 顧客管理" },
           { id: "notifications", label: "🔔 通知" },
