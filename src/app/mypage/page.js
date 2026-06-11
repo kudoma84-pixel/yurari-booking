@@ -368,6 +368,7 @@ function MyPageInner() {
             { id: "ticket", label: "🎫 金券" },
             { id: "staff", label: "👤 担当スタッフ" },
             { id: "profile", label: "⚙️ 個人情報" },
+{ id: "qr", label: "🔲 マイQR" },
           ].map(t => (
             <button key={t.id} onClick={() => {
               setActiveTab(t.id);
@@ -382,6 +383,21 @@ function MyPageInner() {
           ))}
         </div>
 
+{activeTab === "qr" && (
+  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "32px 20px" }}>
+    <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 8 }}>🔲 マイQRコード</div>
+    <div style={{ fontSize: 12, color: "#888", marginBottom: 24 }}>来院時にスタッフに提示してください</div>
+    <div style={{ background: "white", borderRadius: 20, padding: 24, boxShadow: "0 4px 20px rgba(0,0,0,0.1)" }}>
+      <img
+        src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=https://yurari-booking.vercel.app/admin?checkin=${customer?.id}`}
+        alt="マイQR"
+        style={{ width: 220, height: 220, display: "block" }}
+      />
+    </div>
+    <div style={{ marginTop: 20, fontSize: 13, color: "#888" }}>{customer?.name} 様</div>
+    <div style={{ fontSize: 11, color: "#bbb", marginTop: 4 }}>ID: {customer?.id}</div>
+  </div>
+)}
         {activeTab === "booking" && (
           <div>
             {upcomingBookings.length > 0 && (
