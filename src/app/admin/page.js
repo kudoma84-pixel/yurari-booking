@@ -109,6 +109,9 @@ export default function AdminPage() {
 const [visitPayment, setVisitPayment] = useState(null);
 const [visitPaymentItems, setVisitPaymentItems] = useState([]);
   const [courseTabCategory, setCourseTabCategory] = useState("整体");
+  const [qrInput, setQrInput] = useState("");
+const [checkinResult, setCheckinResult] = useState(null);
+const [todayReceived, setTodayReceived] = useState([]);
 
   useEffect(() => {
     const storeId = localStorage.getItem('yurari_admin_store');
@@ -1536,6 +1539,47 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
           </div>
         )}
 
+{tab === "checkin" && (
+  <div>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", margin: 0 }}>🔲 QR受付 - {currentStore.name}</h2>
+    </div>
+    <div style={{ maxWidth: 800 }}>
+      <div style={{ background: "white", borderRadius: 20, padding: 32, boxShadow: "0 4px 20px rgba(0,0,0,0.08)", marginBottom: 24, textAlign: "center" }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>🔲</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a", marginBottom: 8 }}>QRコードをかざしてください</div>
+        <div style={{ fontSize: 13, color: "#aaa", marginBottom: 20 }}>リーダーにかざすと自動で受付されます</div>
+        <input
+          autoFocus
+          value={qrInput}
+          onChange={e => setQrInput(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && qrInput) handleAdminQrInput(qrInput); }}
+          style={{ width: "100%", padding: "14px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", textAlign: "center", outline: "none", color: "#aaa" }}
+          placeholder="QRリーダー入力待ち..."
+        />
+        {checkinResult && (
+          <div style={{ marginTop: 16, padding: "16px 24px", borderRadius: 14, background: checkinResult.status === "ok" ? "#eaf5ec" : "#fff0f0", border: `2px solid ${checkinResult.status === "ok" ? "#3a5a3a" : "#e07070"}`, fontSize: 16, fontWeight: 700, color: checkinResult.status === "ok" ? "#3a5a3a" : "#e07070" }}>
+            {checkinResult.status === "ok" ? "✅ " : "❌ "}{checkinResult.message}
+          </div>
+        )}
+      </div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>本日の受付済み（{todayReceived.length}名）</div>
+      {todayReceived.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 32, background: "white", borderRadius: 16, color: "#aaa", fontSize: 13 }}>まだ受付がありません</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+          {todayReceived.map(b => (
+            <div key={b.id} style={{ background: "white", borderRadius: 16, padding: "20px 16px", boxShadow: "0 2px 12px rgba(0,0,0,0.08)", borderTop: `4px solid ${statusColor(b.status)}`, textAlign: "center" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#1a1a1a", marginBottom: 4 }}>{b.customers?.name || "不明"} 様</div>
+              <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>{b.booking_time} / {b.course_name}</div>
+              <div style={{ fontSize: 12, background: statusColor(b.status), color: "white", borderRadius: 20, padding: "4px 12px", display: "inline-block" }}>{statusLabel(b.status)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+)}
         {tab === "checkout" && (
           <div>
             {!checkoutBooking ? (
