@@ -552,7 +552,7 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
     if (loggedIn && tab === "shifts") { fetchMonthShifts(); fetchShiftPlans(); fetchStaffMembers(); }
     if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchProducts(); fetchCourseMenus(); fetchGiftTicketTemplates(); }
     if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); fetchStoreSettings(); fetchGiftTicketTemplates(); }
-    if (loggedIn && tab === "calendar") { fetchStaffMembers(); }
+    if (loggedIn && tab === "calendar") { fetchStaffMembers(); if (selectedDate) fetchAll(selectedDate); }
     if (loggedIn && tab === "bookings") { fetchBookings(selectedDate || new Date()); }
     if (loggedIn && tab === "notifications") { fetchNotifications(); fetchCustomers(); }
     if (loggedIn && tab === "gifts") { fetchGiftTicketTemplates(); }
