@@ -269,7 +269,13 @@ function AppInner() {
         const data = await res.json();
         if (data && data.length > 0) {
           const c = data[0];
-          setExistingCustomer(c);
+          // line_user_idを保存
+          await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${c.id}`, {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify({ line_user_id: lineUserId, notification_method: "line" }),
+          });
+          setExistingCustomer({ ...c, line_user_id: lineUserId });
           setProfile({
             name: c.name || "", kana: c.kana || "",
             tel: c.tel || "", email: c.email || "",
@@ -279,6 +285,7 @@ function AppInner() {
           });
           localStorage.setItem('yurari_customer_id', c.id);
           localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
+          localStorage.setItem('yurari_line_user_id', lineUserId);
           setScreen("booking");
         } else {
           setProfile(p => ({ ...p, name: liffProfile.displayName || "" }));
