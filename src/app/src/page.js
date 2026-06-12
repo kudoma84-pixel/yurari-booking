@@ -287,7 +287,8 @@ function AppInner() {
           localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
           localStorage.setItem('yurari_line_user_id', lineUserId);
           setScreen("booking");
-        } else {
+       } else {
+          localStorage.setItem('yurari_line_user_id', lineUserId);
           setProfile(p => ({ ...p, name: liffProfile.displayName || "" }));
           setScreen("register");
         }
