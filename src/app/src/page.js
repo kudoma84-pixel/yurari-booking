@@ -61,7 +61,7 @@ function AppInner() {
   const [sameDayLeadTime, setSameDayLeadTime] = useState(60);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [staffShiftDates, setStaffShiftDates] = useState({});
-
+  const [bookedSlots, setBookedSlots] = useState([]);
   const headers = {
     "apikey": SUPABASE_KEY,
     "Authorization": "Bearer " + SUPABASE_KEY,
@@ -187,6 +187,16 @@ function AppInner() {
     if (data[0]) setSameDayLeadTime(data[0].same_day_lead_time);
   };
 
+  const fetchBookedSlots = async (staffId, storeId, dateStr) => {
+    const query = staffId === "any"
+      ? `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${storeId}&booking_date=eq.${dateStr}&status=in.(confirmed,received,treatment_done)&select=booking_time,staff_id`
+      : `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${storeId}&staff_id=eq.${staffId}&booking_date=eq.${dateStr}&status=in.(confirmed,received,treatment_done)&select=booking_time`;
+    const res = await fetch(query, {
+      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+    });
+    const data = await res.json();
+    setBookedSlots(Array.isArray(data) ? data.map(b => b.booking_time) : []);
+  };
   const fetchStaffShifts = async (staffId, storeId) => {
     const today = new Date();
     const maxDate = new Date();
@@ -918,7 +928,7 @@ function AppInner() {
                         : staffShiftDates[dateStr] === "off";
                       const disabled = isPast || isFuture || isOff;
                       return (
-                        <div key={i} onClick={() => { if (!disabled) { setDate(d); setTime(null); if (store) fetchStoreSettings(store.id); } }}
+                        <div key={i} onClick={() => { if (!disabled) { setDate(d); setTime(null); if (store) { fetchStoreSettings(store.id); fetchBookedSlots(staff.id, store.id, dateStr); } } }}
                           style={{ textAlign: "center", padding: "8px 4px", borderRadius: 8, cursor: disabled ? "not-allowed" : "pointer", background: isSelected ? GREEN : "white", color: isSelected ? "white" : disabled ? "#ccc" : dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : DARK, fontWeight: isSelected ? 700 : 400, fontSize: 13, border: isSelected ? "2px solid " + GREEN : "2px solid transparent", opacity: disabled ? 0.4 : 1 }}>
                           {d.getDate()}
                         </div>
@@ -936,7 +946,7 @@ function AppInner() {
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {TIME_SLOTS.map(t => {
                     const isSelected = time === t;
-                    const disabled = isSlotDisabled(t);
+                    const disabled = isSlotDisabled(t) || bookedSlots.includes(t);
                     return (
                       <div key={t} onClick={() => !disabled && setTime(t)} style={{ background: isSelected ? GREEN : disabled ? "#f0f0f0" : "white", border: "2px solid " + (isSelected ? GREEN : disabled ? "#ddd" : "#e8ddd0"), borderRadius: 10, padding: "8px 14px", cursor: disabled ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, color: isSelected ? "white" : disabled ? "#bbb" : DARK }}>
                         {t}
