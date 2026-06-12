@@ -326,6 +326,7 @@ function AppInner() {
           email: profile.email, address: profile.address,
           zipcode: profile.zipcode, birthday: profile.birthday,
           notification_method: notificationMethod || "email",
+          line_user_id: localStorage.getItem('yurari_line_user_id') || null,
         }),
       });
       setExistingCustomer({ ...existing[0], ...profile });
