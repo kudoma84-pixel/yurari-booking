@@ -442,6 +442,10 @@ function AppInner() {
           }
         }
       }
+      if (customerId) {
+        localStorage.setItem('yurari_customer_id', customerId);
+        localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
+      }
       setBookingNum(num);
       setScreen("complete");
     } catch (e) {
