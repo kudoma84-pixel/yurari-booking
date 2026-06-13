@@ -7,8 +7,8 @@ const SUPABASE_URL = "https://pbjekdzmvjqhqbbrzbfk.supabase.co";
 const SUPABASE_KEY = "sb_publishable_I_98PawL-eNS__SZa0DlPA_80VwFUZc";
 
 const STORES = [
-  { id: "minamiurawa", name: "南浦和店", address: "さいたま市南区南浦和2丁目", tel: "048-762-8333", hours: "10:00〜20:00（最終受付19:00）", lineUrl: "https://lin.ee/MINAMIURAWA" },
-  { id: "toda", name: "戸田店", address: "戸田市○○○", tel: "048-yyy-yyyy", hours: "10:00〜20:00（最終受付19:00）", lineUrl: "https://lin.ee/TODA" },
+  { id: "minamiurawa", name: "南浦和本院", address: "埼玉県さいたま市南区文蔵2-17-6", tel: "048-762-8333", hours: "10:00〜19:30（最終受付19:00）", lineUrl: "https://lin.ee/MINAMIURAWA" },
+  { id: "toda", name: "戸田院", address: "埼玉県戸田市新曽736-1", tel: "048-287-3318", hours: "10:00〜19:30（最終受付19:00）", lineUrl: "https://lin.ee/TODA" },
 ];
 
 const TIME_SLOTS = ["10:00","10:30","11:00","11:30","12:00","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00"];
