@@ -379,8 +379,7 @@ function MyPageInner() {
             { id: "booking", label: "📅 予約" },
             { id: "notice", label: "🔔 通知", badge: unreadCount },
             { id: "ticket", label: "🎫 金券" },
-            { id: "staff", label: "👤 担当" },
-            { id: "profile", label: "⚙️ 設定" },
+                        { id: "profile", label: "⚙️ 設定" },
             { id: "qr", label: "🔲 マイQR" },
           ].map(t => (
             <button key={t.id} onClick={() => {
@@ -535,33 +534,6 @@ function MyPageInner() {
                 ))}
               </div>
             )}
-          </div>
-        )}
-
-        {activeTab === "staff" && (
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 8 }}>👤 担当スタッフの指定</div>
-            <div style={{ fontSize: 12, color: "#888", marginBottom: 20 }}>次回以降の予約でデフォルトで選ばれるスタッフを設定できます</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {[{ id: "", name: "指名なし", title: "おまかせ" }, ...staffList].map(s => {
-                const isSelected = (profileForm.preferred_staff_id || "") === s.id;
-                return (
-                  <div key={s.id} onClick={() => setProfileForm({ ...profileForm, preferred_staff_id: s.id })}
-                    style={{ display: "flex", alignItems: "center", gap: 16, padding: "16px 20px", background: isSelected ? GREEN + "10" : "white", border: "2px solid " + (isSelected ? GREEN : "#e8ddd0"), borderRadius: 14, cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                    <div style={{ fontSize: 32 }}>👤</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: GREEN }}>{s.name}</div>
-                      <div style={{ fontSize: 12, color: "#888" }}>{s.title}</div>
-                    </div>
-                    {isSelected && <div style={{ color: GREEN, fontSize: 22 }}>✓</div>}
-                  </div>
-                );
-              })}
-            </div>
-            <button onClick={saveProfile}
-              style={{ width: "100%", padding: "16px", borderRadius: 14, border: "none", background: GREEN, color: "white", fontSize: 16, fontWeight: 700, cursor: "pointer", marginTop: 20 }}>
-              保存する
-            </button>
           </div>
         )}
 
