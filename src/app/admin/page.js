@@ -1930,7 +1930,7 @@ const handleAdminQrInput = async (value) => {
                   const hasBooking = monthBookingDates.has(dateStr);
                   const isOff = monthShiftOffDates.has(dateStr);
                   return (
-                    <div key={i} onClick={() => setSelectedDate(d)} style={{ textAlign: "center", padding: "8px 4px", borderRadius: 8, cursor: "pointer", background: isSelected ? "#3a5a3a" : isOff ? "#f5f5f5" : isToday ? "#eaf5ec" : "white", color: isSelected ? "white" : isOff ? "#ccc" : dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : "#3a5a3a", fontWeight: hasBooking || isToday ? 700 : 400, fontSize: 13, border: isToday && !isSelected ? "2px solid #5a9e7a" : "2px solid transparent" }}>
+                    <div key={i} onClick={() => setSelectedDate(d)} style={{ textAlign: "center", padding: "8px 4px", borderRadius: 8, cursor: "pointer", background: isSelected ? "#3a5a3a" : isOff ? "#f5f5f5" : isToday ? "#eaf5ec" : "white", color: isSelected ? "white" : isOff ? "#ccc" : dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : "#3a5a3a", fontWeight: isToday ? 700 : 400, fontSize: 13, border: hasBooking && !isSelected ? "2px solid #e07070" : isToday && !isSelected ? "2px solid #5a9e7a" : "2px solid transparent", borderRadius: 8 }}>
                       {d.getDate()}
                     </div>
                   );
