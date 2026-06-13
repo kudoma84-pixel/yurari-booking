@@ -189,13 +189,30 @@ function AppInner() {
 
   const fetchBookedSlots = async (staffId, storeId, dateStr) => {
     const query = staffId === "any"
-      ? `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${storeId}&booking_date=eq.${dateStr}&status=in.(confirmed,received,treatment_done)&select=booking_time,staff_id`
-      : `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${storeId}&staff_id=eq.${staffId}&booking_date=eq.${dateStr}&status=in.(confirmed,received,treatment_done)&select=booking_time`;
+      ? `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${storeId}&booking_date=eq.${dateStr}&status=in.(confirmed,received,treatment_done)&select=booking_time,course_id`
+      : `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${storeId}&staff_id=eq.${staffId}&booking_date=eq.${dateStr}&status=in.(confirmed,received,treatment_done)&select=booking_time,course_id`;
     const res = await fetch(query, {
       headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
     });
     const data = await res.json();
-    setBookedSlots(Array.isArray(data) ? data.map(b => b.booking_time) : []);
+    if (!Array.isArray(data)) { setBookedSlots([]); return; }
+
+    // コースの所要時間を取得して占有スロットを計算
+    const blocked = new Set();
+    for (const b of data) {
+      const courseInfo = courses.find(c => c.id === b.course_id);
+      const durationStr = courseInfo?.duration || "30分";
+      const durationMin = parseInt(durationStr.replace(/[^0-9]/g, "")) || 30;
+      const slots = durationMin / 30;
+      // 開始時刻から所要時間分のスロットをブロック
+      const startIdx = TIME_SLOTS.indexOf(b.booking_time);
+      if (startIdx >= 0) {
+        for (let i = 0; i < slots; i++) {
+          if (TIME_SLOTS[startIdx + i]) blocked.add(TIME_SLOTS[startIdx + i]);
+        }
+      }
+    }
+    setBookedSlots([...blocked]);
   };
   const fetchStaffShifts = async (staffId, storeId) => {
     const today = new Date();
