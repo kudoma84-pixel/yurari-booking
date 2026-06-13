@@ -84,6 +84,8 @@ export default function AdminPage() {
   const [customerTickets, setCustomerTickets] = useState([]);
   const [editingTicketTemplate, setEditingTicketTemplate] = useState(null);
   const [selectedTicket, setSelectedTicket] = useState(null);
+  const [checkoutSellTicketId, setCheckoutSellTicketId] = useState("");
+  const [checkoutPresentTicketId, setCheckoutPresentTicketId] = useState("");
   const [directBookingModal, setDirectBookingModal] = useState(null);
   const [directBookingForm, setDirectBookingForm] = useState({});
   const [customerSearchResult, setCustomerSearchResult] = useState(null);
@@ -1755,8 +1757,9 @@ const handleAdminQrInput = async (value) => {
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>🎫 金券</div>
                     {checkoutBooking?.customer_id ? (
                       <>
+                        {/* 保有枚数・使用 */}
                         <div style={{ marginBottom: 16 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", marginBottom: 8 }}>保有枚数</div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", marginBottom: 8 }}>保有・使用</div>
                           {customerTickets.length === 0 ? (
                             <div style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: 12 }}>金券がありません</div>
                           ) : (
@@ -1774,10 +1777,93 @@ const handleAdminQrInput = async (value) => {
                                   await fetchCustomerTicketCount(checkoutBooking.customer_id);
                                 }
                               }} disabled={!!selectedTicket} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "none", background: selectedTicket ? "#aaa" : "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: selectedTicket ? "not-allowed" : "pointer" }}>
-                                {selectedTicket ? `✓ 1枚使用済（-¥${selectedTicket.face_value?.toLocaleString()}）` : "1枚使用する（-¥1,000）"}
+                                {selectedTicket ? `✓ 1枚使用済（-¥${selectedTicket.face_value?.toLocaleString()}）` : "1枚使用する"}
                               </button>
                             </>
                           )}
+                        </div>
+
+                        {/* 金券販売 */}
+                        <div style={{ borderTop: "1px solid #f0ebe4", paddingTop: 14, marginBottom: 14 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", marginBottom: 8 }}>🎫 販売</div>
+                          <select value={checkoutSellTicketId || ""} onChange={e => setCheckoutSellTicketId(e.target.value)}
+                            style={{ width: "100%", padding: "8px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13, background: "white", marginBottom: 8, boxSizing: "border-box" }}>
+                            <option value="">金券を選択</option>
+                            {giftTicketTemplates.filter(t => t.is_active).map(t => (
+                              <option key={t.id} value={t.id}>{t.name}（¥{t.face_value?.toLocaleString()}券×{t.ticket_count || 10}枚）</option>
+                            ))}
+                          </select>
+                          <button onClick={async () => {
+                            if (!checkoutSellTicketId) return;
+                            const template = giftTicketTemplates.find(t => t.id === checkoutSellTicketId);
+                            if (!template) return;
+                            const count = template.ticket_count || 10;
+                            const today = new Date();
+                            const expires = new Date(today);
+                            expires.setFullYear(expires.getFullYear() + 1);
+                            const groupId = crypto.randomUUID();
+                            for (let i = 0; i < count; i++) {
+                              await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
+                                method: "POST", headers,
+                                body: JSON.stringify({
+                                  store_id: currentStore.id,
+                                  customer_id: checkoutBooking.customer_id,
+                                  ticket_type: "purchase",
+                                  purchase_group_id: groupId,
+                                  ticket_name: template.name,
+                                  face_value: template.face_value,
+                                  issued_at: formatDate(today),
+                                  expires_at: formatDate(expires),
+                                  status: "active",
+                                }),
+                              });
+                            }
+                            await fetchCustomerTicketCount(checkoutBooking.customer_id);
+                            setCheckoutSellTicketId("");
+                            alert(`${template.name}を${count}枚発行しました`);
+                          }} disabled={!checkoutSellTicketId}
+                            style={{ width: "100%", padding: "9px", borderRadius: 10, border: "none", background: checkoutSellTicketId ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: checkoutSellTicketId ? "white" : "#bbb", fontSize: 13, fontWeight: 700, cursor: checkoutSellTicketId ? "pointer" : "not-allowed" }}>
+                            💳 販売して発行
+                          </button>
+                        </div>
+
+                        {/* 金券プレゼント */}
+                        <div style={{ borderTop: "1px solid #f0ebe4", paddingTop: 14 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "#e0a040", marginBottom: 8 }}>🎁 プレゼント</div>
+                          <select value={checkoutPresentTicketId || ""} onChange={e => setCheckoutPresentTicketId(e.target.value)}
+                            style={{ width: "100%", padding: "8px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13, background: "white", marginBottom: 8, boxSizing: "border-box" }}>
+                            <option value="">金券を選択</option>
+                            {giftTicketTemplates.filter(t => t.is_active).map(t => (
+                              <option key={t.id} value={t.id}>{t.name}（¥{t.face_value?.toLocaleString()}券×1枚）</option>
+                            ))}
+                          </select>
+                          <button onClick={async () => {
+                            if (!checkoutPresentTicketId) return;
+                            const template = giftTicketTemplates.find(t => t.id === checkoutPresentTicketId);
+                            if (!template) return;
+                            const today = new Date();
+                            const expires = new Date(today);
+                            expires.setFullYear(expires.getFullYear() + 1);
+                            await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
+                              method: "POST", headers,
+                              body: JSON.stringify({
+                                store_id: currentStore.id,
+                                customer_id: checkoutBooking.customer_id,
+                                ticket_type: "present",
+                                ticket_name: template.name,
+                                face_value: template.face_value,
+                                issued_at: formatDate(today),
+                                expires_at: formatDate(expires),
+                                status: "active",
+                              }),
+                            });
+                            await fetchCustomerTicketCount(checkoutBooking.customer_id);
+                            setCheckoutPresentTicketId("");
+                            alert(`${template.name}を1枚プレゼントしました`);
+                          }} disabled={!checkoutPresentTicketId}
+                            style={{ width: "100%", padding: "9px", borderRadius: 10, border: "none", background: checkoutPresentTicketId ? "linear-gradient(135deg, #e0a040, #c07020)" : "#e8ddd0", color: checkoutPresentTicketId ? "white" : "#bbb", fontSize: 13, fontWeight: 700, cursor: checkoutPresentTicketId ? "pointer" : "not-allowed" }}>
+                            🎁 プレゼントとして発行
+                          </button>
                         </div>
                       </>
                     ) : (
