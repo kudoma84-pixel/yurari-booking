@@ -115,7 +115,8 @@ const [visitPaymentItems, setVisitPaymentItems] = useState([]);
   const [qrInput, setQrInput] = useState("");
 const [checkinResult, setCheckinResult] = useState(null);
 const [todayReceived, setTodayReceived] = useState([]);
-
+const [monthBookingDates, setMonthBookingDates] = useState(new Set());
+const [monthShiftOffDates, setMonthShiftOffDates] = useState(new Set());
   useEffect(() => {
     const storeId = localStorage.getItem('yurari_admin_store');
     const expire = localStorage.getItem('yurari_admin_expire');
@@ -612,6 +613,28 @@ const handleAdminQrInput = async (value) => {
     setNotifyCustomerResult(Array.isArray(data) ? data : []);
   };
 
+  const fetchMonthCalendarData = async (month) => {
+    const year = month.getFullYear();
+    const m = String(month.getMonth()+1).padStart(2,"0");
+    const from = `${year}-${m}-01`;
+    const lastDay = new Date(year, month.getMonth()+1, 0).getDate();
+    const to = `${year}-${m}-${String(lastDay).padStart(2,"0")}`;
+    // 予約がある日を取得
+    const bRes = await fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=gte.${from}&booking_date=lte.${to}&status=in.(confirmed,received,treatment_done)&select=booking_date`, { headers });
+    const bData = await bRes.json();
+    setMonthBookingDates(new Set(Array.isArray(bData) ? bData.map(b => b.booking_date) : []));
+    // シフトがある日を取得
+    const sRes = await fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&work_date=gte.${from}&work_date=lte.${to}&select=work_date`, { headers });
+    const sData = await sRes.json();
+    const shiftDates = new Set(Array.isArray(sData) ? sData.map(s => s.work_date) : []);
+    // シフトがない日をグレーアウト対象に
+    const offDates = new Set();
+    for (let i = 1; i <= lastDay; i++) {
+      const dateStr = `${year}-${m}-${String(i).padStart(2,"0")}`;
+      if (!shiftDates.has(dateStr)) offDates.add(dateStr);
+    }
+    setMonthShiftOffDates(offDates);
+  };
   const fetchAll = async (date) => {
     await Promise.all([fetchBookings(date), fetchBlocks(date), fetchShifts(date), fetchExtensions(date)]);
   };
@@ -631,6 +654,10 @@ const handleAdminQrInput = async (value) => {
   useEffect(() => {
     if (loggedIn && selectedDate) fetchAll(selectedDate);
   }, [selectedDate]);
+
+  useEffect(() => {
+    if (loggedIn && currentStore && tab === "calendar") fetchMonthCalendarData(currentMonth);
+  }, [currentMonth, loggedIn, currentStore, tab]);
 
   useEffect(() => {
     if (loggedIn && tab === "shifts") fetchMonthShifts();
@@ -1899,8 +1926,11 @@ const handleAdminQrInput = async (value) => {
                   const isSelected = selectedDate && d.toDateString() === selectedDate.toDateString();
                   const isToday = d.toDateString() === new Date().toDateString();
                   const dayIdx = d.getDay();
+                  const dateStr = formatDate(d);
+                  const hasBooking = monthBookingDates.has(dateStr);
+                  const isOff = monthShiftOffDates.has(dateStr);
                   return (
-                    <div key={i} onClick={() => setSelectedDate(d)} style={{ textAlign: "center", padding: "8px 4px", borderRadius: 8, cursor: "pointer", background: isSelected ? "#3a5a3a" : isToday ? "#eaf5ec" : "white", color: isSelected ? "white" : dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : "#3a5a3a", fontWeight: isToday ? 700 : 400, fontSize: 13, border: isToday && !isSelected ? "2px solid #5a9e7a" : "2px solid transparent" }}>
+                    <div key={i} onClick={() => setSelectedDate(d)} style={{ textAlign: "center", padding: "8px 4px", borderRadius: 8, cursor: "pointer", background: isSelected ? "#3a5a3a" : isOff ? "#f5f5f5" : isToday ? "#eaf5ec" : "white", color: isSelected ? "white" : isOff ? "#ccc" : dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : "#3a5a3a", fontWeight: hasBooking || isToday ? 700 : 400, fontSize: 13, border: isToday && !isSelected ? "2px solid #5a9e7a" : "2px solid transparent" }}>
                       {d.getDate()}
                     </div>
                   );
