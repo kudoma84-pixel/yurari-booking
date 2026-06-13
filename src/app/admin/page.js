@@ -98,6 +98,7 @@ export default function AdminPage() {
   const [giftSelectedCustomer, setGiftSelectedCustomer] = useState(null);
   const [giftSaving, setGiftSaving] = useState(false);
   const [giftDone, setGiftDone] = useState(false);
+  const [giftHistory, setGiftHistory] = useState([]);
   const [notifyTarget, setNotifyTarget] = useState("all"); // all / individual
   const [notifyCustomerId, setNotifyCustomerId] = useState("");
   const [notifyTitle, setNotifyTitle] = useState("");
@@ -548,6 +549,11 @@ const handleAdminQrInput = async (value) => {
     setCustomerTickets(Array.isArray(data) ? data : []);
   };
 
+  const fetchGiftHistory = async () => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?store_id=eq.${currentStore.id}&order=issued_at.desc&select=*,customers(name,customer_number)`, { headers });
+    const data = await res.json();
+    setGiftHistory(Array.isArray(data) ? data : []);
+  };
   const fetchNotifications = async () => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/notifications?store_id=eq.${currentStore.id}&order=created_at.desc&limit=50`, { headers });
     const data = await res.json();
@@ -619,7 +625,7 @@ const handleAdminQrInput = async (value) => {
     if (loggedIn && tab === "checkin") { fetchTodayReceived(); }
     if (loggedIn && tab === "bookings") { fetchBookings(selectedDate || new Date()); }
     if (loggedIn && tab === "notifications") { fetchNotifications(); fetchCustomers(); }
-    if (loggedIn && tab === "gifts") { fetchGiftTicketTemplates(); }
+    if (loggedIn && tab === "gifts") { fetchGiftTicketTemplates(); fetchGiftHistory(); }
   }, [loggedIn, tab]);
 
   useEffect(() => {
@@ -2187,103 +2193,77 @@ const handleAdminQrInput = async (value) => {
 
         {tab === "gifts" && (
           <div>
-            {giftModal && (
-              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setGiftModal(null)}>
-                <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 480, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>{giftModal.mode === 'sell' ? "🎫 金券販売" : "🎁 金券プレゼント"}</div>
-                    <button onClick={() => setGiftModal(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
-                  </div>
-                  {giftDone ? (
-                    <div style={{ textAlign: "center", padding: 40 }}>
-                      <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>発行完了しました！</div>
-                    </div>
-                  ) : (
-                    <>
-                      <div style={{ marginBottom: 20 }}>
-                        <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>顧客検索</label>
-                        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                          <input value={giftCustomerSearch} onChange={e => setGiftCustomerSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && searchGiftCustomer(giftCustomerSearch)}
-                            placeholder="名前・電話番号で検索" style={{ flex: 1, padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
-                          <button onClick={() => searchGiftCustomer(giftCustomerSearch)}
-                            style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>検索</button>
-                        </div>
-                        {giftCustomerResult && giftCustomerResult.map(c => (
-                          <div key={c.id} onClick={() => { setGiftSelectedCustomer(c); setGiftCustomerResult(null); setGiftCustomerSearch(c.name); }}
-                            style={{ padding: "10px 14px", background: "#f9f6f2", borderRadius: 10, cursor: "pointer", marginBottom: 4, fontSize: 13 }}>
-                            {c.name} / {c.tel}
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 24 }}>🎫 金券管理</h2>
+
+            {/* 販売履歴 */}
+            <div style={{ marginBottom: 32 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>🎫 販売履歴</div>
+              <div style={{ background: "white", borderRadius: 16, overflow: "auto", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+                  <thead>
+                    <tr style={{ background: "#f5f5f5" }}>
+                      {["顧客番号","顧客名","販売担当","金券名","販売日","有効期限","使用状況"].map(h => (
+                        <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {giftHistory.filter(g => g.ticket_type === "purchase").length === 0 && (
+                      <tr><td colSpan={7} style={{ textAlign: "center", padding: 32, color: "#aaa" }}>販売履歴がありません</td></tr>
+                    )}
+                    {giftHistory.filter(g => g.ticket_type === "purchase").map((g, i) => (
+                      <tr key={g.id} style={{ borderTop: "1px solid #f0ebe4" }}>
+                        <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.customers?.customer_number || "-"}</td>
+                        <td style={{ padding: "10px 14px", fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{g.customers?.name || "-"}</td>
+                        <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.store_id === "minamiurawa" ? "南浦和店" : "戸田店"}</td>
+                        <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.ticket_name}</td>
+                        <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.issued_at}</td>
+                        <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.expires_at}</td>
+                        <td style={{ padding: "10px 14px" }}>
+                          <div style={{ fontSize: 11, background: g.status === "active" ? "#eaf5ec" : "#f0ebe4", color: g.status === "active" ? "#5a9e7a" : "#aaa", borderRadius: 20, padding: "3px 10px", display: "inline-block" }}>
+                            {g.status === "active" ? "未使用" : g.status === "used" ? "使用済" : g.status}
                           </div>
-                        ))}
-                        {giftSelectedCustomer && <div style={{ fontSize: 12, color: "#5a9e7a", marginTop: 4 }}>✓ {giftSelectedCustomer.name} を選択中</div>}
-                      </div>
-                      <div style={{ marginBottom: 20 }}>
-                        <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>金券種類</label>
-                        <select value={giftForm.templateId || ""} onChange={e => setGiftForm({ ...giftForm, templateId: e.target.value })}
-                          style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, background: "white", boxSizing: "border-box" }}>
-                          <option value="">選択してください</option>
-                          {giftTicketTemplates.filter(t => t.is_active).map(t => (
-                            <option key={t.id} value={t.id}>
-                              {t.name}（¥{t.face_value?.toLocaleString()}券 × {giftModal.mode === 'sell' ? (t.ticket_count || 10) : 1}枚{giftModal.mode === 'sell' && t.sale_price ? ` / 販売価格¥${t.sale_price?.toLocaleString()}` : ""}）
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      {giftModal.mode === 'sell' && giftForm.templateId && (() => {
-                        const t = giftTicketTemplates.find(t => t.id === giftForm.templateId);
-                        return t ? (
-                          <div style={{ background: "#f0f8f4", borderRadius: 12, padding: "12px 16px", marginBottom: 20 }}>
-                            <div style={{ fontSize: 13, color: "#3a5a3a" }}>発行枚数: <strong>{t.ticket_count || 10}枚</strong></div>
-                            <div style={{ fontSize: 13, color: "#3a5a3a" }}>額面合計: <strong>¥{((t.ticket_count || 10) * t.face_value)?.toLocaleString()}</strong></div>
-                            {t.sale_price && <div style={{ fontSize: 13, color: "#e0a040" }}>販売価格: <strong>¥{t.sale_price?.toLocaleString()}</strong></div>}
-                          </div>
-                        ) : null;
-                      })()}
-                      <button onClick={issueGiftTickets} disabled={giftSaving || !giftSelectedCustomer || !giftForm.templateId}
-                        style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: !giftSelectedCustomer || !giftForm.templateId ? "#e8ddd0" : giftModal.mode === 'sell' ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "linear-gradient(135deg, #e0a040, #c07020)", color: !giftSelectedCustomer || !giftForm.templateId ? "#bbb" : "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>
-                        {giftSaving ? "発行中..." : giftModal.mode === 'sell' ? "💳 販売して発行する" : "🎁 プレゼントとして発行する"}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", margin: 0 }}>🎫 金券管理</h2>
-            </div>
-            <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 32 }}>
-              <div onClick={() => { setGiftModal({ mode: 'sell' }); setGiftSelectedCustomer(null); setGiftForm({}); setGiftCustomerSearch(""); setGiftCustomerResult(null); }}
-                style={{ flex: 1, minWidth: 200, background: "linear-gradient(135deg, #eaf5ec, #d0ecd8)", borderRadius: 20, padding: "28px 24px", cursor: "pointer", boxShadow: "0 4px 16px rgba(90,158,122,0.15)", border: "2px solid #5a9e7a20" }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>🎫</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 4 }}>金券を販売する</div>
-                <div style={{ fontSize: 12, color: "#7a9a7a" }}>10枚セットを顧客に販売</div>
-              </div>
-              <div onClick={() => { setGiftModal({ mode: 'present' }); setGiftSelectedCustomer(null); setGiftForm({}); setGiftCustomerSearch(""); setGiftCustomerResult(null); }}
-                style={{ flex: 1, minWidth: 200, background: "linear-gradient(135deg, #fdf5e0, #fce8c0)", borderRadius: 20, padding: "28px 24px", cursor: "pointer", boxShadow: "0 4px 16px rgba(224,160,64,0.15)", border: "2px solid #e0a04020" }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>🎁</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: "#7a4a00", marginBottom: 4 }}>金券をプレゼントする</div>
-                <div style={{ fontSize: 12, color: "#a07040" }}>キャンペーン等で1枚プレゼント</div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>金券テンプレート設定</div>
-            <div style={{ fontSize: 12, color: "#888", marginBottom: 16 }}>⚙️ 設定 → 金券管理 でテンプレートを編集できます</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {giftTicketTemplates.length === 0 ? (
-                <div style={{ textAlign: "center", padding: 40, background: "white", borderRadius: 16, color: "#aaa" }}>金券テンプレートがありません</div>
-              ) : (
-                giftTicketTemplates.map(t => (
-                  <div key={t.id} style={{ background: "white", borderRadius: 14, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a" }}>🎫 {t.name}</div>
-                        <div style={{ fontSize: 12, color: "#888" }}>¥{t.face_value?.toLocaleString()}券 × {t.ticket_count || 10}枚セット</div>
-                        {t.sale_price && <div style={{ fontSize: 12, color: "#e0a040" }}>販売価格: ¥{t.sale_price?.toLocaleString()}</div>}
-                      </div>
-                      <div style={{ fontSize: 11, background: t.is_active ? "#eaf5ec" : "#f0ebe4", color: t.is_active ? "#5a9e7a" : "#aaa", borderRadius: 20, padding: "4px 12px" }}>{t.is_active ? "有効" : "無効"}</div>
-                    </div>
-                  </div>
-                ))
-              )}
+
+            {/* プレゼント履歴 */}
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#e0a040", marginBottom: 12 }}>🎁 プレゼント履歴</div>
+              <div style={{ background: "white", borderRadius: 16, overflow: "auto", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+                  <thead>
+                    <tr style={{ background: "#f5f5f5" }}>
+                      {["顧客番号","顧客名","金券名","プレゼント日","有効期限","使用状況"].map(h => (
+                        <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {giftHistory.filter(g => g.ticket_type === "present").length === 0 && (
+                      <tr><td colSpan={6} style={{ textAlign: "center", padding: 32, color: "#aaa" }}>プレゼント履歴がありません</td></tr>
+                    )}
+                    {giftHistory.filter(g => g.ticket_type === "present").map((g, i) => (
+                      <tr key={g.id} style={{ borderTop: "1px solid #f0ebe4" }}>
+                        <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.customers?.customer_number || "-"}</td>
+                        <td style={{ padding: "10px 14px", fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{g.customers?.name || "-"}</td>
+                        <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.ticket_name}</td>
+                        <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.issued_at}</td>
+                        <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.expires_at}</td>
+                        <td style={{ padding: "10px 14px" }}>
+                          <div style={{ fontSize: 11, background: g.status === "active" ? "#fdf5e0" : "#f0ebe4", color: g.status === "active" ? "#e0a040" : "#aaa", borderRadius: 20, padding: "3px 10px", display: "inline-block" }}>
+                            {g.status === "active" ? "未使用" : g.status === "used" ? "使用済" : g.status}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
