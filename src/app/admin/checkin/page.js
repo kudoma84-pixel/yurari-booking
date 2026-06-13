@@ -1,5 +1,6 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 
 const SUPABASE_URL = "https://pbjekdzmvjqhqbbrzbfk.supabase.co";
 const SUPABASE_KEY = "sb_publishable_I_98PawL-eNS__SZa0DlPA_80VwFUZc";
@@ -31,7 +32,8 @@ const statusLabel = (s) => ({
   pending: "未確認",
 }[s] || s);
 
-export default function CheckinPage() {
+function CheckinPageInner() {
+  const searchParams = useSearchParams();
   const [loggedIn, setLoggedIn] = useState(false);
   const [currentStore, setCurrentStore] = useState(null);
   const [password, setPassword] = useState("");
@@ -65,6 +67,15 @@ export default function CheckinPage() {
     fetchTodayReceived();
     const interval = setInterval(fetchTodayReceived, 10000);
     return () => clearInterval(interval);
+  }, [loggedIn, currentStore]);
+
+  // URLパラメータからcheckinを自動処理
+  useEffect(() => {
+    if (!loggedIn || !currentStore) return;
+    const checkinId = searchParams?.get("checkin");
+    if (checkinId) {
+      handleQrInput(`https://yurari-booking.vercel.app/admin/checkin?checkin=${checkinId}`);
+    }
   }, [loggedIn, currentStore]);
 
   // 入力欄に常時フォーカス
@@ -252,5 +263,13 @@ export default function CheckinPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function CheckinPage() {
+  return (
+  <React.Suspense fallback={<div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: "#888" }}>読み込み中...</div>}>
+    <CheckinPageInner />
+  </React.Suspense>
   );
 }

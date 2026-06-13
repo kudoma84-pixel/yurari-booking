@@ -34,6 +34,7 @@ function MyPageInner() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [checkinDone, setCheckinDone] = useState(false);
   const [checkinLoading, setCheckinLoading] = useState(false);
+  const [qrLoaded, setQrLoaded] = useState(false);
 
   const headers = {
     "apikey": SUPABASE_KEY,
@@ -167,7 +168,12 @@ function MyPageInner() {
   const fetchAllStaff = async () => {
     const res = await fetch(SUPABASE_URL + "/rest/v1/staff_members?is_active=eq.true&order=sort_order.asc", { headers });
     const data = await res.json();
-    setStaffList(Array.isArray(data) ? data : []);
+    if (Array.isArray(data)) {
+      const unique = data.filter((s, i, arr) => arr.findIndex(x => x.id === s.id) === i);
+      setStaffList(unique);
+    } else {
+      setStaffList([]);
+    }
   };
 
   const cancelBooking = async (bookingId) => {
@@ -382,6 +388,7 @@ function MyPageInner() {
               if (t.id === "notice") markAllRead();
               if (t.id === "ticket" && customer) fetchTickets(customer.id);
               if (t.id === "booking" && customer) fetchBookings(customer.id);
+              if (t.id === "qr") setQrLoaded(false);
             }}
               className="tab-btn" style={{ position: "relative", padding: "10px 20px", borderRadius: 20, border: "none", background: activeTab === t.id ? GREEN : "white", color: activeTab === t.id ? "white" : "#888", fontSize: 13, fontWeight: activeTab === t.id ? 700 : 400, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", overflow: "visible" }}>              {t.label}
               {t.badge > 0 && <span style={{ position: "absolute", top: -6, right: -16, background: "#e07070", color: "white", borderRadius: "50%", width: 18, height: 18, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 0 2px white", zIndex: 1 }}>{t.badge}</span>}
@@ -394,11 +401,18 @@ function MyPageInner() {
   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "32px 20px" }}>
     <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 8 }}>🔲 マイQRコード</div>
     <div style={{ fontSize: 12, color: "#888", marginBottom: 24 }}>来院時にスタッフに提示してください</div>
-    <div style={{ background: "white", borderRadius: 20, padding: 24, boxShadow: "0 4px 20px rgba(0,0,0,0.1)" }}>
-      <img
-        src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=https://yurari-booking.vercel.app/admin?checkin=${customer?.id}`}
+    <div style={{ background: "white", borderRadius: 20, padding: 24, boxShadow: "0 4px 20px rgba(0,0,0,0.1)", position: "relative" }}>
+      {!qrLoaded && (
+                <div style={{ width: 220, height: 220, display: "flex", alignItems: "center", justifyContent: "center", color: "#aaa", fontSize: 13 }}>
+                          読み込み中...
+                                  </div>
+                                        )}
+
+            <img
+        src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=https://yurari-booking.vercel.app/admin/checkin?checkin=${customer?.id}`}
         alt="マイQR"
-        style={{ width: 220, height: 220, display: "block" }}
+        onLoad={() => setQrLoaded(true)}
+        style={{ width: 220, height: 220, display: qrLoaded ? "block" : "none" }}
       />
     </div>
     <div style={{ marginTop: 20, fontSize: 13, color: "#888" }}>{customer?.name} 様</div>
