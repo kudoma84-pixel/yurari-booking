@@ -228,33 +228,26 @@ function AppInner() {
     });
     const data = await res.json();
     const shifts = Array.isArray(data) ? data : [];
+
     const dateMap = {};
     if (staffId === "any") {
+      // 指名なし：アクティブスタッフが1人でも出勤している日はON
       const activeStaffRes = await fetch(`${SUPABASE_URL}/rest/v1/staff_members?store_id=eq.${storeId}&is_active=eq.true`, {
         headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
       });
       const activeStaff = await activeStaffRes.json();
       const activeIds = activeStaff.map(s => s.id);
-      const allDates = [...new Set(shifts.map(s => s.work_date))];
-      allDates.forEach(d => {
-        const workingStaff = shifts.filter(s => s.work_date === d && activeIds.includes(s.staff_id));
-        if (workingStaff.length === 0) dateMap[d] = "alloff";
+      shifts.filter(s => activeIds.includes(s.staff_id)).forEach(s => {
+        dateMap[s.work_date] = "on";
       });
     } else {
-      const onDates = new Set(shifts.filter(s => s.staff_id === staffId).map(s => s.work_date));
-      shifts.forEach(s => {
-        if (!onDates.has(s.work_date)) {
-          dateMap[s.work_date] = dateMap[s.work_date] || "off";
-        }
-      });
-      onDates.forEach(d => { dateMap[d] = "on"; });
-      Object.keys(dateMap).forEach(d => {
-        if (dateMap[d] !== "on") dateMap[d] = "off";
+      // 特定スタッフ：シフトにレコードがある日だけON
+      shifts.filter(s => s.staff_id === staffId).forEach(s => {
+        dateMap[s.work_date] = "on";
       });
     }
     setStaffShiftDates(dateMap);
   };
-
   const checkExistingCustomer = async () => {
     if (!session?.lineUserId) return;
     localStorage.setItem('yurari_line_user_id', session.lineUserId);
@@ -940,9 +933,7 @@ function AppInner() {
                       const isFuture = d > maxDate;
                       const isSelected = date && d.toDateString() === date.toDateString();
                       const dayIdx = d.getDay();
-                      const isOff = staff.id === "any"
-                        ? staffShiftDates[dateStr] === "alloff"
-                        : staffShiftDates[dateStr] === "off";
+                      const isOff = staffShiftDates[dateStr] !== "on";
                       const disabled = isPast || isFuture || isOff;
                       return (
                         <div key={i} onClick={() => { if (!disabled) { setDate(d); setTime(null); if (store) { fetchStoreSettings(store.id); fetchBookedSlots(staff.id, store.id, dateStr); } } }}
