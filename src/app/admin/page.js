@@ -565,19 +565,15 @@ const handleAdminQrInput = async (value) => {
     if (!notifyTitle || !notifyBody) return;
     setNotifySending(true);
     try {
-      // 対象顧客を取得
       let targetCustomers = [];
       if (notifyTarget === "all") {
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?select=id,name,email,notification_method`, { headers });
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?select=id,name,email,notification_method,line_user_id`, { headers });
         targetCustomers = await res.json();
       } else if (notifyTarget === "individual" && notifyCustomerId) {
         const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${notifyCustomerId}&select=id,name,email,notification_method,line_user_id`, { headers });
         targetCustomers = await res.json();
       }
-
-      console.log("targetCustomers:", JSON.stringify(targetCustomers));
       for (const customer of targetCustomers) {
-        // notificationsテーブルに保存
         await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
           method: "POST", headers,
           body: JSON.stringify({
@@ -589,23 +585,16 @@ const handleAdminQrInput = async (value) => {
             sent_via: customer.notification_method || "email",
           }),
         });
-        // LINE送信
-        console.log("customer:", customer.notification_method, customer.line_user_id);
-        if (customer.notification_method === "line") {
-          const lineUserId = customer.line_user_id;
-          console.log("lineUserId:", lineUserId);
-          if (lineUserId) {
-            await fetch("/api/send-line", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                to: lineUserId,
-                messages: [{ type: "text", text: `【${notifyTitle}】\n\n${notifyBody}` }],
-              }),
-            });
-          }
+        if (customer.notification_method === "line" && customer.line_user_id) {
+          await fetch("/api/send-line", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: customer.line_user_id,
+              messages: [{ type: "text", text: `【${notifyTitle}】\n\n${notifyBody}` }],
+            }),
+          });
         }
-        // メール送信
         if (customer.notification_method === "email" && customer.email) {
           await fetch("/api/send-email", {
             method: "POST",
@@ -617,7 +606,6 @@ const handleAdminQrInput = async (value) => {
             }),
           });
         }
-
       }
       setNotifySent(true);
       setNotifyTitle("");
@@ -633,51 +621,6 @@ const handleAdminQrInput = async (value) => {
       setNotifySending(false);
     }
   };
-
-  const searchNotifyCustomer = async (query) => {
-    if (!query) { setNotifyCustomerResult(null); return; }
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?or=(name.ilike.*${query}*,tel.ilike.*${query}*)&select=id,name,tel,email&limit=5`, { headers });
-    const data = await res.json();
-    setNotifyCustomerResult(Array.isArray(data) ? data : []);
-  };
-
-  const fetchMonthCalendarData = async (month) => {
-    const year = month.getFullYear();
-    const m = String(month.getMonth()+1).padStart(2,"0");
-    const from = `${year}-${m}-01`;
-    const lastDay = new Date(year, month.getMonth()+1, 0).getDate();
-    const to = `${year}-${m}-${String(lastDay).padStart(2,"0")}`;
-    // 予約がある日を取得
-    const bRes = await fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=gte.${from}&booking_date=lte.${to}&status=in.(confirmed,received,treatment_done)&select=booking_date`, { headers });
-    const bData = await bRes.json();
-    setMonthBookingDates(new Set(Array.isArray(bData) ? bData.map(b => b.booking_date) : []));
-    // シフトがある日を取得
-    const sRes = await fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&work_date=gte.${from}&work_date=lte.${to}&select=work_date`, { headers });
-    const sData = await sRes.json();
-    const shiftDates = new Set(Array.isArray(sData) ? sData.map(s => s.work_date) : []);
-    // シフトがない日をグレーアウト対象に
-    const offDates = new Set();
-    for (let i = 1; i <= lastDay; i++) {
-      const dateStr = `${year}-${m}-${String(i).padStart(2,"0")}`;
-      if (!shiftDates.has(dateStr)) offDates.add(dateStr);
-    }
-    setMonthShiftOffDates(offDates);
-  };
-  const fetchAll = async (date) => {
-    await Promise.all([fetchBookings(date), fetchBlocks(date), fetchShifts(date), fetchExtensions(date)]);
-  };
-
-  useEffect(() => {
-    if (loggedIn && tab === "customers") fetchCustomers();
-    if (loggedIn && tab === "shifts") { fetchMonthShifts(); fetchShiftPlans(); fetchStaffMembers(); }
-    if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchProducts(); fetchCourseMenus(); fetchGiftTicketTemplates(); }
-    if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); fetchStoreSettings(); fetchGiftTicketTemplates(); }
-    if (loggedIn && tab === "calendar") { fetchStaffMembers(); if (selectedDate) fetchAll(selectedDate); }
-    if (loggedIn && tab === "checkin") { fetchTodayReceived(); }
-    if (loggedIn && tab === "bookings") { fetchBookings(selectedDate || new Date()); }
-    if (loggedIn && tab === "notifications") { fetchNotifications(); fetchCustomers(); }
-    if (loggedIn && tab === "gifts") { fetchGiftTicketTemplates(); fetchGiftHistory(); }
-  }, [loggedIn, tab]);
 
   useEffect(() => {
     if (loggedIn && selectedDate) fetchAll(selectedDate);
