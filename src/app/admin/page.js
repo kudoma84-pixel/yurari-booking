@@ -590,8 +590,6 @@ const handleAdminQrInput = async (value) => {
           }),
         });
         // LINE送信
-        for (const customer of targetCustomers) {
-        // notificationsテーブルに保存
         console.log("customer:", customer.notification_method, customer.line_user_id);
         if (customer.notification_method === "line") {
           const lineUserId = customer.line_user_id;
