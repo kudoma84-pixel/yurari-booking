@@ -575,6 +575,7 @@ const handleAdminQrInput = async (value) => {
         targetCustomers = await res.json();
       }
 
+      console.log("targetCustomers:", JSON.stringify(targetCustomers));
       for (const customer of targetCustomers) {
         // notificationsテーブルに保存
         await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
