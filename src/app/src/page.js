@@ -484,6 +484,7 @@ function AppInner() {
   };
 
   const reset = () => {
+    window.history.replaceState({}, '', '/src');
     setScreen("top"); setNotificationMethod(null); setStep(0);
     setStore(null); setCourse(null); setCourseCategory(null); setCourseVisitType(null);
     setStaff(null); setDate(null); setTime(null);
