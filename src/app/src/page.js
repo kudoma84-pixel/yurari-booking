@@ -36,6 +36,7 @@ function AppInner() {
   const searchParams = useSearchParams();
   const changeBookingId = searchParams?.get('change');
   const notifyFromUrl = searchParams?.get('notify');
+  const liffReturn = searchParams?.get('liff');
 
   const [screen, setScreen] = useState("top");
   const [notificationMethod, setNotificationMethod] = useState(null);
@@ -279,7 +280,7 @@ function AppInner() {
         const liff = (await import('@line/liff')).default;
         await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
         if (!liff.isLoggedIn()) {
-          liff.login({ redirectUri: window.location.href });
+          liff.login({ redirectUri: "https://yurari-booking.vercel.app/src?liff=1" });
           return;
         }
         const liffProfile = await liff.getProfile();
