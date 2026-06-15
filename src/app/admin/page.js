@@ -589,10 +589,10 @@ const handleAdminQrInput = async (value) => {
           }),
         });
         // LINE送信
+        console.log("customer:", customer.notification_method, customer.line_user_id);
         if (customer.notification_method === "line") {
-          const lineRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customer.id}&select=line_user_id`, { headers });
-          const lineData = await lineRes.json();
-          const lineUserId = lineData[0]?.line_user_id;
+          const lineUserId = customer.line_user_id;
+          console.log("lineUserId:", lineUserId);
           if (lineUserId) {
             await fetch("/api/send-line", {
               method: "POST",
