@@ -82,10 +82,10 @@ function AppInner() {
   }, [notifyFromUrl, session]);
 
   useEffect(() => {
-    if (liffReturn === '1' && screen === 'top') {
+    if (liffReturn === '1') {
       handleAuthSelect('line');
     }
-  }, [liffReturn]);
+  }, []);
 
   useEffect(() => {
     const customerId = localStorage.getItem('yurari_customer_id');
