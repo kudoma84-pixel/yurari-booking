@@ -82,7 +82,7 @@ function AppInner() {
   }, [notifyFromUrl, session]);
 
   useEffect(() => {
-    if (liffReturn === '1') {
+    if (liffReturn === '1' && screen === 'top') {
       handleAuthSelect('line');
     }
   }, [liffReturn]);
