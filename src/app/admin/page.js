@@ -571,7 +571,7 @@ const handleAdminQrInput = async (value) => {
         const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?select=id,name,email,notification_method`, { headers });
         targetCustomers = await res.json();
       } else if (notifyTarget === "individual" && notifyCustomerId) {
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${notifyCustomerId}&select=id,name,email,notification_method`, { headers });
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${notifyCustomerId}&select=id,name,email,notification_method,line_user_id`, { headers });
         targetCustomers = await res.json();
       }
 
