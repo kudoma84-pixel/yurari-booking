@@ -665,7 +665,7 @@ const handleAdminQrInput = async (value) => {
     const interval = setInterval(() => {
       fetchMonthCalendarData(currentMonth);
       if (selectedDate) fetchAll(selectedDate);
-    }, 30000);
+    }, 5000);
     return () => clearInterval(interval);
   }, [loggedIn, currentStore, tab, currentMonth, selectedDate]);
 
