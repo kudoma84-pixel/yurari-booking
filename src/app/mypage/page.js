@@ -44,6 +44,13 @@ function MyPageInner() {
   };
 
   useEffect(() => {
+    if (!customer) return;
+    const interval = setInterval(() => {
+      fetchBookings(customer.id);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [customer]);
+  useEffect(() => {
     const customerId = localStorage.getItem('yurari_customer_id');
     const expire = localStorage.getItem('yurari_login_expire');
     if (customerId && expire && Date.now() < parseInt(expire)) {
