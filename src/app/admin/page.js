@@ -657,8 +657,7 @@ const handleAdminQrInput = async (value) => {
   }, [selectedDate]);
 
   useEffect(() => {
-    useEffect(() => {
-    if (loggedIn && currentStore && tab === "calendar") fetchMonthCalendarData(currentMonth);
+        if (loggedIn && currentStore && tab === "calendar") fetchMonthCalendarData(currentMonth);
   }, [currentMonth, loggedIn, currentStore, tab]);
 
   useEffect(() => {
