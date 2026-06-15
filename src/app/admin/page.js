@@ -657,8 +657,18 @@ const handleAdminQrInput = async (value) => {
   }, [selectedDate]);
 
   useEffect(() => {
+    useEffect(() => {
     if (loggedIn && currentStore && tab === "calendar") fetchMonthCalendarData(currentMonth);
   }, [currentMonth, loggedIn, currentStore, tab]);
+
+  useEffect(() => {
+    if (!loggedIn || !currentStore || tab !== "calendar") return;
+    const interval = setInterval(() => {
+      fetchMonthCalendarData(currentMonth);
+      if (selectedDate) fetchAll(selectedDate);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [loggedIn, currentStore, tab, currentMonth, selectedDate]);
 
   useEffect(() => {
     if (loggedIn && tab === "shifts") fetchMonthShifts();
@@ -871,6 +881,7 @@ const handleAdminQrInput = async (value) => {
 
   const updateBookingStatus = async (id, status) => {
     await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${id}`, { method: "PATCH", headers, body: JSON.stringify({ status }) });
+    fetchMonthCalendarData(currentMonth);
     
     // 受付時に顧客番号を付番
     if (status === 'received') {
