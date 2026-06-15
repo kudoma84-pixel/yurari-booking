@@ -589,7 +589,34 @@ const handleAdminQrInput = async (value) => {
             sent_via: customer.notification_method || "email",
           }),
         });
+        // LINE送信
+        if (customer.notification_method === "line") {
+          const lineRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customer.id}&select=line_user_id`, { headers });
+          const lineData = await lineRes.json();
+          const lineUserId = lineData[0]?.line_user_id;
+          if (lineUserId) {
+            await fetch("/api/send-line", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                to: lineUserId,
+                messages: [{ type: "text", text: `【${notifyTitle}】\n\n${notifyBody}` }],
+              }),
+            });
+          }
+        }
         // メール送信
+        if (customer.notification_method === "email" && customer.email) {
+          await fetch("/api/send-email", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              to: customer.email,
+              subject: notifyTitle,
+              html: `<div style='font-family:sans-serif;padding:20px;'><h2>${notifyTitle}</h2><p>${notifyBody.replace(/\n/g, '<br>')}</p></div>`,
+            }),
+          });
+        }
 
       }
       setNotifySent(true);
