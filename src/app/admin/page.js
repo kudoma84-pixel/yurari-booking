@@ -482,8 +482,7 @@ const handleAdminQrInput = async (value) => {
 
   const searchGiftCustomer = async (query) => {
     if (!query) { setGiftCustomerResult(null); return; }
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?or=(name.ilike.*${query}*,tel.ilike.*${query}*)&select=id,name,tel,email&limit=5`, { headers });
-    const data = await res.json();
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?or=(name.ilike.*${query}*,tel.ilike.*${query}*)&select=id,name,tel,email,notification_method,line_user_id&limit=5`, { headers });    const data = await res.json();
     setGiftCustomerResult(Array.isArray(data) ? data : []);
   };
 
