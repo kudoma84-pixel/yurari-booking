@@ -82,6 +82,12 @@ function AppInner() {
   }, [notifyFromUrl, session]);
 
   useEffect(() => {
+    if (liffReturn === '1') {
+      handleAuthSelect('line');
+    }
+  }, [liffReturn]);
+
+  useEffect(() => {
     const customerId = localStorage.getItem('yurari_customer_id');
     const expire = localStorage.getItem('yurari_login_expire');
     const lineUserId = localStorage.getItem('yurari_line_user_id');
