@@ -437,7 +437,7 @@ function AppInner() {
       }
       if (profile.email && notificationMethod === "email") {
         try {
-          const storeName = store.id === "minamiurawa" ? "南浦和店" : "戸田店";
+          const storeName = store.id === "minamiurawa" ? "南浦和本院" : "戸田院";
           await fetch("/api/send-email", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -455,7 +455,7 @@ function AppInner() {
         const liffLineUserId = localStorage.getItem('yurari_line_user_id');
         if (liffLineUserId) {
           try {
-            const storeName = store.id === "minamiurawa" ? "南浦和店" : "戸田店";
+            const storeName = store.id === "minamiurawa" ? "南浦和本院" : "戸田院";
             await fetch("/api/send-line", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
