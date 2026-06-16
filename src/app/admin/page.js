@@ -206,6 +206,9 @@ const handleAdminQrInput = async (value) => {
 };
   const formatPrice = (p) => `¥${p.toLocaleString()}`;
 
+  const fetchAll = async (date) => {
+    await Promise.all([fetchBookings(date), fetchBlocks(date), fetchShifts(date), fetchExtensions(date)]);
+  };
   const fetchMonthCalendarData = async (month) => {
     const year = month.getFullYear();
     const m = String(month.getMonth()+1).padStart(2,"0");
