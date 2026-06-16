@@ -225,7 +225,7 @@ const handleAdminQrInput = async (value) => {
 
   const printMemberCard = (customer) => {
     const win = window.open('', '_blank');
-    const sName = currentStore?.name || 'const sName = currentStore?.name || '南浦和本院';南浦和店';
+    const sName = currentStore?.name || '南浦和本院';
     const cNum = customer.customer_number || '';
     const cName = customer.name || '';
     const qUrl = 'https://yurari-booking.vercel.app/admin?checkin=' + cNum;
