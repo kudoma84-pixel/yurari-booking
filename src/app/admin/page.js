@@ -6,13 +6,13 @@ const SUPABASE_URL = "https://pbjekdzmvjqhqbbrzbfk.supabase.co";
 const SUPABASE_KEY = "sb_publishable_I_98PawL-eNS__SZa0DlPA_80VwFUZc";
 
 const STORES = [
-  { id: "minamiurawa", name: "南浦和店" },
-  { id: "toda", name: "戸田店" },
+  { id: "minamiurawa", name: "南浦和本院" },
+  { id: "toda", name: "戸田院" },
 ];
 
 const ADMIN_USERS = [
-  { id: "minamiurawa", name: "南浦和店", password: "yurari-minami" },
-  { id: "toda", name: "戸田店", password: "yurari-toda" },
+  { id: "minamiurawa", name: "南浦和本院", password: "yurari-minami" },
+  { id: "toda", name: "戸田院", password: "yurari-toda" },
 ];
 
 const PAYMENT_METHODS = [
@@ -225,7 +225,7 @@ const handleAdminQrInput = async (value) => {
 
   const printMemberCard = (customer) => {
     const win = window.open('', '_blank');
-    const sName = currentStore?.name || '南浦和店';
+    const sName = currentStore?.name || 'const sName = currentStore?.name || '南浦和本院';南浦和店';
     const cNum = customer.customer_number || '';
     const cName = customer.name || '';
     const qUrl = 'https://yurari-booking.vercel.app/admin?checkin=' + cNum;
