@@ -563,6 +563,12 @@ const handleAdminQrInput = async (value) => {
     setCustomerTickets(Array.isArray(data) ? data : []);
   };
 
+  const searchNotifyCustomer = async (query) => {
+    if (!query) { setNotifyCustomerResult(null); return; }
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?or=(name.ilike.*${query}*,tel.ilike.*${query}*)&select=id,name,tel,email,notification_method,line_user_id&limit=5`, { headers });
+    const data = await res.json();
+    setNotifyCustomerResult(Array.isArray(data) ? data : []);
+  };
   const fetchGiftHistory = async () => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?store_id=eq.${currentStore.id}&order=issued_at.desc&select=*,customers(name,customer_number)`, { headers });
     const data = await res.json();
@@ -634,6 +640,18 @@ const handleAdminQrInput = async (value) => {
       setNotifySending(false);
     }
   };
+
+  useEffect(() => {
+    if (loggedIn && tab === "customers") fetchCustomers();
+    if (loggedIn && tab === "shifts") { fetchMonthShifts(); fetchShiftPlans(); fetchStaffMembers(); }
+    if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchProducts(); fetchCourseMenus(); fetchGiftTicketTemplates(); }
+    if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); fetchStoreSettings(); fetchGiftTicketTemplates(); }
+    if (loggedIn && tab === "calendar") { fetchStaffMembers(); if (selectedDate) fetchAll(selectedDate); }
+    if (loggedIn && tab === "checkin") { fetchTodayReceived(); }
+    if (loggedIn && tab === "bookings") { fetchBookings(selectedDate || new Date()); }
+    if (loggedIn && tab === "notifications") { fetchNotifications(); fetchCustomers(); }
+    if (loggedIn && tab === "gifts") { fetchGiftTicketTemplates(); fetchGiftHistory(); }
+  }, [loggedIn, tab]);
 
   useEffect(() => {
     if (loggedIn && selectedDate) fetchAll(selectedDate);
