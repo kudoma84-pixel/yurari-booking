@@ -206,6 +206,16 @@ const handleAdminQrInput = async (value) => {
 };
   const formatPrice = (p) => `¥${p.toLocaleString()}`;
 
+  const fetchMonthCalendarData = async (month) => {
+    const year = month.getFullYear();
+    const m = String(month.getMonth()+1).padStart(2,"0");
+    const from = `${year}-${m}-01`;
+    const lastDay = new Date(year, month.getMonth()+1, 0).getDate();
+    const to = `${year}-${m}-${String(lastDay).padStart(2,"0")}`;
+    const bRes = await fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=gte.${from}&booking_date=lte.${to}&status=in.(confirmed,received,treatment_done)&select=booking_date`, { headers });
+    const bData = await bRes.json();
+    setMonthBookingDates(new Set(Array.isArray(bData) ? bData.map(b => b.booking_date) : []));
+  };
   const fetchBookings = async (date) => {
     if (!date) return;
     setLoading(true);
