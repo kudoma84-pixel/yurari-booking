@@ -545,6 +545,31 @@ function MyPageInner() {
           </div>
         )}
 
+        {activeTab === "point" && (
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 16 }}>🌟 ポイント</div>
+            <div style={{ background: "white", borderRadius: 20, padding: "32px 24px", boxShadow: "0 2px 12px rgba(0,0,0,0.08)", textAlign: "center", marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: "#888", marginBottom: 8 }}>現在のポイント</div>
+              <div style={{ fontSize: 64, fontWeight: 700, color: GREEN, lineHeight: 1 }}>{customer?.points || 0}</div>
+              <div style={{ fontSize: 16, color: "#888", marginTop: 4 }}>P</div>
+              <div style={{ marginTop: 24, background: "#f9f6f2", borderRadius: 12, padding: "12px 16px" }}>
+                <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>次の1000円券まで</div>
+                <div style={{ background: "#e8e8e8", borderRadius: 20, height: 12, overflow: "hidden" }}>
+                  <div style={{ background: GREEN, height: "100%", borderRadius: 20, width: `${((customer?.points || 0) % 20) / 20 * 100}%`, transition: "width 0.5s" }} />
+                </div>
+                <div style={{ fontSize: 12, color: GREEN, fontWeight: 700, marginTop: 6 }}>{(customer?.points || 0) % 20} / 20P</div>
+              </div>
+            </div>
+            <div style={{ background: "white", borderRadius: 16, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+              <div style={{ fontSize: 13, color: "#555", lineHeight: 1.8 }}>
+                <div>✅ ご来院1回 = 1ポイント加算</div>
+                <div>🎁 20ポイントで1,000円金券プレゼント</div>
+                <div style={{ fontSize: 11, color: "#aaa", marginTop: 8 }}>※ QRチェックイン時に自動加算されます</div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === "profile" && (
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
