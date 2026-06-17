@@ -84,6 +84,10 @@ export default function AdminPage() {
   const [giftTicketTemplates, setGiftTicketTemplates] = useState([]);
   const [customerTickets, setCustomerTickets] = useState([]);
   const [editingTicketTemplate, setEditingTicketTemplate] = useState(null);
+  const [lineMessages, setLineMessages] = useState([]);
+  const [lineReplyText, setLineReplyText] = useState("");
+  const [selectedLineUser, setSelectedLineUser] = useState(null);
+  const [unreadLineCount, setUnreadLineCount] = useState(0);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [checkoutSellTicketId, setCheckoutSellTicketId] = useState("");
   const [checkoutPresentTicketId, setCheckoutPresentTicketId] = useState("");
@@ -549,6 +553,50 @@ const handleAdminQrInput = async (value) => {
     setCustomerTickets(Array.isArray(data) ? data : []);
   };
 
+  const fetchLineMessages = async () => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/line_messages?order=created_at.desc&select=*,customers(name,customer_number)&limit=200`, { headers });
+    const data = await res.json();
+    if (Array.isArray(data)) {
+      setLineMessages(data);
+      const unread = data.filter(m => m.direction === "inbound" && !m.is_read).length;
+      setUnreadLineCount(unread);
+    }
+  };
+
+  const sendLineReply = async () => {
+    if (!selectedLineUser || !lineReplyText) return;
+    await fetch("/api/send-line", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: selectedLineUser.line_user_id,
+        messages: [{ type: "text", text: lineReplyText }],
+      }),
+    });
+    await fetch(`${SUPABASE_URL}/rest/v1/line_messages`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        line_user_id: selectedLineUser.line_user_id,
+        customer_id: selectedLineUser.customer_id,
+        direction: "outbound",
+        message: lineReplyText,
+        is_read: true,
+      }),
+    });
+    setLineReplyText("");
+    fetchLineMessages();
+  };
+
+  const markLineRead = async (lineUserId) => {
+    await fetch(`${SUPABASE_URL}/rest/v1/line_messages?line_user_id=eq.${lineUserId}&direction=eq.inbound&is_read=eq.false`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ is_read: true }),
+    });
+    fetchLineMessages();
+  };
+
   const fetchGiftHistory = async () => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?store_id=eq.${currentStore.id}&order=issued_at.desc&select=*,customers(name,customer_number)`, { headers });
     const data = await res.json();
@@ -675,6 +723,7 @@ const handleAdminQrInput = async (value) => {
     if (loggedIn && tab === "bookings") { fetchBookings(selectedDate || new Date()); }
     if (loggedIn && tab === "notifications") { fetchNotifications(); fetchCustomers(); }
     if (loggedIn && tab === "gifts") { fetchGiftTicketTemplates(); fetchGiftHistory(); }
+  if (loggedIn && tab === "messages") { fetchLineMessages(); }
   }, [loggedIn, tab]);
 
   useEffect(() => {
@@ -1484,6 +1533,7 @@ const handleAdminQrInput = async (value) => {
           { id: "customers", label: "👥 顧客管理" },
           { id: "notifications", label: "🔔 通知" },
           { id: "gifts", label: "🎫 金券管理" },
+          { id: "messages", label: `💬 メッセージ${unreadLineCount > 0 ? `(${unreadLineCount})` : ""}` },
           { id: "settings", label: "⚙️ 設定" },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "14px 20px", border: "none", background: "none", fontSize: 14, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? "#3a5a3a" : "#aaa", borderBottom: tab === t.id ? "3px solid #5a9e7a" : "3px solid transparent", cursor: "pointer", whiteSpace: "nowrap" }}>{t.label}</button>
@@ -1491,6 +1541,54 @@ const handleAdminQrInput = async (value) => {
       </div>
 
       <div style={{ padding: 24, margin: "0 auto" }}>
+        {tab === "messages" && (() => {
+          const userMap = {};
+          lineMessages.forEach(m => {
+            const key = m.line_user_id;
+            if (!userMap[key]) userMap[key] = { line_user_id: key, customer_id: m.customer_id, name: m.customers?.name || m.line_user_id.slice(-8), customer_number: m.customers?.customer_number, messages: [], hasUnread: false };
+            userMap[key].messages.push(m);
+            if (m.direction === "inbound" && !m.is_read) userMap[key].hasUnread = true;
+          });
+          const users = Object.values(userMap);
+          return (
+            <div style={{ display: "flex", gap: 16, height: 600 }}>
+              <div style={{ width: 220, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+                {users.length === 0 && <div style={{ color: "#aaa", fontSize: 13, padding: 16 }}>メッセージなし</div>}
+                {users.map(u => (
+                  <div key={u.line_user_id} onClick={() => { setSelectedLineUser(u); markLineRead(u.line_user_id); }}
+                    style={{ padding: "12px 14px", borderRadius: 12, background: selectedLineUser?.line_user_id === u.line_user_id ? "#eaf5ec" : "white", border: `2px solid ${u.hasUnread ? "#5a9e7a" : "#e8ddd0"}`, cursor: "pointer" }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: "#3a5a3a" }}>{u.name} {u.hasUnread && <span style={{ background: "#e07070", color: "white", borderRadius: 10, padding: "1px 6px", fontSize: 11 }}>新着</span>}</div>
+                    {u.customer_number && <div style={{ fontSize: 11, color: "#aaa" }}>No.{u.customer_number}</div>}
+                  </div>
+                ))}
+              </div>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "white", borderRadius: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", overflow: "hidden" }}>
+                {!selectedLineUser ? (
+                  <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#aaa", fontSize: 14 }}>顧客を選択してください</div>
+                ) : (
+                  <>
+                    <div style={{ padding: "12px 16px", borderBottom: "1px solid #f0e8d8", fontWeight: 700, fontSize: 14, color: "#3a5a3a" }}>{selectedLineUser.name}</div>
+                    <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+                      {[...selectedLineUser.messages].reverse().map(m => (
+                        <div key={m.id} style={{ display: "flex", justifyContent: m.direction === "outbound" ? "flex-end" : "flex-start" }}>
+                          <div style={{ maxWidth: "70%", padding: "10px 14px", borderRadius: m.direction === "outbound" ? "16px 16px 4px 16px" : "16px 16px 16px 4px", background: m.direction === "outbound" ? "#5a9e7a" : "#f0e8d8", color: m.direction === "outbound" ? "white" : "#3a5a3a", fontSize: 13 }}>
+                            {m.message}
+                            <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4, textAlign: "right" }}>{new Date(m.created_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ padding: 12, borderTop: "1px solid #f0e8d8", display: "flex", gap: 8 }}>
+                      <input value={lineReplyText} onChange={e => setLineReplyText(e.target.value)} onKeyDown={e => e.key === "Enter" && sendLineReply()} placeholder="返信メッセージを入力..." style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13 }} />
+                      <button onClick={sendLineReply} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "#5a9e7a", color: "white", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>送信</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         {tab === "settings" && (
           <div>
             <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
