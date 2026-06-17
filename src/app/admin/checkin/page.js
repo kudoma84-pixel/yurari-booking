@@ -184,8 +184,48 @@ function CheckinPageInner() {
       body: JSON.stringify({ p_customer_id: customer.id, p_store_id: currentStore.id }),
     });
 
-    setCheckinResult({ status: "ok", message: `${customer.name}様 受付完了！` });
-    setTimeout(() => setCheckinResult(null), 4000);
+    // ポイント加算
+    const currentPoints = customer.points || 0;
+    const newPoints = currentPoints + 1;
+    await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customer.id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ points: newPoints }),
+    });
+
+    // 20P到達で1000円金券自動発行
+    let giftMessage = "";
+    if (newPoints > 0 && newPoints % 20 === 0) {
+      // gift_ticket_templatesから1000円券を取得
+      const resTpl = await fetch(
+        `${SUPABASE_URL}/rest/v1/gift_ticket_templates?store_id=eq.${currentStore.id}&amount=eq.1000&limit=1`,
+        { headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY } }
+      );
+      const tplData = await resTpl.json();
+      if (tplData && tplData.length > 0) {
+        const tpl = tplData[0];
+        const code = "PT" + Date.now();
+        await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            customer_id: customer.id,
+            store_id: currentStore.id,
+            template_id: tpl.id,
+            code,
+            amount: 1000,
+            remaining: 1000,
+            status: "active",
+            issued_at: new Date().toISOString(),
+            note: "ポイント20P達成特典",
+          }),
+        });
+        giftMessage = "🎁 1000円金券を発行しました！";
+      }
+    }
+
+    setCheckinResult({ status: "ok", message: `${customer.name}様 受付完了！ (${newPoints}P)${giftMessage ? " " + giftMessage : ""}` });
+    setTimeout(() => setCheckinResult(null), 5000);
     fetchTodayReceived();
   };
 
