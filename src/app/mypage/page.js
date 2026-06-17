@@ -386,6 +386,7 @@ function MyPageInner() {
             { id: "booking", label: "📅 予約" },
             { id: "notice", label: "🔔 通知", badge: unreadCount },
             { id: "ticket", label: "🎫 金券" },
+            { id: "point", label: "🌟 ポイント" },
                         { id: "profile", label: "⚙️ 設定" },
             { id: "qr", label: "🔲 マイQR" },
           ].map(t => (
