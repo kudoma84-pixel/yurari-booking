@@ -42,6 +42,8 @@ function CheckinPageInner() {
   const [qrInput, setQrInput] = useState("");
   const [checkinResult, setCheckinResult] = useState(null); // { name, status: 'ok'|'error', message }
   const [todayReceived, setTodayReceived] = useState([]);
+  const [pendingCheckin, setPendingCheckin] = useState(null); // { customer, booking }
+  const [manualNumber, setManualNumber] = useState("");
   const inputRef = useRef(null);
 
   const headers = {
@@ -170,6 +172,13 @@ function CheckinPageInner() {
 
     const booking = bookings[0];
 
+    // 会員番号未発番の場合は確認画面へ
+    if (!customer.customer_number) {
+      setPendingCheckin({ customer, booking });
+      setManualNumber("");
+      return;
+    }
+
     // 受付済みに更新
     await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${booking.id}`, {
       method: "PATCH",
@@ -177,13 +186,10 @@ function CheckinPageInner() {
       body: JSON.stringify({ status: "received" }),
     });
 
-    // 顧客番号付番
-    await fetch(`${SUPABASE_URL}/rest/v1/rpc/assign_customer_number`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ p_customer_id: customer.id, p_store_id: currentStore.id }),
-    });
+    await completeCheckin(customer, booking);
+  };
 
+  const completeCheckin = async (customer, booking) => {
     // ポイント加算
     const currentPoints = customer.points || 0;
     const newPoints = currentPoints + 1;
@@ -279,7 +285,50 @@ function CheckinPageInner() {
             style={{ width: "100%", padding: "14px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", textAlign: "center", outline: "none", color: "#aaa" }}
             placeholder="QRリーダー入力待ち..."
           />
-          {checkinResult && (
+          {pendingCheckin && (
+          <div style={{ background: "white", borderRadius: 20, padding: 24, boxShadow: "0 4px 20px rgba(0,0,0,0.1)", marginBottom: 20 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: GREEN, marginBottom: 4 }}>👤 {pendingCheckin.customer.name}様</div>
+            <div style={{ fontSize: 13, color: "#888", marginBottom: 20 }}>会員番号が未登録です。設定してください。</div>
+            <button onClick={async () => {
+              await fetch(`${SUPABASE_URL}/rest/v1/rpc/assign_customer_number`, {
+                method: "POST", headers,
+                body: JSON.stringify({ p_customer_id: pendingCheckin.customer.id, p_store_id: currentStore.id }),
+              });
+              const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${pendingCheckin.customer.id}&select=*`, { headers });
+              const data = await res.json();
+              await completeCheckin(data[0], pendingCheckin.booking);
+              setPendingCheckin(null);
+            }} style={{ width: "100%", padding: "12px", borderRadius: 12, border: "none", background: GREEN, color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer", marginBottom: 10 }}>
+              🔢 自動発番して受付
+            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                value={manualNumber}
+                onChange={e => setManualNumber(e.target.value)}
+                placeholder="既存番号を入力（例：1234）"
+                style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14 }}
+              />
+              <button onClick={async () => {
+                if (!manualNumber) return;
+                await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${pendingCheckin.customer.id}`, {
+                  method: "PATCH", headers,
+                  body: JSON.stringify({ customer_number: manualNumber }),
+                });
+                const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${pendingCheckin.customer.id}&select=*`, { headers });
+                const data = await res.json();
+                await completeCheckin(data[0], pendingCheckin.booking);
+                setPendingCheckin(null);
+              }} style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: ORANGE, color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                手入力で受付
+              </button>
+            </div>
+            <button onClick={() => setPendingCheckin(null)} style={{ width: "100%", marginTop: 10, padding: "8px", borderRadius: 10, border: "2px solid #e8ddd0", background: "white", color: "#aaa", fontSize: 13, cursor: "pointer" }}>
+              キャンセル
+            </button>
+          </div>
+        )}
+
+        {checkinResult && (
             <div style={{ marginTop: 16, padding: "16px 24px", borderRadius: 14, background: checkinResult.status === "ok" ? "#eaf5ec" : "#fff0f0", border: `2px solid ${checkinResult.status === "ok" ? GREEN : "#e07070"}`, fontSize: 16, fontWeight: 700, color: checkinResult.status === "ok" ? GREEN : "#e07070" }}>
               {checkinResult.status === "ok" ? "✅ " : "❌ "}{checkinResult.message}
             </div>
