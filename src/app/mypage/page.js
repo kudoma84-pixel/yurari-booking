@@ -572,10 +572,11 @@ function MyPageInner() {
               <button onClick={async () => {
                 if (!myMessageText || messageSending || !customer?.line_user_id) return;
                 setMessageSending(true);
-                await fetch("/api/line-webhook", {
+                await fetch(SUPABASE_URL + "/rest/v1/line_messages", {
                   method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ events: [{ type: "message", message: { type: "text", text: myMessageText }, source: { userId: customer.line_user_id } }] }),
+                  headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY, "Content-Type": "application/json", Prefer: "return=representation" },
+                  body: JSON.stringify({ line_user_id: customer.line_user_id, customer_id: customer.id, direction: "inbound", message: myMessageText, is_read: false }),
+                });
                 });
                 setMyMessageText("");
                 const res = await fetch(SUPABASE_URL + "/rest/v1/line_messages?line_user_id=eq." + customer.line_user_id + "&order=created_at.asc&limit=100", { headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY } });
