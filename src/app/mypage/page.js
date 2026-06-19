@@ -57,6 +57,7 @@ function MyPageInner() {
     // Service Worker & Push通知登録
     if ('serviceWorker' in navigator && 'PushManager' in window) {
       navigator.serviceWorker.register('/sw.js').then(async (reg) => {
+        await navigator.serviceWorker.ready;
         const stored = localStorage.getItem('yurari_customer_id');
         if (!stored) return;
         const permission = await Notification.requestPermission();
