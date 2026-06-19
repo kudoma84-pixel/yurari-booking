@@ -400,9 +400,8 @@ function MyPageInner() {
               if (t.id === "ticket" && customer) fetchTickets(customer.id);
               if (t.id === "booking" && customer) fetchBookings(customer.id);
               if (t.id === "mymessage" && customer) {
-                const res = await fetch(SUPABASE_URL + "/rest/v1/line_messages?line_user_id=eq." + customer.line_user_id + "&order=created_at.asc&limit=100", { headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY } });
-                const data = await res.json();
-                if (Array.isArray(data)) setMyMessages(data);
+                fetch(SUPABASE_URL + "/rest/v1/line_messages?line_user_id=eq." + customer.line_user_id + "&order=created_at.asc&limit=100", { headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY } })
+                  .then(r => r.json()).then(data => { if (Array.isArray(data)) setMyMessages(data); });
               }
               if (t.id === "qr") setQrLoaded(false);
             }}
