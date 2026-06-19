@@ -617,7 +617,57 @@ function MyPageInner() {
 
         {activeTab === "notice_settings" && (
           <div>
-            省略...（上のUI全体）
+            <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 16 }}>🔔 通知設定</div>
+
+            {/* プッシュ通知 */}
+            <div style={{ background: "white", borderRadius: 16, padding: "20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a", marginBottom: 8 }}>アプリへのプッシュ通知</div>
+              <div style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>予約リマインドをアプリに通知します</div>
+              <button onClick={async () => {
+                if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+                  alert("このブラウザはプッシュ通知に対応していません\nホーム画面に追加したアプリから開いてください");
+                  return;
+                }
+                const reg = await navigator.serviceWorker.ready;
+                const permission = await Notification.requestPermission();
+                if (permission !== 'granted') {
+                  alert("通知が許可されませんでした\niOSの設定から通知を許可してください");
+                  return;
+                }
+                try {
+                  const vapidKey = "BKG4uyATw44AqA2jl5olVRr5pqPmnIb-W7jSRCtdfCZ4_K5X3T2AOVm8_uuTrBZgEgIEV2o7GVReueHzNazoDas";
+                  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidKey });
+                  const stored = localStorage.getItem('yurari_customer_id');
+                  await fetch('/api/push-subscribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subscription: sub, customer_id: stored }),
+                  });
+                  alert("プッシュ通知を許可しました！");
+                } catch (e) {
+                  alert("登録に失敗しました: " + e.message);
+                }
+              }} style={{ width: "100%", padding: "12px", borderRadius: 12, border: "none", background: GREEN, color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                🔔 プッシュ通知を許可する
+              </button>
+            </div>
+
+            {/* 通知方法 */}
+            <div style={{ background: "white", borderRadius: 16, padding: "20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>リマインドの通知方法</div>
+              {["line", "email", "none"].map(method => (
+                <button key={method} onClick={async () => {
+                  await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + customer.id, {
+                    method: "PATCH",
+                    headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY, "Content-Type": "application/json" },
+                    body: JSON.stringify({ notification_method: method }),
+                  });
+                  setCustomer({ ...customer, notification_method: method });
+                }} style={{ display: "block", width: "100%", padding: "12px 16px", borderRadius: 12, border: `2px solid ${customer?.notification_method === method ? GREEN : "#e8ddd0"}`, background: customer?.notification_method === method ? "#eaf5ec" : "white", color: customer?.notification_method === method ? GREEN : "#888", fontSize: 14, fontWeight: customer?.notification_method === method ? 700 : 400, cursor: "pointer", marginBottom: 8, textAlign: "left" }}>
+                  {method === "line" ? "📱 LINE通知" : method === "email" ? "📧 メール通知" : "🔕 通知なし"}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
