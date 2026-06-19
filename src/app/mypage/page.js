@@ -26,6 +26,9 @@ function MyPageInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("booking");
+  const [myMessages, setMyMessages] = useState([]);
+  const [myMessageText, setMyMessageText] = useState("");
+  const [messageSending, setMessageSending] = useState(false);
   const [editProfile, setEditProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({});
   const [cancelTarget, setCancelTarget] = useState(null);
@@ -387,6 +390,7 @@ function MyPageInner() {
             { id: "notice", label: "🔔 通知", badge: unreadCount },
             { id: "ticket", label: "🎫 金券" },
             { id: "point", label: "🌟 ポイント" },
+            { id: "mymessage", label: "💬 メッセージ" },
                         { id: "profile", label: "⚙️ 設定" },
             { id: "qr", label: "🔲 マイQR" },
           ].map(t => (
@@ -395,6 +399,11 @@ function MyPageInner() {
               if (t.id === "notice") markAllRead();
               if (t.id === "ticket" && customer) fetchTickets(customer.id);
               if (t.id === "booking" && customer) fetchBookings(customer.id);
+              if (t.id === "mymessage" && customer) {
+                const res = await fetch(SUPABASE_URL + "/rest/v1/line_messages?line_user_id=eq." + customer.line_user_id + "&order=created_at.asc&limit=100", { headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY } });
+                const data = await res.json();
+                if (Array.isArray(data)) setMyMessages(data);
+              }
               if (t.id === "qr") setQrLoaded(false);
             }}
               className="tab-btn" style={{ position: "relative", padding: "10px 20px", borderRadius: 20, border: "none", background: activeTab === t.id ? GREEN : "white", color: activeTab === t.id ? "white" : "#888", fontSize: 13, fontWeight: activeTab === t.id ? 700 : 400, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", overflow: "visible" }}>              {t.label}
@@ -542,6 +551,40 @@ function MyPageInner() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === "mymessage" && (
+          <div style={{ display: "flex", flexDirection: "column", height: 500 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 12 }}>💬 メッセージ</div>
+            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
+              {myMessages.length === 0 && <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", marginTop: 40 }}>メッセージはありません</div>}
+              {myMessages.map(m => (
+                <div key={m.id} style={{ display: "flex", justifyContent: m.direction === "inbound" ? "flex-end" : "flex-start" }}>
+                  <div style={{ maxWidth: "75%", padding: "10px 14px", borderRadius: m.direction === "inbound" ? "16px 16px 4px 16px" : "16px 16px 16px 4px", background: m.direction === "inbound" ? GREEN : "#f0e8d8", color: m.direction === "inbound" ? "white" : "#3a5a3a", fontSize: 13 }}>
+                    {m.message}
+                    <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4, textAlign: "right" }}>{new Date(m.created_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input value={myMessageText} onChange={e => setMyMessageText(e.target.value)} onKeyDown={async e => { if (e.key === "Enter" && !messageSending) await sendMyMessage(); }} placeholder="メッセージを入力..." style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13 }} />
+              <button onClick={async () => {
+                if (!myMessageText || messageSending || !customer?.line_user_id) return;
+                setMessageSending(true);
+                await fetch("/api/line-webhook", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ events: [{ type: "message", message: { type: "text", text: myMessageText }, source: { userId: customer.line_user_id } }] }),
+                });
+                setMyMessageText("");
+                const res = await fetch(SUPABASE_URL + "/rest/v1/line_messages?line_user_id=eq." + customer.line_user_id + "&order=created_at.asc&limit=100", { headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY } });
+                const data = await res.json();
+                if (Array.isArray(data)) setMyMessages(data);
+                setMessageSending(false);
+              }} disabled={messageSending} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: GREEN, color: "white", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: messageSending ? 0.6 : 1 }}>送信</button>
+            </div>
           </div>
         )}
 
