@@ -429,6 +429,7 @@ const handleAdminQrInput = async (value) => {
     });
     await fetchStoreSettings();
     setEditingSettings(false);
+    alert("保存しました");
   };
 
   const searchCustomerByNumber = async (num) => {
