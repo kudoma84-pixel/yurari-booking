@@ -615,6 +615,12 @@ function MyPageInner() {
           </div>
         )}
 
+        {activeTab === "notice_settings" && (
+          <div>
+            省略...（上のUI全体）
+          </div>
+        )}
+
         {activeTab === "mymessage" && (
           <div style={{ display: "flex", flexDirection: "column", height: 500 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 12 }}>💬 メッセージ</div>
