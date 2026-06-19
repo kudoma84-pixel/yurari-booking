@@ -577,8 +577,7 @@ function MyPageInner() {
                   headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY, "Content-Type": "application/json", Prefer: "return=representation" },
                   body: JSON.stringify({ line_user_id: customer.line_user_id, customer_id: customer.id, direction: "inbound", message: myMessageText, is_read: false }),
                 });
-                });
-                setMyMessageText("");
+                                setMyMessageText("");
                 const res = await fetch(SUPABASE_URL + "/rest/v1/line_messages?line_user_id=eq." + customer.line_user_id + "&order=created_at.asc&limit=100", { headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY } });
                 const data = await res.json();
                 if (Array.isArray(data)) setMyMessages(data);
