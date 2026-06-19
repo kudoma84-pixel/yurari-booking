@@ -48,6 +48,18 @@ export async function GET(request) {
       }),
     });
 
+    // プッシュ通知（通知方法に関わらず送信）
+    await fetch(process.env.NEXTAUTH_URL + "/api/push-send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        customer_id: booking.customer_id,
+        title: "整体院 癒楽里",
+        body: (type === "tomorrow" ? "明日" : "本日") + " " + booking.booking_time + "より「" + booking.course_name + "」のご予約があります。",
+        url: "/mypage",
+      }),
+    });
+
     if (customer.notification_method === "line" && customer.line_user_id) {
       await fetch("https://api.line.me/v2/bot/message/push", {
         method: "POST",
