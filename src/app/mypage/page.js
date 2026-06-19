@@ -54,6 +54,29 @@ function MyPageInner() {
     return () => clearInterval(interval);
   }, [customer]);
   useEffect(() => {
+    // Service Worker & Push通知登録
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      navigator.serviceWorker.register('/sw.js').then(async (reg) => {
+        const stored = localStorage.getItem('yurari_customer_id');
+        if (!stored) return;
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') return;
+        try {
+          const sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+          });
+          await fetch('/api/push-subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ subscription: sub, customer_id: stored }),
+          });
+        } catch (e) {
+          console.error('Push登録失敗:', e);
+        }
+      });
+    }
+
     const customerId = localStorage.getItem('yurari_customer_id');
     const expire = localStorage.getItem('yurari_login_expire');
     if (customerId && expire && Date.now() < parseInt(expire)) {
