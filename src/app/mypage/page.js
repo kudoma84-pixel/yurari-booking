@@ -62,9 +62,10 @@ function MyPageInner() {
         const permission = await Notification.requestPermission();
         if (permission !== 'granted') return;
         try {
+          const vapidKey = "BKG4uyATw44AqA2jl5olVRr5pqPmnIb-W7jSRCtdfCZ4_K5X3T2AOVm8_uuTrBZgEgIEV2o7GVReueHzNazoDas";
           const sub = await reg.pushManager.subscribe({
             userVisibleOnly: true,
-            applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+            applicationServerKey: vapidKey,
           });
           await fetch('/api/push-subscribe', {
             method: 'POST',
