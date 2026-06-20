@@ -24,7 +24,7 @@ export async function POST(request) {
       try {
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          JSON.stringify({ title, body, url })
+          JSON.stringify({ title, body, url, badge: 1 })
         );
       } catch (e) {
         if (e.statusCode === 410) {
