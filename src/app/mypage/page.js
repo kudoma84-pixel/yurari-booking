@@ -85,35 +85,6 @@ function MyPageInner() {
         }
       })();
     }
-    }
-
-    // LIFFリダイレクト処理
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('liff') === '1') {
-      (async () => {
-        try {
-          const liff = (await import('@line/liff')).default;
-          await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
-          if (liff.isLoggedIn()) {
-            const profile = await liff.getProfile();
-            const lineUserId = profile.userId;
-            const stored = localStorage.getItem('yurari_customer_id');
-            if (stored) {
-              await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + stored, {
-                method: "PATCH",
-                headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY, "Content-Type": "application/json" },
-                body: JSON.stringify({ line_user_id: lineUserId, notification_method: "line" }),
-              });
-              alert("LINEと連携しました！");
-              window.history.replaceState({}, '', '/mypage');
-            }
-          }
-        } catch (e) {
-          console.error("LIFF error:", e);
-        }
-      })();
-    }
-
     const customerId = localStorage.getItem('yurari_customer_id');
     const expire = localStorage.getItem('yurari_login_expire');
     if (customerId && expire && Date.now() < parseInt(expire)) {
