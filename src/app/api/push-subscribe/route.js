@@ -8,9 +8,7 @@ export async function POST(request) {
     const { subscription, customer_id } = await request.json();
     const { endpoint, keys: { p256dh, auth } } = subscription;
 
-    console.log("PUSH SUBSCRIBE:", customer_id, endpoint.slice(0, 50));
-
-    // 新規登録
+        // 新規登録
     const res = await fetch(`${SUPABASE_URL}/rest/v1/push_subscriptions`, {
       method: "POST",
       headers: {
@@ -22,8 +20,7 @@ export async function POST(request) {
       body: JSON.stringify({ customer_id, endpoint, p256dh, auth }),
     });
     const data = await res.json();
-    console.log("INSERT RESULT:", JSON.stringify(data));
-
+    
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("PUSH SUBSCRIBE ERROR:", e.message);
