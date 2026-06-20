@@ -85,6 +85,7 @@ function MyPageInner() {
         }
       })();
     }
+
     const customerId = localStorage.getItem('yurari_customer_id');
     const expire = localStorage.getItem('yurari_login_expire');
     if (customerId && expire && Date.now() < parseInt(expire)) {
