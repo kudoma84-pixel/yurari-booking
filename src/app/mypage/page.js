@@ -637,7 +637,7 @@ function MyPageInner() {
                   if (method === "line" && !customer.line_user_id) {
                     try {
                       const liff = (await import('@line/liff')).default;
-                      await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
+                      await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID_MYPAGE });
                       if (!liff.isLoggedIn()) {
                         liff.login({ redirectUri: "https://yurari-booking.vercel.app/mypage?liff=1" });
                         return;
