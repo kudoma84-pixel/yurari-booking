@@ -146,7 +146,11 @@ function MyPageInner() {
     const data = await res.json();
     const list = Array.isArray(data) ? data : [];
     setNotices(list);
-    setUnreadCount(list.filter(n => !n.is_read).length);
+    const count = list.filter(n => !n.is_read).length;
+    setUnreadCount(count);
+    if ('setAppBadge' in navigator) {
+      count > 0 ? navigator.setAppBadge(count) : navigator.clearAppBadge();
+    }
   };
 
   const markAllRead = async () => {
@@ -155,6 +159,7 @@ function MyPageInner() {
     });
     setNotices(prev => prev.map(n => ({ ...n, is_read: true })));
     setUnreadCount(0);
+    if ('setAppBadge' in navigator) navigator.clearAppBadge();
   };
 
   const fetchBookings = async (customerId) => {
