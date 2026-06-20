@@ -65,7 +65,7 @@ function MyPageInner() {
       (async () => {
         try {
           const liff = (await import('@line/liff')).default;
-          await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
+          await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID_MYPAGE });
           if (liff.isLoggedIn()) {
             const profile = await liff.getProfile();
             const lineUserId = profile.userId;
