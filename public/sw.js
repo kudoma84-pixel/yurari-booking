@@ -7,10 +7,13 @@ self.addEventListener('push', function(event) {
     badge: '/icon-192.png',
     data: data.url || '/',
   };
+
+  const badgeCount = data.badge || 1;
+
   event.waitUntil(
     Promise.all([
       self.registration.showNotification(title, options),
-      self.registration.badge ? self.registration.badge.set(1) : (navigator.setAppBadge ? navigator.setAppBadge(1) : Promise.resolve()),
+      navigator.setAppBadge ? navigator.setAppBadge(badgeCount) : Promise.resolve(),
     ])
   );
 });
@@ -18,10 +21,5 @@ self.addEventListener('push', function(event) {
 self.addEventListener('notificationclick', function(event) {
   event.notification.close();
   if (navigator.clearAppBadge) navigator.clearAppBadge();
-  event.waitUntil(clients.openWindow(event.notification.data || '/'));
-});
-
-self.addEventListener('notificationclick', function(event) {
-  event.notification.close();
   event.waitUntil(clients.openWindow(event.notification.data || '/'));
 });
