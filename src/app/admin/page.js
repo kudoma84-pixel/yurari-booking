@@ -1212,6 +1212,7 @@ const handleAdminQrInput = async (value) => {
             { label: "電話番号1", key: "tel" },
             { label: "電話番号2", key: "tel2" },
             { label: "メールアドレス", key: "email" },
+            { label: "LINE ユーザーID", key: "line_user_id" },
           ].map(f => (
             <div key={f.key}>
               <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 4 }}>{f.label}</label>
@@ -1255,6 +1256,7 @@ const handleAdminQrInput = async (value) => {
                   tel: editingCustomer.tel,
                   tel2: editingCustomer.tel2,
                   email: editingCustomer.email,
+                  line_user_id: editingCustomer.line_user_id || null,
                   notification_method: editingCustomer.notification_method,
                 }),
               });
