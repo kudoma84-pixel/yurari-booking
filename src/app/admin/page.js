@@ -263,6 +263,12 @@ const handleAdminQrInput = async (value) => {
     win.document.write(html);
     win.document.close();
   };
+  const fetchCustomerDetail = async (customerId) => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}&select=*`, { headers });
+    const data = await res.json();
+    if (data && data[0]) setSelectedCustomer(data[0]);
+  };
+
   const fetchCustomers = async () => {
     setLoading(true);
     const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?order=created_at.desc`, { headers });
@@ -2448,7 +2454,7 @@ const handleAdminQrInput = async (value) => {
                   <tbody>
                     {customers.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", padding: 40, color: "#aaa" }}>顧客がいません</td></tr>}
                     {customers.map((c, i) => (
-                      <tr key={c.id} style={{ borderTop: "1px solid #f0ebe4", cursor: "pointer" }} onClick={() => { setSelectedCustomer(c); fetchCustomerHistory(c.id); }}>
+                      <tr key={c.id} style={{ borderTop: "1px solid #f0ebe4", cursor: "pointer" }} onClick={() => { setSelectedCustomer(c); fetchCustomerDetail(c.id); fetchCustomerHistory(c.id); }}>
                         <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.customer_number || i+1}</td>
                         <td style={{ padding: "12px 16px", fontSize: 13, fontWeight: 600, color: "#5a9e7a" }}>{c.name}</td>
                         <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.tel}</td>
