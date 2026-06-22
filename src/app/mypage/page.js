@@ -76,8 +76,18 @@ function MyPageInner() {
                 headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY, "Content-Type": "application/json" },
                 body: JSON.stringify({ line_user_id: lineUserId, notification_method: "line" }),
               });
+              // 顧客情報を再取得して画面を更新
+              const res = await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + stored + "&select=*", {
+                headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY },
+              });
+              const data = await res.json();
+              if (data && data[0]) {
+                // customerをsetするためにwindow経由でイベント発火
+                window.__liffLineUserId = lineUserId;
+              }
               alert("LINEと連携しました！");
               window.history.replaceState({}, '', '/mypage');
+              window.location.reload();
             }
           }
         } catch (e) {
