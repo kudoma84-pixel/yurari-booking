@@ -431,7 +431,7 @@ function MyPageInner() {
               .tab-btn { justify-content: center; }
             }
           `}</style>
-          <div className="tab-wrap" style={{ display: "flex", gap: 8, paddingTop: 8, paddingBottom: 4, overflowX: "auto" }}>
+         <div className="tab-wrap" style={{ display: "flex", flexWrap: "wrap", gap: 8, paddingTop: 8, paddingBottom: 4 }}>
           {[
             { id: "booking", label: "📅 予約" },
             { id: "notice", label: "🔔 通知", badge: unreadCount },
