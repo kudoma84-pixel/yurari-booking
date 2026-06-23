@@ -854,7 +854,7 @@ const handleAdminQrInput = async (value) => {
       }
     }
     if (checkoutBooking) {
-      await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${checkoutBooking.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "completed" }) });
+      await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${checkoutBooking.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "completed", completed_at: new Date().toISOString() }) });
     }
     setCheckoutResult({ paymentId, total, paymentMethod: checkoutPaymentMethod, customerName: checkoutBooking?.customers?.name || "お客様" });
     setCheckoutComplete(true);
@@ -949,7 +949,17 @@ const handleAdminQrInput = async (value) => {
   };
 
   const updateBookingStatus = async (id, status) => {
-    await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${id}`, { method: "PATCH", headers, body: JSON.stringify({ status }) });
+    const now = new Date().toISOString();
+    const timestampField = {
+      confirmed: "confirmed_at",
+      received: "received_at",
+      treatment_done: "treatment_done_at",
+      cancelled: "cancelled_at",
+      completed: "completed_at",
+    }[status];
+    const updateData = { status };
+    if (timestampField) updateData[timestampField] = now;
+    await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${id}`, { method: "PATCH", headers, body: JSON.stringify(updateData) });
     fetchMonthCalendarData(currentMonth);
     
     // 受付時に顧客番号を付番
