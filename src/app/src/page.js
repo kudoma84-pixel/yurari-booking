@@ -253,9 +253,9 @@ function AppInner() {
       `${SUPABASE_URL}/rest/v1/blocks?store_id=eq.${storeId}&block_date=eq.${dateStr}`,
       { headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY } }
     );
-    const blockData = await blockRes.json();
-    if (Array.isArray(blockData)) {
-      blockData.forEach(b => {
+    const blocksData = await blockRes.json();
+    if (Array.isArray(blocksData)) {
+      blocksData.forEach(b => {
         if (staffId === "any" || b.staff_id === staffId || b.staff_id === "all") {
           const t = b.block_time?.slice(0, 5);
           if (t) blocked.add(t);
