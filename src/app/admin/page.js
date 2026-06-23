@@ -1244,7 +1244,7 @@ const handleAdminQrInput = async (value) => {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
               {[
-                { label: "予約番号", value: selectedBooking.booking_number + "　" + new Date(selectedBooking.created_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " 予約" },
+                { label: "予約番号", value: selectedBooking.booking_number + "　" + new Date(selectedBooking.created_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " 予約" },
                 { label: "日時", value: `${selectedBooking.booking_date} ${selectedBooking.booking_time}` },
                 { label: "コース", value: selectedBooking.course_name },
                 { label: "担当", value: selectedBooking.staff_name },
@@ -1272,7 +1272,7 @@ const handleAdminQrInput = async (value) => {
                 { key: "cancelled", label: "キャンセル", field: "cancelled_at" },
               ].map(s => selectedBooking[s.field] ? (
                 <div key={s.key} style={{ fontSize: 10, color: "#aaa", padding: "2px 8px", background: "#f5f5f5", borderRadius: 6 }}>
-                  {s.label}：{new Date(selectedBooking[s.field]).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  {s.label}：{new Date(selectedBooking[s.field]).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                 </div>
               ) : null)}
             </div>
@@ -1677,7 +1677,7 @@ const handleAdminQrInput = async (value) => {
                         <div key={m.id} style={{ display: "flex", justifyContent: m.direction === "outbound" ? "flex-end" : "flex-start" }}>
                           <div style={{ maxWidth: "70%", padding: "10px 14px", borderRadius: m.direction === "outbound" ? "16px 16px 4px 16px" : "16px 16px 16px 4px", background: m.direction === "outbound" ? "#5a9e7a" : "#f0e8d8", color: m.direction === "outbound" ? "white" : "#3a5a3a", fontSize: 13 }}>
                             {m.message}
-                            <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4, textAlign: "right" }}>{new Date(m.created_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
+                            <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4, textAlign: "right" }}>{new Date(m.created_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
                           </div>
                         </div>
                       ))}
@@ -2512,7 +2512,7 @@ const handleAdminQrInput = async (value) => {
                         <div key={n.id} style={{ padding: "12px 16px", background: "#f9f6f2", borderRadius: 12 }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                             <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a" }}>{n.title}</div>
-                            <div style={{ fontSize: 10, color: "#aaa" }}>{new Date(n.created_at).toLocaleDateString("ja-JP")}</div>
+                            <div style={{ fontSize: 10, color: "#aaa" }}>{new Date(n.created_at).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })}</div>
                           </div>
                           <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>{n.body?.slice(0, 50)}{n.body?.length > 50 ? "..." : ""}</div>
                           <div style={{ fontSize: 11, color: "#aaa" }}>送信方法: {n.sent_via || "-"}</div>
