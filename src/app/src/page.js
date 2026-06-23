@@ -203,21 +203,7 @@ function AppInner() {
     });
     const data = await res.json();
 
-    // blocksを取得（ブロック情報）
-    const blocksRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/blocks?store_id=eq.${storeId}&block_date=eq.${dateStr}`,
-      { headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY } }
-    );
-    const blocksData = await blocksRes.json();
-    if (Array.isArray(blockData)) {
-      blockData.forEach(b => {
-        if (staffId === "any" || b.staff_id === staffId || b.staff_id === "all") {
-          const t = b.block_time?.slice(0, 5);
-          if (t) blocked.add(t);
-        }
-      });
-    }
-
+    
     // time_extensionsを取得（休憩解放情報）
     const extRes = await fetch(
       `${SUPABASE_URL}/rest/v1/time_extensions?store_id=eq.${storeId}&extension_date=eq.${dateStr}&order=created_at.desc&limit=1`,
