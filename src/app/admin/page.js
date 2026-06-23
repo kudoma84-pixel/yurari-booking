@@ -66,7 +66,6 @@ export default function AdminPage() {
   const [products, setProducts] = useState([]);
   const [checkoutBooking, setCheckoutBooking] = useState(null);
   const [checkoutItems, setCheckoutItems] = useState([]);
-  body: JSON.stringify({ store_id: currentStore.id, customer_id: checkoutBooking?.customer_id || null, booking_id: checkoutBooking?.id || null, subtotal, discount: checkoutDiscount, total, payment_method: checkoutPaymentMethod, payment_status: "paid", notes: checkoutNote, discount_reason: checkoutDiscountReason }),
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState("cash");
   const [checkoutNote, setCheckoutNote] = useState("");
   const [checkoutComplete, setCheckoutComplete] = useState(false);
