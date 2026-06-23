@@ -66,7 +66,7 @@ export default function AdminPage() {
   const [products, setProducts] = useState([]);
   const [checkoutBooking, setCheckoutBooking] = useState(null);
   const [checkoutItems, setCheckoutItems] = useState([]);
-  const [checkoutDiscount, setCheckoutDiscount] = useState(0);
+  body: JSON.stringify({ store_id: currentStore.id, customer_id: checkoutBooking?.customer_id || null, booking_id: checkoutBooking?.id || null, subtotal, discount: checkoutDiscount, total, payment_method: checkoutPaymentMethod, payment_status: "paid", notes: checkoutNote, discount_reason: checkoutDiscountReason }),
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState("cash");
   const [checkoutNote, setCheckoutNote] = useState("");
   const [checkoutComplete, setCheckoutComplete] = useState(false);
@@ -1901,6 +1901,11 @@ const handleAdminQrInput = async (value) => {
                           <input type="number" value={checkoutDiscount} onChange={e => setCheckoutDiscount(parseInt(e.target.value) || 0)} style={{ width: 80, padding: "4px 8px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, textAlign: "right" }} />
                         </div>
                       </div>
+                      {checkoutDiscount > 0 && (
+                        <div style={{ marginBottom: 8 }}>
+                          <input value={checkoutDiscountReason} onChange={e => setCheckoutDiscountReason(e.target.value)} placeholder="値引き理由を入力..." style={{ width: "100%", padding: "6px 10px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 12, boxSizing: "border-box" }} />
+                        </div>
+                      )}
                       <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, borderTop: "2px solid #e8ddd0" }}>
                         <span style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>合計</span>
                         <span style={{ fontSize: 20, fontWeight: 700, color: "#5a9e7a" }}>{formatPrice(total)}</span>
@@ -2006,6 +2011,8 @@ const handleAdminQrInput = async (value) => {
                             }
                             await fetchCustomerTicketCount(checkoutBooking.customer_id);
                             setCheckoutSellTicketId("");
+                            // 合計に追加
+                            setCheckoutItems(prev => [...prev, { type: "ticket", name: template.name, price: template.price || template.face_value * count, quantity: 1 }]);
                             alert(`${template.name}を${count}枚発行しました`);
                           }} disabled={!checkoutSellTicketId}
                             style={{ width: "100%", padding: "9px", borderRadius: 10, border: "none", background: checkoutSellTicketId ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: checkoutSellTicketId ? "white" : "#bbb", fontSize: 13, fontWeight: 700, cursor: checkoutSellTicketId ? "pointer" : "not-allowed" }}>
