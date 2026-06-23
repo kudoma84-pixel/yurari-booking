@@ -55,7 +55,9 @@ export default function AdminPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [blocks, setBlocks] = useState([]);
-  const [blockModal, setBlockModal] = useState(null); // { staffId, time }
+  const [blockModal, setBlockModal] = useState(null);
+  const [changeBookingModal, setChangeBookingModal] = useState(null);
+  const [changeBookingForm, setChangeBookingForm] = useState({});
   const [blockReason, setBlockReason] = useState("");
   const [blockDuration, setBlockDuration] = useState(1); // スロット数
   const [shifts, setShifts] = useState([]);
@@ -324,6 +326,55 @@ const handleAdminQrInput = async (value) => {
       await fetch(`${SUPABASE_URL}/rest/v1/blocks?id=eq.${existing.id}`, { method: "DELETE", headers });
       fetchBlocks(selectedDate);
     }
+  };
+
+  const saveChangeBooking = async () => {
+    const f = changeBookingForm;
+    if (!f.booking_date || !f.booking_time || !f.course_id) return;
+    const course = courseMenus.find(c => c.id === f.course_id);
+    const staff = staffMembers.find(s => s.id === f.staff_id);
+    const num = `YR-${Date.now().toString().slice(-8)}`;
+    // 新規予約を作成
+    await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
+      method: "POST", headers,
+      body: JSON.stringify({
+        store_id: currentStore.id,
+        customer_id: changeBookingModal.customer_id,
+        staff_id: f.staff_id,
+        course_id: f.course_id,
+        booking_date: f.booking_date,
+        booking_time: f.booking_time,
+        course_name: course?.name || "",
+        staff_name: staff?.name || "",
+        status: "confirmed",
+        notes: changeBookingModal.notes || "",
+        booking_number: num,
+        source: "direct",
+      }),
+    });
+    // 元の予約をキャンセル
+    await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${changeBookingModal.id}`, {
+      method: "PATCH", headers,
+      body: JSON.stringify({ status: "cancelled", cancelled_at: new Date().toISOString() }),
+    });
+    // マイページ通知
+    if (changeBookingModal.customer_id) {
+      await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
+        method: "POST", headers,
+        body: JSON.stringify({
+          customer_id: changeBookingModal.customer_id,
+          store_id: currentStore.id,
+          title: "予約変更のお知らせ",
+          body: f.booking_date + " " + f.booking_time + " " + (course?.name || "") + "（" + (staff?.name || "") + "）に変更されました。",
+          is_read: false,
+          sent_via: "system",
+        }),
+      });
+    }
+    setChangeBookingModal(null);
+    setChangeBookingForm({});
+    setSelectedBooking(null);
+    fetchAll(selectedDate);
   };
 
   const addBlock = async () => {
@@ -1334,8 +1385,8 @@ const handleAdminQrInput = async (value) => {
                <button key={s} onClick={async () => { await updateBookingStatus(selectedBooking.id, s); if (s === "received" && selectedBooking.customer_id) { const r = await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + selectedBooking.customer_id, { headers }); const d = await r.json(); if (d[0]?.customer_number) alert("受付完了！顧客番号：" + d[0].customer_number); } if (s === "cancelled") setSelectedBooking(null); }} disabled={selectedBooking.status === "received" && s === "received"} style={{ flex: 1, padding: "10px", borderRadius: 10, border: "2px solid " + statusColor(s), background: selectedBooking.status === s ? statusColor(s) : "white", color: selectedBooking.status === s ? "white" : statusColor(s), fontSize: 11, fontWeight: 600, cursor: selectedBooking.status === "received" && s === "received" ? "not-allowed" : "pointer", opacity: selectedBooking.status === "received" && s === "received" ? 0.5 : 1 }}>{statusLabel(s)}</button>
               ))}
             </div>
-            <button onClick={() => { setSelectedBooking(null); setTab("checkout"); }} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>💴 会計へ</button>
-          </div>
+            <button onClick={() => { setChangeBookingModal(selectedBooking); setChangeBookingForm({ staff_id: selectedBooking.staff_id, course_id: selectedBooking.course_id, booking_date: selectedBooking.booking_date, booking_time: selectedBooking.booking_time }); fetchStaffMembers(); fetchCourseMenus(); }} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 6 }}>📝 予約を変更する</button>
+            <button onClick={() => { setSelectedBooking(null); setTab("checkout"); }} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>💴 会計へ</button>          </div>
         </div>
       )}
 
@@ -2234,6 +2285,56 @@ const handleAdminQrInput = async (value) => {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {changeBookingModal && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ background: "white", borderRadius: 20, padding: 28, width: 360, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", maxHeight: "90vh", overflowY: "auto" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a", marginBottom: 4 }}>📝 予約変更</div>
+              <div style={{ fontSize: 12, color: "#888", marginBottom: 20 }}>{changeBookingModal.customers?.name || ""}様 → {changeBookingModal.booking_date} {changeBookingModal.booking_time}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>新しい日付</div>
+                  <input type="date" value={changeBookingForm.booking_date || ""} onChange={e => setChangeBookingForm({ ...changeBookingForm, booking_date: e.target.value })}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>新しい時間</div>
+                  <select value={changeBookingForm.booking_time || ""} onChange={e => setChangeBookingForm({ ...changeBookingForm, booking_time: e.target.value })}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13 }}>
+                    <option value="">選択してください</option>
+                    {["09:00","09:30","10:00","10:30","11:00","11:30","12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30","20:00","20:30"].map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>担当スタッフ</div>
+                  <select value={changeBookingForm.staff_id || ""} onChange={e => setChangeBookingForm({ ...changeBookingForm, staff_id: e.target.value })}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13 }}>
+                    <option value="">選択してください</option>
+                    {staffMembers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>コース</div>
+                  <select value={changeBookingForm.course_id || ""} onChange={e => setChangeBookingForm({ ...changeBookingForm, course_id: e.target.value })}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13 }}>
+                    <option value="">選択してください</option>
+                    {courseMenus.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <button onClick={saveChangeBooking} disabled={!changeBookingForm.booking_date || !changeBookingForm.booking_time || !changeBookingForm.course_id}
+                  style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: changeBookingForm.booking_date && changeBookingForm.booking_time && changeBookingForm.course_id ? "#5a9e7a" : "#e8ddd0", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                  変更を確定する
+                </button>
+                <button onClick={() => { setChangeBookingModal(null); setChangeBookingForm({}); }}
+                  style={{ width: "100%", padding: "10px", borderRadius: 12, border: "2px solid #e8ddd0", background: "white", color: "#aaa", fontSize: 13, cursor: "pointer" }}>
+                  キャンセル
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
