@@ -316,8 +316,7 @@ const handleAdminQrInput = async (value) => {
   };
 
   const toggleBlock = async (staffId, time) => {
-    const d = formatDate(selectedDate);
-    const existing = blocks.find(b => (b.staff_id === staffId || b.staff_id === "all") && b.block_time === time.replace(":",":")+ ":00");
+    const existing = blocks.find(b => (b.staff_id === staffId || b.staff_id === "all") && (b.block_time === time || b.block_time === time + ":00"));
     if (existing) {
       await fetch(`${SUPABASE_URL}/rest/v1/blocks?id=eq.${existing.id}`, { method: "DELETE", headers });
       fetchBlocks(selectedDate);
@@ -1071,6 +1070,14 @@ const handleAdminQrInput = async (value) => {
     const ext = extensions[0];
     const field = time === "13:30" ? "break_released_1330" : time === "14:00" ? "break_released_1400" : "break_released_1430";
     const currentVal = ext?.[field] || false;
+    // 閉じようとしている場合、予約があればブロック
+    if (currentVal) {
+      const hasBooking = bookings.some(b => b.booking_time === time && b.status !== "cancelled");
+      if (hasBooking) {
+        alert(`${time}に予約が入っているため、閉じることができません。`);
+        return;
+      }
+    }
     if (ext) {
       await fetch(`${SUPABASE_URL}/rest/v1/time_extensions?id=eq.${ext.id}`, { method: "PATCH", headers, body: JSON.stringify({ [field]: !currentVal }) });
     } else {
@@ -1080,7 +1087,8 @@ const handleAdminQrInput = async (value) => {
   };
 
   const getBookingForCell = (staffId, time) => bookings.find(b => b.staff_id === staffId && b.booking_time === time && b.status !== "cancelled");
-  const isBlocked = (staffId, time) => blocks.some(b => (b.staff_id === staffId || b.staff_id === "all") && b.block_time === time);
+  const isBlocked = (staffId, time) => blocks.some(b => (b.staff_id === staffId || b.staff_id === "all") && (b.block_time === time || b.block_time === time + ":00"));
+  const getBlock = (staffId, time) => blocks.find(b => (b.staff_id === staffId || b.staff_id === "all") && (b.block_time === time || b.block_time === time + ":00"));
   const isOnShift = (staffId) => { if (shifts.length === 0) return true; return shifts.some(s => s.staff_id === staffId); };
   const staffList = staffMembers.filter(s => s.is_active);
 
@@ -2256,7 +2264,7 @@ const handleAdminQrInput = async (value) => {
                                     {isBreak && !isSlotBreakReleased(time) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
                                     : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
                                     : booking && booking.status !== "cancelled" ? <div onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "pointer", lineHeight: 1.4, height: "100%", minHeight: rowSpan * 38 - 8, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center" }}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div></div>
-                                    : blocked ? <div onClick={() => toggleBlock(s.id, time)} style={{ background: "#f0ebe4", color: "#bbb", borderRadius: 6, padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>🔒</div>
+                                    : blocked ? (() => { const blk = getBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, cursor: "pointer", lineHeight: 1.3 }} onClick={() => { if (window.confirm("ブロックを解除しますか？")) toggleBlock(s.id, time); }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()
                                     : <div onClick={() => setBlockModal({ staffId: s.id, time })} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}                                  </td>
                                 );
                               });
