@@ -1994,8 +1994,7 @@ const handleAdminQrInput = async (value) => {
                                 const used = await useGiftTicketByCount(checkoutBooking.customer_id);
                                 if (used) {
                                   setSelectedTicket(used);
-                                  setCheckoutDiscount(prev => prev + used.face_value);
-                                  await fetchCustomerTicketCount(checkoutBooking.customer_id);
+                                                                    await fetchCustomerTicketCount(checkoutBooking.customer_id);
                                 }
                               }} disabled={!!selectedTicket} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "none", background: selectedTicket ? "#aaa" : "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: selectedTicket ? "not-allowed" : "pointer" }}>
                                 {selectedTicket ? `✓ 1枚使用済（-¥${selectedTicket.face_value?.toLocaleString()}）` : "1枚使用する"}
