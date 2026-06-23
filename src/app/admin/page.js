@@ -55,6 +55,7 @@ export default function AdminPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [blocks, setBlocks] = useState([]);
+  const [showDeleted, setShowDeleted] = useState(false);
   const [blockModal, setBlockModal] = useState(null);
   const [changeBookingModal, setChangeBookingModal] = useState(null);
   const [changeBookingForm, setChangeBookingForm] = useState({});
@@ -1418,9 +1419,14 @@ const handleAdminQrInput = async (value) => {
             <>
               <button onClick={() => printMemberCard(selectedCustomer)} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #e07b39", background: "white", color: "#e07b39", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>🖨 カード印刷</button>
               <button onClick={() => setEditingCustomer({ ...selectedCustomer })} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>編集</button>
-              <button onClick={() => deleteCustomer(selectedCustomer.id, false)} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #e07070", background: "white", color: "#e07070", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>非表示</button>
-              <button onClick={() => deleteCustomer(selectedCustomer.id, true)} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #cc0000", background: "#cc0000", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>完全削除</button>
-            </>
+              {selectedCustomer.is_deleted ? (
+                <button onClick={async () => { await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${selectedCustomer.id}`, { method: "PATCH", headers, body: JSON.stringify({ is_deleted: false }) }); setSelectedCustomer(null); fetchCustomers(); }} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #5a9e7a", background: "#5a9e7a", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>復元</button>
+              ) : (
+                <>
+                  <button onClick={() => deleteCustomer(selectedCustomer.id, false)} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #e07070", background: "white", color: "#e07070", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>非表示</button>
+                  <button onClick={() => deleteCustomer(selectedCustomer.id, true)} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #cc0000", background: "#cc0000", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>完全削除</button>
+                </>
+              )}            </>
           )}
           <button onClick={() => { setSelectedCustomer(null); setEditingCustomer(null); }} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
         </div>
@@ -2813,7 +2819,21 @@ const handleAdminQrInput = async (value) => {
 
         {tab === "customers" && (
           <div>
-            <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 16 }}>顧客一覧</h2>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", margin: 0 }}>顧客一覧</h2>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#888", cursor: "pointer" }}>
+                <input type="checkbox" checked={showDeleted} onChange={async e => {
+                  const val = e.target.checked;
+                  setShowDeleted(val);
+                  setLoading(true);
+                  const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?is_deleted=eq.${val}&order=created_at.desc`, { headers });
+                  const data = await res.json();
+                  setCustomers(Array.isArray(data) ? data : []);
+                  setLoading(false);
+                }} />
+                非表示顧客を表示
+              </label>
+            </div>
             {loading ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div> : (
               <div style={{ background: "white", borderRadius: 16, overflow: "auto", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
