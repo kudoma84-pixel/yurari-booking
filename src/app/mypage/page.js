@@ -237,6 +237,21 @@ function MyPageInner() {
     await fetch(SUPABASE_URL + "/rest/v1/bookings?id=eq." + bookingId, {
       method: "PATCH", headers, body: JSON.stringify({ status: "cancelled" }),
     });
+    // 管理画面への通知
+    const b = bookings.find(b => b.id === bookingId);
+    if (b) {
+      await fetch(SUPABASE_URL + "/rest/v1/admin_notifications", {
+        method: "POST", headers,
+        body: JSON.stringify({
+          store_id: b.store_id,
+          type: "cancel",
+          title: "キャンセル",
+          body: (customer.name || "") + "様 " + b.booking_date + " " + b.booking_time + " " + b.course_name,
+          booking_id: bookingId,
+          customer_id: customer.id,
+        }),
+      });
+    }
     await fetchBookings(customer.id);
     setCancelTarget(null);
     setCancelDone(true);
