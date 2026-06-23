@@ -415,7 +415,6 @@ const handleAdminQrInput = async (value) => {
       body: JSON.stringify({ remaining_value: newRemaining, status: newRemaining <= 0 ? "used" : "active" }),
     });
     setSelectedTicket({ ...ticket, use_amount: use });
-    setCheckoutDiscount(prev => prev + use);
     setCustomerTickets(prev => prev.map(t => t.id === ticket.id ? { ...t, remaining_value: newRemaining } : t));
   };
 
