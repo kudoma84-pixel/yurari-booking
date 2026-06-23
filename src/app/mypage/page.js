@@ -760,7 +760,7 @@ function MyPageInner() {
                   { label: "メール", value: customer?.email },
                   { label: "郵便番号", value: customer?.zipcode },
                   { label: "住所", value: customer?.address },
-                  { label: "通知方法", value: customer?.notification_method === "line" ? "LINE" : customer?.notification_method === "email" ? "メール" : customer?.notification_method === "sms" ? "SMS" : "-" },
+                  { label: "通知方法", value: customer?.notification_method === "line" ? "LINE" : customer?.notification_method === "email" ? "メール" : "-" },
                 ].map((row, i) => (
                   <div key={i} style={{ display: "flex", padding: "12px 0", borderBottom: i < 6 ? "1px solid #f0ebe4" : "none" }}>
                     <div style={{ fontSize: 12, color: "#888", fontWeight: 700, width: 90, flexShrink: 0 }}>{row.label}</div>
