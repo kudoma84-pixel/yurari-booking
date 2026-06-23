@@ -202,16 +202,30 @@ function AppInner() {
       headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
     });
     const data = await res.json();
-    if (!Array.isArray(data)) { setBookedSlots([]); return; }
 
-    // コースの所要時間を取得して占有スロットを計算
+    // time_extensionsを取得（休憩解放情報）
+    const extRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/time_extensions?store_id=eq.${storeId}&extension_date=eq.${dateStr}&order=created_at.desc&limit=1`,
+      { headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY } }
+    );
+    const extData = await extRes.json();
+    const ext = Array.isArray(extData) && extData.length > 0 ? extData[0] : null;
+
     const blocked = new Set();
+
+    // 休憩時間（13:30〜14:30）をデフォルトでブロック、解放されていれば除外
+    if (!ext?.break_released_1330) blocked.add("13:30");
+    if (!ext?.break_released_1400) blocked.add("14:00");
+    if (!ext?.break_released_1430) blocked.add("14:30");
+
+    if (!Array.isArray(data)) { setBookedSlots([...blocked]); return; }
+
+    // 予約済みスロットをブロック（所要時間分）
     for (const b of data) {
       const courseInfo = courses.find(c => c.id === b.course_id);
       const durationStr = courseInfo?.duration || "30分";
       const durationMin = parseInt(durationStr.replace(/[^0-9]/g, "")) || 30;
       const slots = durationMin / 30;
-      // 開始時刻から所要時間分のスロットをブロック
       const startIdx = TIME_SLOTS.indexOf(b.booking_time);
       if (startIdx >= 0) {
         for (let i = 0; i < slots; i++) {
@@ -962,7 +976,12 @@ function AppInner() {
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {TIME_SLOTS.map(t => {
                     const isSelected = time === t;
-                    const disabled = isSlotDisabled(t) || bookedSlots.includes(t);
+                    const durationMin = course ? parseInt((course.duration || "30分").replace(/[^0-9]/g, "")) || 30 : 30;
+                    const slotsNeeded = durationMin / 30;
+                    const startIdx = TIME_SLOTS.indexOf(t);
+                    const hasEnoughSlots = Array.from({ length: slotsNeeded }, (_, i) => TIME_SLOTS[startIdx + i])
+                      .every(slot => slot && !bookedSlots.includes(slot) && !isSlotDisabled(slot));
+                    const disabled = isSlotDisabled(t) || bookedSlots.includes(t) || !hasEnoughSlots;
                     return (
                       <div key={t} onClick={() => !disabled && setTime(t)} style={{ background: isSelected ? GREEN : disabled ? "#f0f0f0" : "white", border: "2px solid " + (isSelected ? GREEN : disabled ? "#ddd" : "#e8ddd0"), borderRadius: 10, padding: "8px 14px", cursor: disabled ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, color: isSelected ? "white" : disabled ? "#bbb" : DARK }}>
                         {t}
