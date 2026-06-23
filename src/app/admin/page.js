@@ -845,8 +845,7 @@ const handleAdminQrInput = async (value) => {
   const savePayment = async () => {
     const paymentRes = await fetch(`${SUPABASE_URL}/rest/v1/payments`, {
       method: "POST", headers,
-      body: JSON.stringify({ store_id: currentStore.id, customer_id: checkoutBooking?.customer_id || null, booking_id: checkoutBooking?.id || null, subtotal, discount: checkoutDiscount, total, payment_method: checkoutPaymentMethod, payment_status: "paid", notes: checkoutNote }),
-    });
+      body: JSON.stringify({ store_id: currentStore.id, body: JSON.stringify({ store_id: currentStore.id, customer_id: checkoutBooking?.customer_id || null, booking_id: checkoutBooking?.id || null, subtotal, discount: checkoutDiscount, discount_reason: checkoutDiscountReason, total, payment_method: checkoutPaymentMethod, payment_status: "paid", notes: checkoutNote }),
     const paymentData = await paymentRes.json();
     const paymentId = paymentData[0]?.id;
     if (paymentId) {
