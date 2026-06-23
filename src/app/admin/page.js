@@ -896,6 +896,29 @@ const handleAdminQrInput = async (value) => {
     }
     if (checkoutBooking) {
       await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${checkoutBooking.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "completed", completed_at: new Date().toISOString() }) });
+      // ポイント加算
+      if (checkoutBooking.customer_id) {
+        const ptRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${checkoutBooking.customer_id}&select=points`, { headers });
+        const ptData = await ptRes.json();
+        const currentPoints = ptData[0]?.points || 0;
+        const newPoints = currentPoints + 1;
+        await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${checkoutBooking.customer_id}`, {
+          method: "PATCH", headers,
+          body: JSON.stringify({ points: newPoints }),
+        });
+        // 20P到達で1000円金券自動発行
+        if (newPoints % 20 === 0) {
+          const tplRes = await fetch(`${SUPABASE_URL}/rest/v1/gift_ticket_templates?store_id=eq.${currentStore.id}&limit=1`, { headers });
+          const tplData = await tplRes.json();
+          if (tplData && tplData[0]) {
+            const tpl = tplData[0];
+            await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
+              method: "POST", headers,
+              body: JSON.stringify({ customer_id: checkoutBooking.customer_id, store_id: currentStore.id, template_id: tpl.id, code: "PT" + Date.now(), amount: 1000, remaining: 1000, status: "active", issued_at: new Date().toISOString(), note: "ポイント20P達成特典" }),
+            });
+          }
+        }
+      }
     }
     setCheckoutResult({ paymentId, total, paymentMethod: checkoutPaymentMethod, customerName: checkoutBooking?.customers?.name || "お客様" });
     setCheckoutComplete(true);
@@ -1305,10 +1328,10 @@ const handleAdminQrInput = async (value) => {
           <div>
             <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 4 }}>通知方法</label>
             <div style={{ display: "flex", gap: 8 }}>
-              {["line", "email", "sms"].map(m => (
+              {["line", "email"].map(m => (
                 <button key={m} onClick={() => setEditingCustomer({ ...editingCustomer, notification_method: m })}
                   style={{ flex: 1, padding: "8px", borderRadius: 8, border: `2px solid ${editingCustomer.notification_method === m ? "#5a9e7a" : "#e8ddd0"}`, background: editingCustomer.notification_method === m ? "#eaf5ec" : "white", color: editingCustomer.notification_method === m ? "#3a5a3a" : "#aaa", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                  {m === "line" ? "LINE" : m === "email" ? "メール" : "SMS"}
+                  {m === "line" ? "LINE" : "メール"}
                 </button>
               ))}
             </div>
@@ -1393,7 +1416,7 @@ const handleAdminQrInput = async (value) => {
                   { label: "割引", value: visitPayment.discount > 0 ? "-¥" + visitPayment.discount?.toLocaleString() : "-" },
                   { label: "合計金額", value: "¥" + visitPayment.total?.toLocaleString() },
                   { label: "支払い方法", value: (visitPayment.payment_method || "").split(",").map(id => PAYMENT_METHODS.find(m => m.id === id)?.name || id).join(" / ") },
-                  { label: "領収書発行", value: { line: "LINE", email: "メール", sms: "SMS" }[selectedCustomer?.notification_method] || "-" },
+                  { label: "通知方法", value: { line: "LINE", email: "メール" }[selectedCustomer?.notification_method] || "-" },
                 ].map((row, j) => (
                   <div key={j} style={{ display: "flex", padding: "6px 0", borderBottom: j < 8 ? "1px solid #f0ebe4" : "none" }}>
                     <div style={{ fontSize: 11, color: "#7a9a7a", fontWeight: 700, width: 90, flexShrink: 0 }}>{row.label}</div>
