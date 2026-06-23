@@ -525,6 +525,20 @@ const handleAdminQrInput = async (value) => {
         source: "direct",
       }),
     });
+    // マイページ通知欄に通知
+    if (customerId) {
+      await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
+        method: "POST", headers,
+        body: JSON.stringify({
+          customer_id: customerId,
+          store_id: currentStore.id,
+          title: "ご予約確定のお知らせ",
+          body: bookingDate + " " + f.booking_time + " " + (course?.name || "") + "（" + (staff?.name || "") + "）",
+          is_read: false,
+          sent_via: "system",
+        }),
+      });
+    }
     setDirectBookingModal(null);
     setDirectBookingForm({});
     setCustomerSearchResult(null);
@@ -1057,6 +1071,23 @@ const handleAdminQrInput = async (value) => {
           body: JSON.stringify({
             p_customer_id: booking.customer_id,
             p_store_id: currentStore.id
+          }),
+        });
+      }
+    }
+    // キャンセル時にマイページ通知
+    if (status === "cancelled") {
+      const booking = bookings.find(b => b.id === id);
+      if (booking?.customer_id) {
+        await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
+          method: "POST", headers,
+          body: JSON.stringify({
+            customer_id: booking.customer_id,
+            store_id: currentStore.id,
+            title: "予約キャンセルのお知らせ",
+            body: booking.booking_date + " " + booking.booking_time + " " + booking.course_name + "のご予約がキャンセルされました。",
+            is_read: false,
+            sent_via: "system",
           }),
         });
       }
