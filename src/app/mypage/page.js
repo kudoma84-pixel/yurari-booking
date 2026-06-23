@@ -534,7 +534,7 @@ function MyPageInner() {
                       <div style={{ fontSize: 14, fontWeight: 700, color: GREEN }}>{n.title}</div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         {!n.is_read && <div style={{ width: 8, height: 8, borderRadius: "50%", background: GREEN }} />}
-                        <div style={{ fontSize: 11, color: "#aaa" }}>{new Date(n.created_at).toLocaleDateString("ja-JP")}</div>
+                        <div style={{ fontSize: 11, color: "#aaa" }}>{new Date(n.created_at).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })}</div>
                       </div>
                     </div>
                     <div style={{ fontSize: 13, color: DARK, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{n.body}</div>
@@ -667,7 +667,7 @@ function MyPageInner() {
                 <div key={m.id} style={{ display: "flex", justifyContent: m.direction === "inbound" ? "flex-end" : "flex-start" }}>
                   <div style={{ maxWidth: "75%", padding: "10px 14px", borderRadius: m.direction === "inbound" ? "16px 16px 4px 16px" : "16px 16px 16px 4px", background: m.direction === "inbound" ? GREEN : "#f0e8d8", color: m.direction === "inbound" ? "white" : "#3a5a3a", fontSize: 13 }}>
                     {m.message}
-                    <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4, textAlign: "right" }}>{new Date(m.created_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
+                    <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4, textAlign: "right" }}>{new Date(m.created_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
                   </div>
                 </div>
               ))}
