@@ -23,7 +23,7 @@ export async function GET(request) {
   };
 
   const res = await fetch(
-    SUPABASE_URL + "/rest/v1/bookings?booking_date=eq." + dateStr + "&status=eq.confirmed&select=*,customers(name,line_user_id,email,notification_method)",
+    SUPABASE_URL + "/rest/v1/bookings?booking_date=eq." + dateStr + "&status=neq.cancelled&status=neq.completed&select=*,customers(name,line_user_id,email,notification_method)",
     { headers }
   );
   const bookings = await res.json();
