@@ -66,6 +66,8 @@ export default function AdminPage() {
   const [products, setProducts] = useState([]);
   const [checkoutBooking, setCheckoutBooking] = useState(null);
   const [checkoutItems, setCheckoutItems] = useState([]);
+  const [checkoutDiscount, setCheckoutDiscount] = useState(0);
+  const [checkoutDiscountReason, setCheckoutDiscountReason] = useState("");
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState("cash");
   const [checkoutNote, setCheckoutNote] = useState("");
   const [checkoutComplete, setCheckoutComplete] = useState(false);
