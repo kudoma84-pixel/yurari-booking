@@ -204,11 +204,11 @@ function AppInner() {
     const data = await res.json();
 
     // blocksを取得（ブロック情報）
-    const blockRes = await fetch(
+    const blocksRes = await fetch(
       `${SUPABASE_URL}/rest/v1/blocks?store_id=eq.${storeId}&block_date=eq.${dateStr}`,
       { headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY } }
     );
-    const blockData = await blockRes.json();
+    const blocksData = await blocksRes.json();
     if (Array.isArray(blockData)) {
       blockData.forEach(b => {
         if (staffId === "any" || b.staff_id === staffId || b.staff_id === "all") {
