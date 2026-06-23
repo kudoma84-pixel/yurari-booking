@@ -503,6 +503,17 @@ function AppInner() {
         localStorage.setItem('yurari_customer_id', customerId);
         localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
       }
+      // 管理画面への通知
+      await fetch(SUPABASE_URL + "/rest/v1/admin_notifications", {
+        method: "POST", headers,
+        body: JSON.stringify({
+          store_id: store.id,
+          type: "new_booking",
+          title: "新規予約",
+          body: (profile.name || "") + "様 " + formatDate(date) + " " + time + " " + course.name,
+          customer_id: customerId,
+        }),
+      });
       setBookingNum(num);
       setScreen("complete");
     } catch (e) {
