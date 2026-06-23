@@ -286,6 +286,10 @@ const handleAdminQrInput = async (value) => {
       await fetch(`${SUPABASE_URL}/rest/v1/bookings?customer_id=eq.${customerId}`, { method: "DELETE", headers });
       await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?customer_id=eq.${customerId}`, { method: "DELETE", headers });
       await fetch(`${SUPABASE_URL}/rest/v1/notifications?customer_id=eq.${customerId}`, { method: "DELETE", headers });
+      await fetch(`${SUPABASE_URL}/rest/v1/payments?customer_id=eq.${customerId}`, { method: "DELETE", headers });
+      await fetch(`${SUPABASE_URL}/rest/v1/line_messages?customer_id=eq.${customerId}`, { method: "DELETE", headers });
+      await fetch(`${SUPABASE_URL}/rest/v1/push_subscriptions?customer_id=eq.${customerId}`, { method: "DELETE", headers });
+      await fetch(`${SUPABASE_URL}/rest/v1/admin_notifications?customer_id=eq.${customerId}`, { method: "DELETE", headers });
       await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}`, { method: "DELETE", headers });
     } else {
       if (!window.confirm("この顧客を非表示にします。よいですか？")) return;
