@@ -1171,7 +1171,7 @@ const handleAdminQrInput = async (value) => {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
               {[
-                { label: "予約番号", value: selectedBooking.booking_number },
+                { label: "予約番号", value: selectedBooking.booking_number + "　" + new Date(selectedBooking.created_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " 予約" },
                 { label: "日時", value: `${selectedBooking.booking_date} ${selectedBooking.booking_time}` },
                 { label: "コース", value: selectedBooking.course_name },
                 { label: "担当", value: selectedBooking.staff_name },
@@ -1191,8 +1191,20 @@ const handleAdminQrInput = async (value) => {
                 </div>
               ))}
             </div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              {["confirmed","received","treatment_done","cancelled"].map(s => (
+            <div style={{ display: "flex", gap: 4, marginTop: 16, marginBottom: 4, flexWrap: "wrap" }}>
+              {[
+                { key: "confirmed", label: "確認済", field: "confirmed_at" },
+                { key: "received", label: "受付", field: "received_at" },
+                { key: "treatment_done", label: "施術終了", field: "treatment_done_at" },
+                { key: "cancelled", label: "キャンセル", field: "cancelled_at" },
+              ].map(s => selectedBooking[s.field] ? (
+                <div key={s.key} style={{ fontSize: 10, color: "#aaa", padding: "2px 8px", background: "#f5f5f5", borderRadius: 6 }}>
+                  {s.label}：{new Date(selectedBooking[s.field]).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                </div>
+              ) : null)}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+              {["confirmed", "received", "treatment_done", "cancelled"].map(s => (
                <button key={s} onClick={async () => { await updateBookingStatus(selectedBooking.id, s); if (s === "received" && selectedBooking.customer_id) { const r = await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + selectedBooking.customer_id, { headers }); const d = await r.json(); if (d[0]?.customer_number) alert("受付完了！顧客番号：" + d[0].customer_number); } if (s === "cancelled") setSelectedBooking(null); }} disabled={selectedBooking.status === "received" && s === "received"} style={{ flex: 1, padding: "10px", borderRadius: 10, border: "2px solid " + statusColor(s), background: selectedBooking.status === s ? statusColor(s) : "white", color: selectedBooking.status === s ? "white" : statusColor(s), fontSize: 11, fontWeight: 600, cursor: selectedBooking.status === "received" && s === "received" ? "not-allowed" : "pointer", opacity: selectedBooking.status === "received" && s === "received" ? 0.5 : 1 }}>{statusLabel(s)}</button>
               ))}
             </div>
