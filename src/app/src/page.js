@@ -83,6 +83,7 @@ function AppInner() {
 
   useEffect(() => {
     if (liffReturn === '1') {
+      setScreen("loading");
       handleAuthSelect('line');
     }
   }, []);
@@ -441,7 +442,7 @@ function AppInner() {
               zipcode: profile.zipcode,
               birthday: profile.birthday || null,
               points: 0,
-              line_user_id: session?.lineUserId || null,
+              line_user_id: session?.lineUserId || localStorage.getItem('yurari_line_user_id') || null,
               notification_method: notificationMethod || "line",
             }),
           });
@@ -579,6 +580,10 @@ function AppInner() {
         </div>
       </div>
     );
+  }
+
+  if (screen === "loading") {
+    return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: "#888" }}>読み込み中...</div>;
   }
 
   if (screen === "top" && !notifyFromUrl) {
