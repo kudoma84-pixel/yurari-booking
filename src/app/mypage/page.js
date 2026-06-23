@@ -440,8 +440,7 @@ function MyPageInner() {
             { id: "mymessage", label: "💬 メッセージ" },
             { id: "notice_settings", label: "🔔 通知設定" },
                         { id: "profile", label: "⚙️ 設定" },
-            { id: "qr", label: "🔲 マイQR" },
-          ].map(t => (
+                      ].map(t => (
             <button key={t.id} onClick={() => {
               setActiveTab(t.id);
               if (t.id === "notice") markAllRead();
@@ -460,29 +459,7 @@ function MyPageInner() {
           </div>
         </div>
 
-        {activeTab === "qr" && (
-  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "32px 20px" }}>
-    <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 8 }}>🔲 マイQRコード</div>
-    <div style={{ fontSize: 12, color: "#888", marginBottom: 24 }}>来院時にスタッフに提示してください</div>
-    <div style={{ background: "white", borderRadius: 20, padding: 24, boxShadow: "0 4px 20px rgba(0,0,0,0.1)", position: "relative" }}>
-      {!qrLoaded && (
-                <div style={{ width: 220, height: 220, display: "flex", alignItems: "center", justifyContent: "center", color: "#aaa", fontSize: 13 }}>
-                          読み込み中...
-                                  </div>
-                                        )}
-
-            <img
-        src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=https://yurari-booking.vercel.app/admin/checkin?checkin=${customer?.id}`}
-        alt="マイQR"
-        onLoad={() => setQrLoaded(true)}
-        style={{ width: 220, height: 220, display: qrLoaded ? "block" : "none" }}
-      />
-    </div>
-    <div style={{ marginTop: 20, fontSize: 13, color: "#888" }}>{customer?.name} 様</div>
-    <div style={{ fontSize: 11, color: "#bbb", marginTop: 4 }}>ID: {customer?.id}</div>
-  </div>
-)}
-        {activeTab === "booking" && (
+                {activeTab === "booking" && (
           <div>
             {upcomingBookings.length > 0 && (
               <div style={{ marginBottom: 32 }}>
