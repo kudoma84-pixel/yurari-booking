@@ -453,7 +453,7 @@ function AppInner() {
         method: "POST", headers,
         body: JSON.stringify({
           customer_id: customerId, store_id: store.id,
-          course_id: course.id, course_name: course.name,
+          course_id: course.id, course_name: course.name, course_duration: course.duration || "30分",
           staff_id: staff.id, staff_name: staff.name,
           booking_date: formatDate(date), booking_time: time,
           status: "confirmed", notes: profile.notes, booking_number: num,
