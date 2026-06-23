@@ -2012,7 +2012,7 @@ const handleAdminQrInput = async (value) => {
                             await fetchCustomerTicketCount(checkoutBooking.customer_id);
                             setCheckoutSellTicketId("");
                             // 合計に追加
-                            setCheckoutItems(prev => [...prev, { type: "ticket", name: template.name, price: template.price || template.face_value * count, quantity: 1 }]);
+                            setCheckoutItems(prev => [...prev, { type: "ticket", name: template.name, price: template.sale_price || template.face_value * count, quantity: 1 }]);
                             alert(`${template.name}を${count}枚発行しました`);
                           }} disabled={!checkoutSellTicketId}
                             style={{ width: "100%", padding: "9px", borderRadius: 10, border: "none", background: checkoutSellTicketId ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: checkoutSellTicketId ? "white" : "#bbb", fontSize: 13, fontWeight: 700, cursor: checkoutSellTicketId ? "pointer" : "not-allowed" }}>
