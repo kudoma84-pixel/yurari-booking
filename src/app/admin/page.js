@@ -17,10 +17,17 @@ const ADMIN_USERS = [
 
 const PAYMENT_METHODS = [
   { id: "cash", name: "現金", icon: "💴" },
-  { id: "card", name: "カード", icon: "💳" },
+  { id: "card", name: "クレジットカード", icon: "💳" },
+  { id: "ic", name: "交通系電子マネー", icon: "🚃" },
+  { id: "id", name: "iD", icon: "📱" },
+  { id: "quicpay", name: "QUICPay", icon: "📱" },
   { id: "paypay", name: "PayPay", icon: "📱" },
-  { id: "linepay", name: "LINE Pay", icon: "💚" },
-  { id: "other", name: "その他", icon: "💰" },
+  { id: "aupay", name: "auペイ", icon: "📱" },
+  { id: "dpay", name: "d払い", icon: "📱" },
+  { id: "merpay", name: "メルペイ", icon: "📱" },
+  { id: "rakutenpay", name: "楽天ペイ", icon: "📱" },
+  { id: "transfer", name: "口座振替", icon: "🏦" },
+  { id: "ticket", name: "ゆらり金券", icon: "🎫" },
 ];
 
 const BASE_SLOTS = [
@@ -68,7 +75,7 @@ export default function AdminPage() {
   const [checkoutItems, setCheckoutItems] = useState([]);
   const [checkoutDiscount, setCheckoutDiscount] = useState(0);
   const [checkoutDiscountReason, setCheckoutDiscountReason] = useState("");
-  const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState("cash");
+  const [checkoutPaymentMethods, setCheckoutPaymentMethods] = useState([{ method: "cash", amount: 0 }]);
   const [checkoutNote, setCheckoutNote] = useState("");
   const [checkoutComplete, setCheckoutComplete] = useState(false);
   const [checkoutResult, setCheckoutResult] = useState(null);
@@ -814,7 +821,7 @@ const handleAdminQrInput = async (value) => {
     setCheckoutBooking(booking);
     setCheckoutItems([{ type: "course", name: course.name, price: course.price || 0, quantity: 1 }]);
     setCheckoutDiscount(0);
-    setCheckoutPaymentMethod("cash");
+    setCheckoutPaymentMethods([{ method: "cash", amount: 0 }]);
     setCheckoutNote("");
     setCheckoutComplete(false);
     setCheckoutResult(null);
@@ -845,12 +852,16 @@ const handleAdminQrInput = async (value) => {
   const savePayment = async () => {
     const paymentRes = await fetch(`${SUPABASE_URL}/rest/v1/payments`, {
       method: "POST", headers,
-      body: JSON.stringify({ store_id: currentStore.id, customer_id: checkoutBooking?.customer_id || null, booking_id: checkoutBooking?.id || null, subtotal, discount: checkoutDiscount, discount_reason: checkoutDiscountReason, total, payment_method: checkoutPaymentMethod, payment_status: "paid", notes: checkoutNote }),
-    });
+      body: JSON.stringify({ store_id: currentStore.id, customer_id: checkoutBooking?.customer_id || null, booking_id: checkoutBooking?.id || null, subtotal, discount: checkoutDiscount, discount_reason: checkoutDiscountReason, total, payment_method: checkoutPaymentMethods.map(p => p.method).join(","), payment_status: "paid", notes: checkoutNote }),    });
     const paymentData = await paymentRes.json();    const paymentId = paymentData[0]?.id;
     if (paymentId) {
       for (const item of checkoutItems) {
         await fetch(`${SUPABASE_URL}/rest/v1/payment_items`, { method: "POST", headers, body: JSON.stringify({ payment_id: paymentId, item_type: item.type, item_name: item.name, price: item.price, quantity: item.quantity }) });
+      }
+      for (const pm of checkoutPaymentMethods) {
+        if (pm.amount > 0) {
+          await fetch(`${SUPABASE_URL}/rest/v1/payment_methods`, { method: "POST", headers, body: JSON.stringify({ payment_id: paymentId, method: pm.method, amount: pm.amount }) });
+        }
       }
     }
     if (checkoutBooking) {
@@ -1342,7 +1353,7 @@ const handleAdminQrInput = async (value) => {
                   { label: "小計", value: "¥" + visitPayment.subtotal?.toLocaleString() },
                   { label: "割引", value: visitPayment.discount > 0 ? "-¥" + visitPayment.discount?.toLocaleString() : "-" },
                   { label: "合計金額", value: "¥" + visitPayment.total?.toLocaleString() },
-                  { label: "支払い方法", value: { cash: "現金", card: "カード", paypay: "PayPay", linepay: "LINE Pay", other: "その他" }[visitPayment.payment_method] || visitPayment.payment_method },
+                  { label: "支払い方法", value: (visitPayment.payment_method || "").split(",").map(id => PAYMENT_METHODS.find(m => m.id === id)?.name || id).join(" / ") },
                   { label: "領収書発行", value: { line: "LINE", email: "メール", sms: "SMS" }[selectedCustomer?.notification_method] || "-" },
                 ].map((row, j) => (
                   <div key={j} style={{ display: "flex", padding: "6px 0", borderBottom: j < 8 ? "1px solid #f0ebe4" : "none" }}>
@@ -1861,7 +1872,7 @@ const handleAdminQrInput = async (value) => {
                 <div style={{ background: "linear-gradient(135deg, #eaf5ec, #e0f0e8)", borderRadius: 16, padding: "24px", marginBottom: 24 }}>
                   <div style={{ fontSize: 13, color: "#7a9a7a", marginBottom: 4 }}>お支払い金額</div>
                   <div style={{ fontSize: 32, fontWeight: 700, color: "#3a5a3a" }}>{formatPrice(checkoutResult?.total || 0)}</div>
-                  <div style={{ fontSize: 13, color: "#7a9a7a", marginTop: 8 }}>{PAYMENT_METHODS.find(m => m.id === checkoutResult?.paymentMethod)?.name}</div>
+                  <div style={{ fontSize: 13, color: "#7a9a7a", marginTop: 8 }}>{checkoutResult?.paymentMethod?.split(",").map(id => PAYMENT_METHODS.find(m => m.id === id)?.name).join(" / ")}</div>
                 </div>
                 <div style={{ display: "flex", gap: 12 }}>
                   <button onClick={() => { setCheckoutBooking(null); setCheckoutComplete(false); }} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>戻る</button>
@@ -1914,11 +1925,31 @@ const handleAdminQrInput = async (value) => {
                   </div>
                   <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>支払い方法</div>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      {PAYMENT_METHODS.map(m => (
-                        <button key={m.id} onClick={() => setCheckoutPaymentMethod(m.id)} style={{ padding: "10px 16px", borderRadius: 10, border: `2px solid ${checkoutPaymentMethod === m.id ? "#5a9e7a" : "#e8ddd0"}`, background: checkoutPaymentMethod === m.id ? "#eaf5ec" : "white", color: checkoutPaymentMethod === m.id ? "#3a5a3a" : "#888", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{m.icon} {m.name}</button>
-                      ))}
-                    </div>
+                    {checkoutPaymentMethods.map((pm, idx) => (
+                      <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                        <select value={pm.method} onChange={e => setCheckoutPaymentMethods(checkoutPaymentMethods.map((p, i) => i === idx ? { ...p, method: e.target.value } : p))}
+                          style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13 }}>
+                          {PAYMENT_METHODS.map(m => <option key={m.id} value={m.id}>{m.icon} {m.name}</option>)}
+                        </select>
+                        <span style={{ fontSize: 13, color: "#888" }}>¥</span>
+                        <input type="number" value={pm.amount || ""} onChange={e => setCheckoutPaymentMethods(checkoutPaymentMethods.map((p, i) => i === idx ? { ...p, amount: parseInt(e.target.value) || 0 } : p))}
+                          style={{ width: 90, padding: "8px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13, textAlign: "right" }} />
+                        {idx > 0 && <button onClick={() => setCheckoutPaymentMethods(checkoutPaymentMethods.filter((_, i) => i !== idx))} style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: "#f0e8d8", color: "#e07070", cursor: "pointer" }}>✕</button>}
+                      </div>
+                    ))}
+                    <button onClick={() => setCheckoutPaymentMethods([...checkoutPaymentMethods, { method: "cash", amount: 0 }])}
+                      style={{ width: "100%", padding: "8px", borderRadius: 10, border: "2px dashed #e8ddd0", background: "white", color: "#aaa", fontSize: 13, cursor: "pointer", marginTop: 4 }}>
+                      ＋ 支払い方法を追加
+                    </button>
+                    {(() => {
+                      const paid = checkoutPaymentMethods.reduce((s, p) => s + p.amount, 0);
+                      const diff = paid - total;
+                      return paid > 0 ? (
+                        <div style={{ marginTop: 8, fontSize: 12, color: diff === 0 ? "#5a9e7a" : diff > 0 ? "#e07070" : "#e0a040", fontWeight: 700 }}>
+                          {diff === 0 ? "✅ 金額が一致しています" : diff > 0 ? `⚠️ ${formatPrice(diff)} 過払い` : `⚠️ ${formatPrice(-diff)} 不足`}
+                        </div>
+                      ) : null;
+                    })()}
                   </div>
                   <div style={{ display: "flex", gap: 12 }}>
                     <button onClick={() => setCheckoutBooking(null)} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>戻る</button>
