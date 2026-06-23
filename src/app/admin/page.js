@@ -55,6 +55,9 @@ export default function AdminPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [blocks, setBlocks] = useState([]);
+  const [blockModal, setBlockModal] = useState(null); // { staffId, time }
+  const [blockReason, setBlockReason] = useState("");
+  const [blockDuration, setBlockDuration] = useState(1); // スロット数
   const [shifts, setShifts] = useState([]);
   const [extensions, setExtensions] = useState([]);
   const [selectedBooking, setSelectedBooking] = useState(null);
@@ -310,6 +313,35 @@ const handleAdminQrInput = async (value) => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/blocks?store_id=eq.${currentStore.id}&block_date=eq.${d}`, { headers });
     const data = await res.json();
     setBlocks(Array.isArray(data) ? data : []);
+  };
+
+  const toggleBlock = async (staffId, time) => {
+    const d = formatDate(selectedDate);
+    const existing = blocks.find(b => (b.staff_id === staffId || b.staff_id === "all") && b.block_time === time.replace(":",":")+ ":00");
+    if (existing) {
+      await fetch(`${SUPABASE_URL}/rest/v1/blocks?id=eq.${existing.id}`, { method: "DELETE", headers });
+      fetchBlocks(selectedDate);
+    }
+  };
+
+  const addBlock = async () => {
+    if (!blockModal) return;
+    const d = formatDate(selectedDate);
+    const { staffId, time } = blockModal;
+    const TIME_SLOTS_ALL = ["09:00","09:30","10:00","10:30","11:00","11:30","12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30","20:00","20:30"];
+    const startIdx = TIME_SLOTS_ALL.indexOf(time);
+    for (let i = 0; i < blockDuration; i++) {
+      const t = TIME_SLOTS_ALL[startIdx + i];
+      if (!t) break;
+      await fetch(`${SUPABASE_URL}/rest/v1/blocks`, {
+        method: "POST", headers,
+        body: JSON.stringify({ store_id: currentStore.id, staff_id: staffId, block_date: d, block_time: t + ":00", block_type: "manual", reason: blockReason }),
+      });
+    }
+    setBlockModal(null);
+    setBlockReason("");
+    setBlockDuration(1);
+    fetchBlocks(selectedDate);
   };
 
   const fetchShifts = async (date) => {
@@ -2098,6 +2130,42 @@ const handleAdminQrInput = async (value) => {
           </div>
         )}
 
+        {blockModal && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ background: "white", borderRadius: 20, padding: 28, width: 320, boxShadow: "0 8px 32px rgba(0,0,0,0.15)" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a", marginBottom: 4 }}>⏰ {blockModal.time}</div>
+              <div style={{ fontSize: 13, color: "#888", marginBottom: 20 }}>{staffList.find(s => s.id === blockModal.staffId)?.name}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <button onClick={() => { setBlockModal(null); setDirectBookingModal({ date: selectedDate, staffId: blockModal.staffId, time: blockModal.time }); setDirectBookingForm({ staff_id: blockModal.staffId, booking_time: blockModal.time }); setCustomerSearchQuery(""); setCustomerSearchResult(null); fetchCourseMenus(); }}
+                  style={{ padding: "14px", borderRadius: 12, border: "none", background: "#5a9e7a", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                  📅 予約を入れる
+                </button>
+                <div style={{ background: "#f9f6f2", borderRadius: 12, padding: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a", marginBottom: 10 }}>🔒 ブロックする</div>
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>時間</div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {[1,2,3,4,5].map(n => (
+                        <button key={n} onClick={() => setBlockDuration(n)}
+                          style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${blockDuration === n ? "#e07070" : "#e8ddd0"}`, background: blockDuration === n ? "#fdf0f0" : "white", color: blockDuration === n ? "#e07070" : "#888", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                          {n * 30}分
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <input value={blockReason} onChange={e => setBlockReason(e.target.value)} placeholder="理由（例：社内研修）" style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box", marginBottom: 10 }} />
+                  <button onClick={addBlock} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "none", background: "#e07070", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                    🔒 ブロックする
+                  </button>
+                </div>
+                <button onClick={() => { setBlockModal(null); setBlockReason(""); setBlockDuration(1); }} style={{ padding: "10px", borderRadius: 10, border: "2px solid #e8ddd0", background: "white", color: "#aaa", fontSize: 13, cursor: "pointer" }}>
+                  キャンセル
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {tab === "calendar" && (
           <div style={{ display: "flex", gap: 16, flexWrap: "nowrap", alignItems: "flex-start" }}>
             <div style={{ background: "white", borderRadius: 16, padding: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", minWidth: 240 }}>
@@ -2189,8 +2257,7 @@ const handleAdminQrInput = async (value) => {
                                     : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
                                     : booking && booking.status !== "cancelled" ? <div onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "pointer", lineHeight: 1.4, height: "100%", minHeight: rowSpan * 38 - 8, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center" }}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div></div>
                                     : blocked ? <div onClick={() => toggleBlock(s.id, time)} style={{ background: "#f0ebe4", color: "#bbb", borderRadius: 6, padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>🔒</div>
-                                    : <div onClick={() => { setDirectBookingModal({ date: selectedDate, staffId: s.id, time }); setDirectBookingForm({ staff_id: s.id, booking_time: time }); setCustomerSearchQuery(""); setCustomerSearchResult(null); fetchCourseMenus(); }} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}
-                                  </td>
+                                    : <div onClick={() => setBlockModal({ staffId: s.id, time })} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}                                  </td>
                                 );
                               });
                               return cells;
