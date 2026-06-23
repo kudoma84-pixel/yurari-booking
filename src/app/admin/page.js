@@ -2160,21 +2160,41 @@ const handleAdminQrInput = async (value) => {
                         {staffList.map(s => (
                           <tr key={s.id} style={{ borderTop: "1px solid #f0ebe4" }}>
                             <td style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, color: isOnShift(s.id) ? "#3a5a3a" : "#ccc", position: "sticky", left: 0, background: "white", zIndex: 1, minWidth: 100 }}>{s.name}{!isOnShift(s.id) && <div style={{ fontSize: 10, color: "#ccc" }}>休み</div>}</td>
-                            {timeSlots.map(time => {
-                              const isBreak = BREAK_SLOTS.includes(time);
-                              const booking = getBookingForCell(s.id, time);
-                              const blocked = isBlocked(s.id, time);
-                              const onShift = isOnShift(s.id);
-                              const isExt = ["09:00","09:30","20:00","20:30"].includes(time) && isSlotExtended(time);
-                              return (
-                                <td key={time} style={{ padding: "8px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: (BREAK_SLOTS.includes(time) && !isSlotBreakReleased(time)) ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", minWidth: 38 }}>
-                                  {isBreak && !isSlotBreakReleased(time) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
-                                  : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
-                                  : booking && booking.status !== "cancelled" ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "2px 4px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", lineHeight: 1.3 }} onClick={() => setSelectedBooking(booking)}><div>{(booking.customers?.name || "予約").slice(0, 3)}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 3)}</div></div>                                  : blocked ? <div onClick={() => toggleBlock(s.id, time)} style={{ background: "#f0ebe4", color: "#bbb", borderRadius: 6, padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>🔒</div>
-                                  : <div onClick={() => { setDirectBookingModal({ date: selectedDate, staffId: s.id, time }); setDirectBookingForm({ staff_id: s.id, booking_time: time }); setCustomerSearchQuery(""); setCustomerSearchResult(null); fetchCourseMenus(); }} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}
-                                </td>
-                              );
-                            })}
+                            {(() => {
+                              const cells = [];
+                              const skipSlots = new Set();
+                              timeSlots.forEach(time => {
+                                if (skipSlots.has(time)) return;
+                                const isBreak = BREAK_SLOTS.includes(time);
+                                const booking = getBookingForCell(s.id, time);
+                                const blocked = isBlocked(s.id, time);
+                                const onShift = isOnShift(s.id);
+                                const isExt = ["09:00","09:30","20:00","20:30"].includes(time) && isSlotExtended(time);
+
+                                // 予約の所要時間からrowSpanを計算
+                                let rowSpan = 1;
+                                if (booking && booking.status !== "cancelled") {
+                                  const durationMin = parseInt((booking.course_duration || booking.course_name?.match(/(\d+)分/)?.[1] || "30")) || 30;
+                                  rowSpan = Math.max(1, Math.round(durationMin / 30));
+                                  // スキップするスロットを登録
+                                  const startIdx = timeSlots.indexOf(time);
+                                  for (let i = 1; i < rowSpan; i++) {
+                                    if (timeSlots[startIdx + i]) skipSlots.add(timeSlots[startIdx + i]);
+                                  }
+                                }
+
+                                cells.push(
+                                  <td key={time} rowSpan={rowSpan} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: (BREAK_SLOTS.includes(time) && !isSlotBreakReleased(time)) ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", minWidth: 38, verticalAlign: "top" }}>
+                                    {isBreak && !isSlotBreakReleased(time) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
+                                    : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
+                                    : booking && booking.status !== "cancelled" ? <div onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "pointer", lineHeight: 1.4, height: "100%", minHeight: rowSpan * 38 - 8, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center" }}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div></div>
+                                    : blocked ? <div onClick={() => toggleBlock(s.id, time)} style={{ background: "#f0ebe4", color: "#bbb", borderRadius: 6, padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>🔒</div>
+                                    : <div onClick={() => { setDirectBookingModal({ date: selectedDate, staffId: s.id, time }); setDirectBookingForm({ staff_id: s.id, booking_time: time }); setCustomerSearchQuery(""); setCustomerSearchResult(null); fetchCourseMenus(); }} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}
+                                  </td>
+                                );
+                              });
+                              return cells;
+                            })()}
                           </tr>
                         ))}
                       </tbody>
