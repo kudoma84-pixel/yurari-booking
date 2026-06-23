@@ -50,6 +50,7 @@ function MyPageInner() {
     if (!customer) return;
     const interval = setInterval(() => {
       fetchBookings(customer.id);
+      fetchNotices(customer.id);
     }, 5000);
     return () => clearInterval(interval);
   }, [customer]);
