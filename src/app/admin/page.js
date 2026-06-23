@@ -279,6 +279,24 @@ const handleAdminQrInput = async (value) => {
     win.document.write(html);
     win.document.close();
   };
+  const deleteCustomer = async (customerId, permanent = false) => {
+    if (permanent) {
+      if (!window.confirm("完全に削除します。予約履歴等も全て削除されます。本当によいですか？")) return;
+      await fetch(`${SUPABASE_URL}/rest/v1/bookings?customer_id=eq.${customerId}`, { method: "DELETE", headers });
+      await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?customer_id=eq.${customerId}`, { method: "DELETE", headers });
+      await fetch(`${SUPABASE_URL}/rest/v1/notifications?customer_id=eq.${customerId}`, { method: "DELETE", headers });
+      await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}`, { method: "DELETE", headers });
+    } else {
+      if (!window.confirm("この顧客を非表示にします。よいですか？")) return;
+      await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}`, {
+        method: "PATCH", headers,
+        body: JSON.stringify({ is_deleted: true }),
+      });
+    }
+    setSelectedCustomer(null);
+    fetchCustomers();
+  };
+
   const fetchCustomerDetail = async (customerId) => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}&select=*`, { headers });
     const data = await res.json();
@@ -287,7 +305,7 @@ const handleAdminQrInput = async (value) => {
 
   const fetchCustomers = async () => {
     setLoading(true);
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?order=created_at.desc`, { headers });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?is_deleted=eq.false&order=created_at.desc`, { headers });
     const data = await res.json();
     setCustomers(Array.isArray(data) ? data : []);
     setLoading(false);
@@ -1400,6 +1418,8 @@ const handleAdminQrInput = async (value) => {
             <>
               <button onClick={() => printMemberCard(selectedCustomer)} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #e07b39", background: "white", color: "#e07b39", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>🖨 カード印刷</button>
               <button onClick={() => setEditingCustomer({ ...selectedCustomer })} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>編集</button>
+              <button onClick={() => deleteCustomer(selectedCustomer.id, false)} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #e07070", background: "white", color: "#e07070", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>非表示</button>
+              <button onClick={() => deleteCustomer(selectedCustomer.id, true)} style={{ padding: "6px 16px", borderRadius: 8, border: "2px solid #cc0000", background: "#cc0000", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>完全削除</button>
             </>
           )}
           <button onClick={() => { setSelectedCustomer(null); setEditingCustomer(null); }} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
