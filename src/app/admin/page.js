@@ -96,6 +96,9 @@ export default function AdminPage() {
   const [customerTickets, setCustomerTickets] = useState([]);
   const [editingTicketTemplate, setEditingTicketTemplate] = useState(null);
   const [lineMessages, setLineMessages] = useState([]);
+  const [adminNotifications, setAdminNotifications] = useState([]);
+  const [unreadAdminCount, setUnreadAdminCount] = useState(0);
+  const [showAdminNotif, setShowAdminNotif] = useState(false);
   const [lineReplyText, setLineReplyText] = useState("");
   const [selectedLineUser, setSelectedLineUser] = useState(null);
   const [unreadLineCount, setUnreadLineCount] = useState(0);
@@ -598,6 +601,23 @@ const handleAdminQrInput = async (value) => {
     setCustomerTickets(Array.isArray(data) ? data : []);
   };
 
+  const fetchAdminNotifications = async () => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/admin_notifications?store_id=eq.${currentStore.id}&order=created_at.desc&limit=50`, { headers });
+    const data = await res.json();
+    if (Array.isArray(data)) {
+      setAdminNotifications(data);
+      setUnreadAdminCount(data.filter(n => !n.is_read).length);
+    }
+  };
+
+  const markAdminNotifRead = async () => {
+    await fetch(`${SUPABASE_URL}/rest/v1/admin_notifications?store_id=eq.${currentStore.id}&is_read=eq.false`, {
+      method: "PATCH", headers, body: JSON.stringify({ is_read: true }),
+    });
+    setUnreadAdminCount(0);
+    setAdminNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+  };
+
   const fetchLineMessages = async () => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/line_messages?order=created_at.desc&select=*,customers(name,customer_number)&limit=200`, { headers });
     const data = await res.json();
@@ -769,6 +789,7 @@ const handleAdminQrInput = async (value) => {
     if (loggedIn && tab === "notifications") { fetchNotifications(); fetchCustomers(); }
     if (loggedIn && tab === "gifts") { fetchGiftTicketTemplates(); fetchGiftHistory(); }
   if (loggedIn && tab === "messages") { fetchLineMessages(); }
+  if (loggedIn) { fetchAdminNotifications(); }
   }, [loggedIn, tab]);
 
   useEffect(() => {
@@ -780,14 +801,15 @@ const handleAdminQrInput = async (value) => {
   }, [currentMonth, loggedIn, currentStore, tab]);
 
   useEffect(() => {
-    if (!loggedIn || !currentStore || tab !== "calendar") return;
+    if (!loggedIn || !currentStore) return;
     const interval = setInterval(() => {
-      fetchMonthCalendarData(currentMonth);
-      if (selectedDate) fetchAll(selectedDate);
+      if (tab === "calendar" && selectedDate) fetchAll(selectedDate);
+      if (tab === "checkin") fetchTodayReceived();
+      if (tab === "bookings") fetchBookings(selectedDate || new Date());
+      fetchAdminNotifications();
     }, 5000);
     return () => clearInterval(interval);
-  }, [loggedIn, currentStore, tab, currentMonth, selectedDate]);
-
+  }, [loggedIn, currentStore, tab, selectedDate]);
   useEffect(() => {
     if (loggedIn && tab === "shifts") fetchMonthShifts();
   }, [shiftMonth]);
@@ -1623,8 +1645,31 @@ const handleAdminQrInput = async (value) => {
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={() => { window.location.reload(); }} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 13, cursor: "pointer" }}>🔄 更新</button>
-          <button onClick={() => { setLoggedIn(false); setPassword(""); }} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 13, cursor: "pointer" }}>ログアウト</button>
-        </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ position: "relative" }}>
+              <button onClick={() => { setShowAdminNotif(!showAdminNotif); if (!showAdminNotif) markAdminNotifRead(); }}
+                style={{ padding: "8px 14px", borderRadius: 10, border: "2px solid #e8ddd0", background: "white", color: "#3a5a3a", fontSize: 18, cursor: "pointer", position: "relative" }}>
+                🔔
+                {unreadAdminCount > 0 && <span style={{ position: "absolute", top: -6, right: -6, background: "#e07070", color: "white", borderRadius: "50%", width: 18, height: 18, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{unreadAdminCount}</span>}
+              </button>
+              {showAdminNotif && (
+                <div style={{ position: "absolute", right: 0, top: 44, width: 320, background: "white", borderRadius: 16, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", zIndex: 1000, maxHeight: 400, overflowY: "auto" }}>
+                  <div style={{ padding: "12px 16px", borderBottom: "1px solid #f0e8d8", fontSize: 13, fontWeight: 700, color: "#3a5a3a" }}>通知</div>
+                  {adminNotifications.length === 0 && <div style={{ padding: 20, color: "#aaa", fontSize: 13, textAlign: "center" }}>通知なし</div>}
+                  {adminNotifications.map(n => (
+                    <div key={n.id} style={{ padding: "12px 16px", borderBottom: "1px solid #f9f6f2", background: n.is_read ? "white" : "#f0f8f4" }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 2 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: n.type === "cancel" ? "#e07070" : "#5a9e7a" }}>{n.type === "cancel" ? "❌ キャンセル" : "✅ 新規予約"}</span>
+                        <span style={{ fontSize: 11, color: "#aaa" }}>{new Date(n.created_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: "#555" }}>{n.body}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button onClick={() => { setLoggedIn(false); setPassword(""); }} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 13, cursor: "pointer" }}>ログアウト</button>
+          </div>        </div>
       </div>
 
       <div style={{ display: "flex", borderBottom: "1px solid #e8ddd0", background: "white", padding: "0 24px", overflowX: "auto" }}>
