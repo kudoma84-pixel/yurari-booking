@@ -1034,7 +1034,7 @@ const handleAdminQrInput = async (value) => {
         }
       }
     }
-    setCheckoutResult({ paymentId, total, paymentMethod: checkoutPaymentMethod, customerName: checkoutBooking?.customers?.name || "お客様" });
+    setCheckoutResult({ paymentId, total, paymentMethod: checkoutPaymentMethods.map(p => p.method).join(","), customerName: checkoutBooking?.customers?.name || "お客様" });
     setCheckoutComplete(true);
     fetchTodayBookings();
   };
