@@ -382,9 +382,9 @@ function AppInner() {
       await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + existing[0].id, {
         method: "PATCH", headers: patchHeaders,
         body: JSON.stringify({
-          name: profile.name, kana: profile.kana,
+          name: profile.name, kana: profile.kana, tel: profile.tel,
           email: profile.email, address: profile.address,
-          zipcode: profile.zipcode, birthday: profile.birthday,
+          zipcode: profile.zipcode, birthday: profile.birthday || null,
           notification_method: notificationMethod || "email",
           line_user_id: localStorage.getItem('yurari_line_user_id') || null,
         }),
