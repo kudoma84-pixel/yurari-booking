@@ -7,14 +7,16 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const type = searchParams.get("type");
 
-  const today = new Date();
+  const today = new Date(new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }));
   const targetDate = new Date(today);
 
   if (type === "tomorrow") {
     targetDate.setDate(today.getDate() + 1);
   }
 
-  const dateStr = targetDate.toISOString().split("T")[0];
+  const dateStr = targetDate.getFullYear() + "-" +
+    String(targetDate.getMonth() + 1).padStart(2, "0") + "-" +
+    String(targetDate.getDate()).padStart(2, "0");
 
   const headers = {
     "apikey": SUPABASE_KEY,
