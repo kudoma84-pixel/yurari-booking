@@ -244,6 +244,56 @@ const handleAdminQrInput = async (value) => {
     setTodayBookings(Array.isArray(data) ? data : []);
   };
 
+  const printReceipt = () => {
+    if (!checkoutResult) return;
+    const win = window.open('', '_blank');
+    const paymentMethodNames = (checkoutResult.paymentMethod || "").split(",").map(id => PAYMENT_METHODS.find(m => m.id === id)?.name || id).join(" / ");
+    const itemsHtml = (checkoutResult.items || []).map(item =>
+      `<tr><td>${item.name}</td><td style="text-align:right">¥${(item.price * item.quantity).toLocaleString()}</td></tr>`
+    ).join("");
+    const now = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    win.document.write(`
+      <!DOCTYPE html><html><head><meta charset="utf-8">
+      <style>
+        @page { size: 80mm auto; margin: 0; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: monospace; font-size: 12px; width: 72mm; padding: 4mm; }
+        h1 { font-size: 16px; text-align: center; margin-bottom: 4px; }
+        .sub { text-align: center; font-size: 11px; margin-bottom: 2px; }
+        .line { border-top: 1px dashed #000; margin: 6px 0; }
+        table { width: 100%; border-collapse: collapse; }
+        td { padding: 2px 0; vertical-align: top; }
+        .total { font-size: 15px; font-weight: bold; }
+        .right { text-align: right; }
+        .center { text-align: center; }
+        .footer { margin-top: 8px; font-size: 10px; text-align: center; }
+      </style></head><body>
+      <h1>整体院 癒楽里</h1>
+      <p class="sub">${currentStore?.name || ""}</p>
+      <p class="sub">${now}</p>
+      <div class="line"></div>
+      <p style="font-size:11px;margin-bottom:4px">${checkoutResult.customerName} 様</p>
+      <table>
+        ${itemsHtml}
+      </table>
+      <div class="line"></div>
+      <table>
+        <tr><td>小計</td><td class="right">¥${(checkoutResult.subtotal || 0).toLocaleString()}</td></tr>
+        ${checkoutResult.discount > 0 ? `<tr><td>値引き${checkoutResult.discountReason ? "（" + checkoutResult.discountReason + "）" : ""}</td><td class="right">-¥${checkoutResult.discount.toLocaleString()}</td></tr>` : ""}
+        <tr class="total"><td>合計</td><td class="right">¥${(checkoutResult.total || 0).toLocaleString()}</td></tr>
+      </table>
+      <div class="line"></div>
+      <p style="font-size:11px">お支払い：${paymentMethodNames}</p>
+      <div class="footer">
+        <p>ありがとうございました</p>
+        <p>またのご来院をお待ちしております</p>
+      </div>
+      <script>setTimeout(() => { window.print(); window.close(); }, 500);<\/script>
+      </body></html>
+    `);
+    win.document.close();
+  };
+
   const printMemberCard = (customer) => {
     const win = window.open('', '_blank');
     const sName = currentStore?.name || '南浦和本院';
@@ -1034,7 +1084,7 @@ const handleAdminQrInput = async (value) => {
         }
       }
     }
-    setCheckoutResult({ paymentId, total, paymentMethod: checkoutPaymentMethods.map(p => p.method).join(","), customerName: checkoutBooking?.customers?.name || "お客様" });
+    setCheckoutResult({ paymentId, total, subtotal, discount: checkoutDiscount, discountReason: checkoutDiscountReason, paymentMethod: checkoutPaymentMethods.map(p => p.method).join(","), customerName: checkoutBooking?.customers?.name || "お客様", items: checkoutItems });
     setCheckoutComplete(true);
     fetchTodayBookings();
   };
@@ -2099,8 +2149,7 @@ const handleAdminQrInput = async (value) => {
                 </div>
                 <div style={{ display: "flex", gap: 12 }}>
                   <button onClick={() => { setCheckoutBooking(null); setCheckoutComplete(false); }} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>戻る</button>
-                  <button onClick={() => window.print()} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>🖨️ 領収書印刷</button>
-                </div>
+                  <button onClick={printReceipt} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>🖨️ レシート印刷</button>                </div>
               </div>
             ) : (
               <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
