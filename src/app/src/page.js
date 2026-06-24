@@ -799,7 +799,17 @@ function AppInner() {
             当日は予約時間の5分前にお越しください。<br/>キャンセル・変更は前日17時まで承ります。
           </div>
           <a href="/mypage" style={{ display: "block", width: "100%", padding: "14px", borderRadius: 14, background: GREEN, color: "white", fontSize: 15, fontWeight: 700, textDecoration: "none", textAlign: "center", marginBottom: 12, boxSizing: "border-box" }}>マイページで予約を確認する</a>
-          <button onClick={() => { reset(); setScreen("booking"); }} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "2px solid " + GREEN, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>別の予約をする</button>
+          <button onClick={() => { reset(); setScreen("booking"); }} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "2px solid " + GREEN, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer", marginBottom: 20 }}>別の予約をする</button>
+          <div style={{ background: "#f0f8f4", borderRadius: 16, padding: "20px", textAlign: "left" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 12 }}>📱 アプリとして使うと便利です</div>
+            <div style={{ fontSize: 13, color: "#555", lineHeight: 2 }}>
+              <div>① Safariの共有ボタン（□↑）をタップ</div>
+              <div>② 「ホーム画面に追加」を選択</div>
+              <div>③ 追加したアイコンからマイページを開く</div>
+              <div>④ 通知設定でプッシュ通知を許可する</div>
+            </div>
+            <div style={{ fontSize: 11, color: "#aaa", marginTop: 8 }}>※ ホーム画面追加でリマインド通知が届きます</div>
+          </div>
         </div>
       </div>
     );
