@@ -56,6 +56,8 @@ export default function AdminPage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [blocks, setBlocks] = useState([]);
   const [showDeleted, setShowDeleted] = useState(false);
+  const [dailyReport, setDailyReport] = useState(null);
+  const [reportDate, setReportDate] = useState(new Date().toISOString().split("T")[0]);
   const [blockModal, setBlockModal] = useState(null);
   const [changeBookingModal, setChangeBookingModal] = useState(null);
   const [changeBookingForm, setChangeBookingForm] = useState({});
@@ -356,6 +358,53 @@ const handleAdminQrInput = async (value) => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}&select=*`, { headers });
     const data = await res.json();
     if (data && data[0]) setSelectedCustomer(data[0]);
+  };
+
+  const fetchDailyReport = async (dateStr) => {
+    const [paymentsRes, bookingsRes] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&created_at=gte.${dateStr}T00:00:00+09:00&created_at=lte.${dateStr}T23:59:59+09:00&select=*,payment_methods(method,amount)`, { headers }),
+      fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${dateStr}&select=*,customers(name)`, { headers }),
+    ]);
+    const payments = await paymentsRes.json();
+    const bookings = await bookingsRes.json();
+
+    const validPayments = Array.isArray(payments) ? payments : [];
+    const validBookings = Array.isArray(bookings) ? bookings : [];
+
+    // 売上集計
+    const totalSales = validPayments.reduce((s, p) => s + (p.total || 0), 0);
+    const totalDiscount = validPayments.reduce((s, p) => s + (p.discount || 0), 0);
+
+    // 金種別集計
+    const methodTotals = {};
+    validPayments.forEach(p => {
+      if (p.payment_methods && p.payment_methods.length > 0) {
+        p.payment_methods.forEach(pm => {
+          methodTotals[pm.method] = (methodTotals[pm.method] || 0) + pm.amount;
+        });
+      } else {
+        const method = p.payment_method || "cash";
+        methodTotals[method] = (methodTotals[method] || 0) + p.total;
+      }
+    });
+
+    // 予約集計
+    const confirmed = validBookings.filter(b => b.status !== "cancelled");
+    const cancelled = validBookings.filter(b => b.status === "cancelled");
+
+    // スタッフ別
+    const staffCount = {};
+    confirmed.forEach(b => {
+      staffCount[b.staff_name] = (staffCount[b.staff_name] || 0) + 1;
+    });
+
+    // コース別
+    const courseCount = {};
+    confirmed.forEach(b => {
+      courseCount[b.course_name] = (courseCount[b.course_name] || 0) + 1;
+    });
+
+    setDailyReport({ totalSales, totalDiscount, methodTotals, customerCount: validPayments.length, cancelCount: cancelled.length, staffCount, courseCount, payments: validPayments, bookings: validBookings });
   };
 
   const fetchCustomers = async () => {
@@ -929,6 +978,7 @@ const handleAdminQrInput = async (value) => {
     if (loggedIn && tab === "notifications") { fetchNotifications(); fetchCustomers(); }
     if (loggedIn && tab === "gifts") { fetchGiftTicketTemplates(); fetchGiftHistory(); }
   if (loggedIn && tab === "messages") { fetchLineMessages(); }
+  if (loggedIn && tab === "report") { fetchDailyReport(reportDate); }
   if (loggedIn) { fetchAdminNotifications(); }
   }, [loggedIn, tab]);
 
@@ -1849,6 +1899,7 @@ const handleAdminQrInput = async (value) => {
           { id: "notifications", label: "🔔 通知" },
           { id: "gifts", label: "🎫 金券管理" },
           { id: "messages", label: `💬 メッセージ${unreadLineCount > 0 ? `(${unreadLineCount})` : ""}` },
+          { id: "report", label: "📊 日報" },
           { id: "settings", label: "⚙️ 設定" },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "14px 20px", border: "none", background: "none", fontSize: 14, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? "#3a5a3a" : "#aaa", borderBottom: tab === t.id ? "3px solid #5a9e7a" : "3px solid transparent", cursor: "pointer", whiteSpace: "nowrap" }}>{t.label}</button>
@@ -1903,6 +1954,81 @@ const handleAdminQrInput = async (value) => {
             </div>
           );
         })()}
+
+        {tab === "report" && (
+          <div>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 20 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", margin: 0 }}>📊 日報</h2>
+              <input type="date" value={reportDate} onChange={e => { setReportDate(e.target.value); fetchDailyReport(e.target.value); }}
+                style={{ padding: "8px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14 }} />
+            </div>
+            {!dailyReport ? (
+              <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {/* サマリー */}
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  {[
+                    { label: "来院顧客数", value: dailyReport.customerCount + "名", color: "#5a9e7a" },
+                    { label: "総売上", value: "¥" + (dailyReport.totalSales || 0).toLocaleString(), color: "#3a5a3a" },
+                    { label: "値引き合計", value: "¥" + (dailyReport.totalDiscount || 0).toLocaleString(), color: "#e07070" },
+                    { label: "キャンセル数", value: dailyReport.cancelCount + "件", color: "#e0a040" },
+                  ].map(item => (
+                    <div key={item.label} style={{ flex: 1, minWidth: 140, background: "white", borderRadius: 16, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", textAlign: "center" }}>
+                      <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>{item.label}</div>
+                      <div style={{ fontSize: 24, fontWeight: 700, color: item.color }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 金種別 */}
+                <div style={{ background: "white", borderRadius: 16, padding: "20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>💴 金種別売上</div>
+                  {Object.keys(dailyReport.methodTotals).length === 0 ? (
+                    <div style={{ color: "#aaa", fontSize: 13 }}>データなし</div>
+                  ) : (
+                    Object.entries(dailyReport.methodTotals).map(([method, amount]) => (
+                      <div key={method} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #f0e8d8" }}>
+                        <span style={{ fontSize: 13 }}>{PAYMENT_METHODS.find(m => m.id === method)?.name || method}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700 }}>¥{amount.toLocaleString()}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* スタッフ別 */}
+                <div style={{ background: "white", borderRadius: 16, padding: "20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>👤 スタッフ別施術数</div>
+                  {Object.keys(dailyReport.staffCount).length === 0 ? (
+                    <div style={{ color: "#aaa", fontSize: 13 }}>データなし</div>
+                  ) : (
+                    Object.entries(dailyReport.staffCount).map(([name, count]) => (
+                      <div key={name} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #f0e8d8" }}>
+                        <span style={{ fontSize: 13 }}>{name}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700 }}>{count}件</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* コース別 */}
+                <div style={{ background: "white", borderRadius: 16, padding: "20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>📋 コース別件数</div>
+                  {Object.keys(dailyReport.courseCount).length === 0 ? (
+                    <div style={{ color: "#aaa", fontSize: 13 }}>データなし</div>
+                  ) : (
+                    Object.entries(dailyReport.courseCount).map(([name, count]) => (
+                      <div key={name} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #f0e8d8" }}>
+                        <span style={{ fontSize: 13 }}>{name}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700 }}>{count}件</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {tab === "settings" && (
           <div>
