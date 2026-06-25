@@ -1293,7 +1293,7 @@ const handleAdminQrInput = async (value) => {
   const getBookingForCell = (staffId, time) => bookings.find(b => b.staff_id === staffId && b.booking_time === time && b.status !== "cancelled");
   const isBlocked = (staffId, time) => blocks.some(b => (b.staff_id === staffId || b.staff_id === "all") && (b.block_time === time || b.block_time === time + ":00"));
   const getBlock = (staffId, time) => blocks.find(b => (b.staff_id === staffId || b.staff_id === "all") && (b.block_time === time || b.block_time === time + ":00"));
-  const isOnShift = (staffId) => { if (shifts.length === 0) return true; return shifts.some(s => s.staff_id === staffId); };
+  const isOnShift = (staffId) => { if (shifts.length === 0) return false; return shifts.some(s => s.staff_id === staffId); };
   const staffList = staffMembers.filter(s => s.is_active);
 
   const ShiftPopover = ({ staffId, staffName, date, shift, closed }) => {
