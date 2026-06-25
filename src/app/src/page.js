@@ -84,7 +84,8 @@ function AppInner() {
   useEffect(() => {
     if (liffReturn === '1') {
       setScreen("loading");
-      handleAuthSelect('line');
+      // LIFFセッション確立を待つ
+      setTimeout(() => handleAuthSelect('line'), 1000);
     }
   }, []);
 
