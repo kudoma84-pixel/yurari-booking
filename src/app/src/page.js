@@ -1,10 +1,11 @@
 "use client";
 import { useState, useEffect, Suspense } from "react";
-import { signIn, useSession } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 
 const SUPABASE_URL = "https://pbjekdzmvjqhqbbrzbfk.supabase.co";
 const SUPABASE_KEY = "sb_publishable_I_98PawL-eNS__SZa0DlPA_80VwFUZc";
+const LIFF_REDIRECT_URI = "https://yurari-booking.vercel.app/src?liff=1";
 
 const STORES = [
   { id: "minamiurawa", name: "南浦和本院", address: "埼玉県さいたま市南区文蔵2-17-6", tel: "048-762-8333", hours: "10:00〜19:30（最終受付19:00）", lineUrl: "https://lin.ee/MINAMIURAWA" },
@@ -38,7 +39,7 @@ function AppInner() {
   const notifyFromUrl = searchParams?.get('notify');
   const liffReturn = searchParams?.get('liff');
 
-  const [screen, setScreen] = useState("top");
+  const [screen, setScreen] = useState(liffReturn === '1' ? "loading" : "top");
   const [notificationMethod, setNotificationMethod] = useState(null);
   const [step, setStep] = useState(0);
   const [store, setStore] = useState(null);
@@ -82,12 +83,31 @@ function AppInner() {
   }, [notifyFromUrl, session]);
 
   useEffect(() => {
-    if (liffReturn === '1') {
-      setScreen("loading");
-      // LIFFセッション確立を待つ
-      setTimeout(() => handleAuthSelect('line'), 1000);
-    }
-  }, []);
+    if (liffReturn !== '1') return;
+    // LINEログインからのリダイレクト復帰：LIFFセッションを確実に処理する
+    setScreen("loading");
+    setNotificationMethod("line");
+    (async () => {
+      try {
+        const liff = await ensureLiff();
+        if (!liff.isLoggedIn()) {
+          // トークン交換に失敗。ループ防止のためここでは再ログインせずエラー表示
+          window.history.replaceState({}, '', '/src');
+          setScreen("auth");
+          alert("LINEログインに失敗しました。お手数ですが、もう一度お試しください。");
+          return;
+        }
+        await completeLineLogin(liff);
+        // URLからliff=1を除去し、リロードでの再実行を防ぐ
+        window.history.replaceState({}, '', '/src');
+      } catch (e) {
+        console.error("LIFF return error:", e);
+        window.history.replaceState({}, '', '/src');
+        setScreen("auth");
+        alert("LINEログインに失敗しました。通信環境をご確認のうえ、もう一度お試しください。");
+      }
+    })();
+  }, [liffReturn]);
 
   useEffect(() => {
     if (liffReturn === '1') return; // LIFFリダイレクト時はスキップ
@@ -311,56 +331,72 @@ function AppInner() {
     }
   };
 
+  // LIFFを初期化（多重initを防ぎつつ毎回安全に呼べる）
+  const ensureLiff = async () => {
+    const liff = (await import('@line/liff')).default;
+    if (!liff.__yurariInited) {
+      await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
+      liff.__yurariInited = true;
+    }
+    return liff;
+  };
+
+  // ログイン済みLIFFからline_user_idを取得し、顧客の照合・保存まで行う
+  const completeLineLogin = async (liff) => {
+    const liffProfile = await liff.getProfile();
+    const lineUserId = liffProfile.userId;
+    if (!lineUserId) throw new Error("line_user_id が取得できませんでした");
+    // 取得できた時点で必ず保存（以降の全処理で参照される唯一の情報源）
+    localStorage.setItem('yurari_line_user_id', lineUserId);
+    localStorage.setItem('yurari_notification_method', 'line');
+    setNotificationMethod("line");
+
+    const res = await fetch(SUPABASE_URL + "/rest/v1/customers?line_user_id=eq." + lineUserId + "&select=*", { headers });
+    const data = await res.json();
+    if (data && data.length > 0) {
+      const c = data[0];
+      // 念のためline_user_idと通知方法を確実に保存
+      await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${c.id}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ line_user_id: lineUserId, notification_method: "line" }),
+      });
+      setExistingCustomer({ ...c, line_user_id: lineUserId });
+      setProfile({
+        name: c.name || "", kana: c.kana || "",
+        tel: c.tel || "", email: c.email || "",
+        address: c.address || "", zipcode: c.zipcode || "",
+        birthYear: "", birthMonth: "", birthDay: "",
+        birthday: c.birthday || "", firstVisit: "2回目以降", notes: "",
+      });
+      localStorage.setItem('yurari_customer_id', c.id);
+      localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
+      setScreen("booking");
+    } else {
+      // 新規ユーザー：登録画面へ（line_user_idはlocalStorageに保持済み）
+      setProfile(p => ({ ...p, name: liffProfile.displayName || "" }));
+      setScreen("register");
+    }
+    return lineUserId;
+  };
+
   const handleAuthSelect = async (method) => {
     setNotificationMethod(method);
     if (method === "line") {
       localStorage.setItem('yurari_notification_method', 'line');
+      setScreen("loading");
       try {
-        const liff = (await import('@line/liff')).default;
-        await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
+        const liff = await ensureLiff();
         if (!liff.isLoggedIn()) {
-          if (liffReturn === '1') {
-            // リダイレクト後でもログインできていない場合はエラー表示
-            setScreen("top");
-            alert("LINEログインに失敗しました。もう一度お試しください。");
-            return;
-          }
-          liff.login({ redirectUri: "https://yurari-booking.vercel.app/src?liff=1" });
+          // 未ログインならLINEログインへリダイレクト（復帰はliff=1のuseEffectで処理）
+          liff.login({ redirectUri: LIFF_REDIRECT_URI });
           return;
         }
-        const liffProfile = await liff.getProfile();
-        const lineUserId = liffProfile.userId;
-        localStorage.setItem('yurari_line_user_id', lineUserId);
-        const res = await fetch(SUPABASE_URL + "/rest/v1/customers?line_user_id=eq." + lineUserId + "&select=*", { headers });
-        const data = await res.json();
-        if (data && data.length > 0) {
-          const c = data[0];
-          // line_user_idを保存
-          await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${c.id}`, {
-            method: "PATCH",
-            headers,
-            body: JSON.stringify({ line_user_id: lineUserId, notification_method: "line" }),
-          });
-          setExistingCustomer({ ...c, line_user_id: lineUserId });
-          setProfile({
-            name: c.name || "", kana: c.kana || "",
-            tel: c.tel || "", email: c.email || "",
-            address: c.address || "", zipcode: c.zipcode || "",
-            birthYear: "", birthMonth: "", birthDay: "",
-            birthday: c.birthday || "", firstVisit: "2回目以降", notes: "",
-          });
-          localStorage.setItem('yurari_customer_id', c.id);
-          localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
-          localStorage.setItem('yurari_line_user_id', lineUserId);
-          setScreen("booking");
-       } else {
-          localStorage.setItem('yurari_line_user_id', lineUserId);
-          setProfile(p => ({ ...p, name: liffProfile.displayName || "" }));
-          setScreen("register");
-        }
+        await completeLineLogin(liff);
       } catch (e) {
         console.error("LIFF error:", e);
-        signIn("line", { callbackUrl: "/src?notify=line" });
+        setScreen("auth");
+        alert("LINEログインに失敗しました。通信環境をご確認のうえ、もう一度お試しください。");
       }
     } else {
       setScreen("register");
@@ -378,6 +414,7 @@ function AppInner() {
       "Authorization": "Bearer " + SUPABASE_KEY,
       "Content-Type": "application/json",
     };
+    const lineUserId = localStorage.getItem('yurari_line_user_id') || null;
     const searchRes = await fetch(SUPABASE_URL + "/rest/v1/customers?tel=eq." + encodeURIComponent(profile.tel) + "&select=id,name,kana,tel,email,address,zipcode,birthday", { headers: getHeaders });
     const existing = await searchRes.json();
     if (existing && existing.length > 0) {
@@ -386,17 +423,21 @@ function AppInner() {
         "Authorization": "Bearer " + SUPABASE_KEY,
         "Content-Type": "application/json",
       };
+      const patchBody = {
+        name: profile.name, kana: profile.kana, tel: profile.tel,
+        email: profile.email, address: profile.address,
+        zipcode: profile.zipcode, birthday: profile.birthday || null,
+        notification_method: notificationMethod || "email",
+      };
+      // line_user_idは取得できている場合のみ保存（既存値をnullで上書きしない）
+      if (lineUserId) patchBody.line_user_id = lineUserId;
       await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + existing[0].id, {
         method: "PATCH", headers: patchHeaders,
-        body: JSON.stringify({
-          name: profile.name, kana: profile.kana, tel: profile.tel,
-          email: profile.email, address: profile.address,
-          zipcode: profile.zipcode, birthday: profile.birthday || null,
-          notification_method: notificationMethod || "email",
-          line_user_id: localStorage.getItem('yurari_line_user_id') || null,
-        }),
+        body: JSON.stringify(patchBody),
       });
-      setExistingCustomer({ ...existing[0], ...profile });
+      setExistingCustomer({ ...existing[0], ...profile, line_user_id: lineUserId || existing[0].line_user_id });
+      localStorage.setItem('yurari_customer_id', existing[0].id);
+      localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
     } else {
       const postHeaders = {
         "apikey": SUPABASE_KEY,
@@ -411,6 +452,8 @@ function AppInner() {
           email: profile.email, address: profile.address,
           zipcode: profile.zipcode, birthday: profile.birthday || null,
           notification_method: notificationMethod || "email",
+          // 新規顧客作成時にline_user_idを確実に保存（保存漏れの修正）
+          line_user_id: lineUserId,
         }),
       });
       const newCustomer = await newRes.json();
