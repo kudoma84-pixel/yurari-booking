@@ -409,22 +409,36 @@ function AppInner() {
     }
   };
 
-  // LIFFを初期化（多重initを防ぎつつ毎回安全に呼べる）
+  // Promiseが指定時間内に解決しなければreject（ハング検知）
+  const withTimeout = (promise, ms, label) =>
+    Promise.race([
+      promise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(label + " が " + ms + "ms 以内に完了しませんでした（タイムアウト）")), ms)
+      ),
+    ]);
+
+  // LIFFを初期化（多重init防止のため共有Promiseを使う／ハング時はタイムアウト）
   const ensureLiff = async () => {
     const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
     if (!liffId) {
       // ビルド時にNEXT_PUBLIC_LIFF_IDがインライン化されていない＝Vercel環境変数未設定/未再デプロイ
       throw new Error("NEXT_PUBLIC_LIFF_ID が読み込めません（値: " + JSON.stringify(liffId) + "）。Vercelの環境変数設定と、設定後の再デプロイを確認してください。");
     }
-    const liff = (await import('@line/liff')).default;
-    if (!liff.__yurariInited) {
-      try {
-        await liff.init({ liffId });
-      } catch (initErr) {
-        throw new Error("liff.init 失敗 (liffId=" + liffId + "): " + (initErr?.message || String(initErr)));
-      }
-      liff.__yurariInited = true;
+    console.log("[LINE診断] @line/liff を読み込み中...");
+    const mod = await withTimeout(import('@line/liff'), 15000, "@line/liff の読み込み");
+    const liff = mod.default;
+    // 同時に複数回initが走らないよう、init中のPromiseを共有する
+    if (!liff.__yurariInitPromise) {
+      console.log("[LINE診断] liff.init 開始 (liffId=" + liffId + ")");
+      liff.__yurariInitPromise = withTimeout(liff.init({ liffId }), 15000, "liff.init")
+        .then(() => { console.log("[LINE診断] liff.init 完了"); })
+        .catch((initErr) => {
+          liff.__yurariInitPromise = null; // 失敗時は再試行できるようにリセット
+          throw new Error("liff.init 失敗 (liffId=" + liffId + "): " + (initErr?.message || String(initErr)));
+        });
     }
+    await liff.__yurariInitPromise;
     return liff;
   };
 
@@ -474,10 +488,27 @@ function AppInner() {
       setScreen("loading");
       try {
         const liff = await ensureLiff();
+        console.log("[LINE診断] isLoggedIn=" + liff.isLoggedIn());
         if (!liff.isLoggedIn()) {
           // 復帰検知用フラグを立ててからLINEログインへ（戻り先は素のエンドポイントURL）
           localStorage.setItem('yurari_line_login_pending', '1');
+          console.log("[LINE診断] liff.login 実行 redirectUri=" + LINE_ENDPOINT_URL);
           liff.login({ redirectUri: LINE_ENDPOINT_URL });
+          // liff.login() が即リダイレクトしない場合の保険（通常はここに到達する前に遷移する）
+          setTimeout(() => {
+            console.log("[LINE診断] liff.login 後3秒経過してもページ遷移していません");
+            localStorage.removeItem('yurari_line_login_pending');
+            setScreen("auth");
+            alert(
+              "【LINE認証画面に遷移できませんでした】\n" +
+              "liff.login() を呼びましたがLINEの認証画面へ移動しませんでした。\n" +
+              "LIFF_ID: " + (process.env.NEXT_PUBLIC_LIFF_ID || "(未設定)") + "\n\n" +
+              "LINE Developersで以下をご確認ください：\n" +
+              "・LIFFアプリのエンドポイントURLが https://yurari-booking.vercel.app/src と一致\n" +
+              "・「ウェブアプリでLINEログインを利用する」が有効\n" +
+              "・チャネルが公開済み"
+            );
+          }, 3000);
           return;
         }
         await completeLineLogin(liff);
