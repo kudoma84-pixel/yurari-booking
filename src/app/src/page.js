@@ -434,8 +434,16 @@ function AppInner() {
       liff.__yurariInitPromise = withTimeout(liff.init({ liffId }), 15000, "liff.init")
         .then(() => { console.log("[LINE診断] liff.init 完了"); })
         .catch((initErr) => {
-          liff.__yurariInitPromise = null; // 失敗時は再試行できるようにリセット
-          throw new Error("liff.init 失敗 (liffId=" + liffId + "): " + (initErr?.message || String(initErr)));
+          const msg = initErr?.message || String(initErr);
+          console.warn("[LINE診断] liff.init エラー:", msg);
+          // "Unable to load client features" は外部ブラウザ（LINE外）でOAuth後に発生する既知エラー。
+          // このエラーが出る時点でトークンは既に保存済み。isLoggedIn()で確認して続行できる。
+          if (msg.includes("Unable to load client features")) {
+            console.warn("[LINE診断] 既知エラーを吸収。isLoggedIn()でトークン確立を確認します。");
+            return; // 正常終了として扱う
+          }
+          liff.__yurariInitPromise = null; // その他のエラーは再試行できるようにリセット
+          throw new Error("liff.init 失敗 (liffId=" + liffId + "): " + msg);
         });
     }
     await liff.__yurariInitPromise;
