@@ -5,7 +5,9 @@ import { useSearchParams } from "next/navigation";
 
 const SUPABASE_URL = "https://pbjekdzmvjqhqbbrzbfk.supabase.co";
 const SUPABASE_KEY = "sb_publishable_I_98PawL-eNS__SZa0DlPA_80VwFUZc";
-const LIFF_REDIRECT_URI = "https://yurari-booking.vercel.app/src?liff=1";
+// LINEログインの戻り先はクエリを付けない素のエンドポイントURLにする
+// （?liff=1 等のマーカーを付けると liff.state の処理と競合し、トークン確立に失敗するため）
+const LINE_ENDPOINT_URL = "https://yurari-booking.vercel.app/src";
 
 const STORES = [
   { id: "minamiurawa", name: "南浦和本院", address: "埼玉県さいたま市南区文蔵2-17-6", tel: "048-762-8333", hours: "10:00〜19:30（最終受付19:00）", lineUrl: "https://lin.ee/MINAMIURAWA" },
@@ -39,7 +41,19 @@ function AppInner() {
   const notifyFromUrl = searchParams?.get('notify');
   const liffReturn = searchParams?.get('liff');
 
-  const [screen, setScreen] = useState(liffReturn === '1' ? "loading" : "top");
+  const [screen, setScreen] = useState(() => {
+    if (typeof window === "undefined") return "top";
+    const sp = new URLSearchParams(window.location.search);
+    // LINEログイン復帰中はトップを表示せずローディングにする
+    if (
+      liffReturn === "1" ||
+      sp.get("code") || sp.get("liff.state") || sp.get("error") ||
+      localStorage.getItem("yurari_line_login_pending") === "1"
+    ) {
+      return "loading";
+    }
+    return "top";
+  });
   const [notificationMethod, setNotificationMethod] = useState(null);
   const [step, setStep] = useState(0);
   const [store, setStore] = useState(null);
@@ -87,8 +101,10 @@ function AppInner() {
     const sp = new URLSearchParams(window.location.search);
     const oauthError = sp.get("error");
     const oauthErrorDesc = sp.get("error_description");
-    // LINE OAuthコールバックのパラメータ（liff=1が落ちても検出できるように）
+    // LINE OAuthコールバックのパラメータ
     const hasOAuthParams = !!(sp.get("code") || sp.get("liff.state") || sp.get("liffClientId"));
+    // ログインボタン押下時に立てたフラグ（URLマーカーに依存せず復帰を検知する）
+    const pending = localStorage.getItem("yurari_line_login_pending") === "1";
 
     // 診断ログ（ブラウザのコンソールで確認可能）
     console.log("[LINE診断]", {
@@ -98,11 +114,13 @@ function AppInner() {
       state: sp.get("state") ? "あり" : "なし",
       liffState: sp.get("liff.state"),
       error: oauthError,
+      pending,
       LIFF_ID: process.env.NEXT_PUBLIC_LIFF_ID || "(未設定)",
     });
 
     // LINE側が認証エラーを返してきた場合
     if (oauthError) {
+      localStorage.removeItem("yurari_line_login_pending");
       setScreen("auth");
       alert(
         "【LINE認証エラー(LINE側から返却)】\n" +
@@ -114,34 +132,44 @@ function AppInner() {
       return;
     }
 
-    // 復帰でない（liff=1もOAuthパラメータも無い）なら何もしない
-    if (liffReturn !== "1" && !hasOAuthParams) return;
+    // ログイン処理中でなければ何もしない（フラグ・OAuthパラメータ・旧liff=1のいずれか）
+    if (!pending && !hasOAuthParams && liffReturn !== "1") return;
 
     // LINEログインからのリダイレクト復帰：LIFFセッションを確実に処理する
+    // 重要：liff.init() がトークンを確立し終えるまで URL は書き換えない
     setScreen("loading");
     setNotificationMethod("line");
     (async () => {
       try {
         const liff = await ensureLiff();
         if (!liff.isLoggedIn()) {
-          // トークン交換に失敗。ループ防止のため再ログインせず詳細を表示
-          window.history.replaceState({}, "", "/src");
+          // codeがURLに残っている＝まだliffの内部リダイレクト途中の可能性。
+          // フラグは消さずに待つ（liffが素のエンドポイントへ再遷移してくる）。
+          if (hasOAuthParams) {
+            console.log("[LINE診断] OAuthパラメータあり・未ログイン。liffの再遷移を待機します。");
+            return;
+          }
+          // フラグありで素のURLなのに未ログイン＝トークン確立に失敗（LINE側設定の可能性大）
+          localStorage.removeItem("yurari_line_login_pending");
           setScreen("auth");
           alert(
-            "【LINEログイン失敗(復帰後にログイン状態が確立できず)】\n" +
+            "【LINEログイン失敗(ログイン状態が確立できず)】\n" +
             "liff.isLoggedIn() = false\n" +
-            "liff=" + sp.get("liff") + " / code=" + (sp.get("code") ? "あり" : "なし") + "\n" +
-            "LIFF_ID: " + (process.env.NEXT_PUBLIC_LIFF_ID || "(未設定)") + "\n" +
-            "URL: " + window.location.href
+            "URL: " + window.location.href + "\n" +
+            "LIFF_ID: " + (process.env.NEXT_PUBLIC_LIFF_ID || "(未設定)") + "\n\n" +
+            "※トークン未保存。LINE Developersの「LINEログイン」チャネル設定" +
+            "（公開状態・コールバックURL・LIFFエンドポイントURL）をご確認ください。"
           );
           return;
         }
+        // ログイン確立。フラグを消し、顧客処理へ。
+        localStorage.removeItem("yurari_line_login_pending");
         await completeLineLogin(liff);
-        // URLからクエリを除去し、リロードでの再実行を防ぐ
+        // ここで初めてURLを綺麗にする
         window.history.replaceState({}, "", "/src");
       } catch (e) {
         console.error("LIFF return error:", e);
-        window.history.replaceState({}, "", "/src");
+        localStorage.removeItem("yurari_line_login_pending");
         setScreen("auth");
         alert(
           "【LINEログインエラー(復帰処理時)】\n" +
@@ -155,10 +183,11 @@ function AppInner() {
 
   useEffect(() => {
     if (liffReturn === '1') return; // LIFFリダイレクト時はスキップ
-    // LINE OAuthコールバック(code/state)で戻った場合もスキップ（復帰用useEffectに任せる）
+    // LINEログイン復帰中（OAuthパラメータ or ログイン中フラグ）はスキップ（復帰用useEffectに任せる）
     if (typeof window !== "undefined") {
       const sp = new URLSearchParams(window.location.search);
       if (sp.get("code") || sp.get("liff.state") || sp.get("error")) return;
+      if (localStorage.getItem("yurari_line_login_pending") === "1") return;
     }
     const customerId = localStorage.getItem('yurari_customer_id');
     const expire = localStorage.getItem('yurari_login_expire');
@@ -446,8 +475,9 @@ function AppInner() {
       try {
         const liff = await ensureLiff();
         if (!liff.isLoggedIn()) {
-          // 未ログインならLINEログインへリダイレクト（復帰はliff=1のuseEffectで処理）
-          liff.login({ redirectUri: LIFF_REDIRECT_URI });
+          // 復帰検知用フラグを立ててからLINEログインへ（戻り先は素のエンドポイントURL）
+          localStorage.setItem('yurari_line_login_pending', '1');
+          liff.login({ redirectUri: LINE_ENDPOINT_URL });
           return;
         }
         await completeLineLogin(liff);
