@@ -83,7 +83,40 @@ function AppInner() {
   }, [notifyFromUrl, session]);
 
   useEffect(() => {
-    if (liffReturn !== '1') return;
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    const oauthError = sp.get("error");
+    const oauthErrorDesc = sp.get("error_description");
+    // LINE OAuthコールバックのパラメータ（liff=1が落ちても検出できるように）
+    const hasOAuthParams = !!(sp.get("code") || sp.get("liff.state") || sp.get("liffClientId"));
+
+    // 診断ログ（ブラウザのコンソールで確認可能）
+    console.log("[LINE診断]", {
+      href: window.location.href,
+      liffParam: sp.get("liff"),
+      code: sp.get("code") ? "あり" : "なし",
+      state: sp.get("state") ? "あり" : "なし",
+      liffState: sp.get("liff.state"),
+      error: oauthError,
+      LIFF_ID: process.env.NEXT_PUBLIC_LIFF_ID || "(未設定)",
+    });
+
+    // LINE側が認証エラーを返してきた場合
+    if (oauthError) {
+      setScreen("auth");
+      alert(
+        "【LINE認証エラー(LINE側から返却)】\n" +
+        "error: " + oauthError + "\n" +
+        "description: " + (oauthErrorDesc || "(なし)") + "\n" +
+        "LIFF_ID: " + (process.env.NEXT_PUBLIC_LIFF_ID || "(未設定)")
+      );
+      window.history.replaceState({}, "", "/src");
+      return;
+    }
+
+    // 復帰でない（liff=1もOAuthパラメータも無い）なら何もしない
+    if (liffReturn !== "1" && !hasOAuthParams) return;
+
     // LINEログインからのリダイレクト復帰：LIFFセッションを確実に処理する
     setScreen("loading");
     setNotificationMethod("line");
@@ -91,26 +124,42 @@ function AppInner() {
       try {
         const liff = await ensureLiff();
         if (!liff.isLoggedIn()) {
-          // トークン交換に失敗。ループ防止のためここでは再ログインせずエラー表示
-          window.history.replaceState({}, '', '/src');
+          // トークン交換に失敗。ループ防止のため再ログインせず詳細を表示
+          window.history.replaceState({}, "", "/src");
           setScreen("auth");
-          alert("LINEログインに失敗しました。お手数ですが、もう一度お試しください。");
+          alert(
+            "【LINEログイン失敗(復帰後にログイン状態が確立できず)】\n" +
+            "liff.isLoggedIn() = false\n" +
+            "liff=" + sp.get("liff") + " / code=" + (sp.get("code") ? "あり" : "なし") + "\n" +
+            "LIFF_ID: " + (process.env.NEXT_PUBLIC_LIFF_ID || "(未設定)") + "\n" +
+            "URL: " + window.location.href
+          );
           return;
         }
         await completeLineLogin(liff);
-        // URLからliff=1を除去し、リロードでの再実行を防ぐ
-        window.history.replaceState({}, '', '/src');
+        // URLからクエリを除去し、リロードでの再実行を防ぐ
+        window.history.replaceState({}, "", "/src");
       } catch (e) {
         console.error("LIFF return error:", e);
-        window.history.replaceState({}, '', '/src');
+        window.history.replaceState({}, "", "/src");
         setScreen("auth");
-        alert("LINEログインに失敗しました。通信環境をご確認のうえ、もう一度お試しください。");
+        alert(
+          "【LINEログインエラー(復帰処理時)】\n" +
+          "メッセージ: " + (e?.message || String(e)) + "\n" +
+          "LIFF_ID: " + (process.env.NEXT_PUBLIC_LIFF_ID || "(未設定)") + "\n" +
+          "URL: " + window.location.href
+        );
       }
     })();
   }, [liffReturn]);
 
   useEffect(() => {
     if (liffReturn === '1') return; // LIFFリダイレクト時はスキップ
+    // LINE OAuthコールバック(code/state)で戻った場合もスキップ（復帰用useEffectに任せる）
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get("code") || sp.get("liff.state") || sp.get("error")) return;
+    }
     const customerId = localStorage.getItem('yurari_customer_id');
     const expire = localStorage.getItem('yurari_login_expire');
     const lineUserId = localStorage.getItem('yurari_line_user_id');
@@ -333,9 +382,18 @@ function AppInner() {
 
   // LIFFを初期化（多重initを防ぎつつ毎回安全に呼べる）
   const ensureLiff = async () => {
+    const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
+    if (!liffId) {
+      // ビルド時にNEXT_PUBLIC_LIFF_IDがインライン化されていない＝Vercel環境変数未設定/未再デプロイ
+      throw new Error("NEXT_PUBLIC_LIFF_ID が読み込めません（値: " + JSON.stringify(liffId) + "）。Vercelの環境変数設定と、設定後の再デプロイを確認してください。");
+    }
     const liff = (await import('@line/liff')).default;
     if (!liff.__yurariInited) {
-      await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
+      try {
+        await liff.init({ liffId });
+      } catch (initErr) {
+        throw new Error("liff.init 失敗 (liffId=" + liffId + "): " + (initErr?.message || String(initErr)));
+      }
       liff.__yurariInited = true;
     }
     return liff;
@@ -396,7 +454,12 @@ function AppInner() {
       } catch (e) {
         console.error("LIFF error:", e);
         setScreen("auth");
-        alert("LINEログインに失敗しました。通信環境をご確認のうえ、もう一度お試しください。");
+        alert(
+          "【LINEログインエラー(ボタン押下時)】\n" +
+          "メッセージ: " + (e?.message || String(e)) + "\n" +
+          "LIFF_ID: " + (process.env.NEXT_PUBLIC_LIFF_ID || "(未設定)") + "\n" +
+          "URL: " + (typeof window !== "undefined" ? window.location.href : "")
+        );
       }
     } else {
       setScreen("register");
