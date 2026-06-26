@@ -319,6 +319,12 @@ function AppInner() {
         const liff = (await import('@line/liff')).default;
         await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID });
         if (!liff.isLoggedIn()) {
+          if (liffReturn === '1') {
+            // リダイレクト後でもログインできていない場合はエラー表示
+            setScreen("top");
+            alert("LINEログインに失敗しました。もう一度お試しください。");
+            return;
+          }
           liff.login({ redirectUri: "https://yurari-booking.vercel.app/src?liff=1" });
           return;
         }
