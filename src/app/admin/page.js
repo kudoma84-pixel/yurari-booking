@@ -946,7 +946,7 @@ const handleAdminQrInput = async (value) => {
         course_duration: course?.duration || "30分",
         staff_name: staff?.name || "",
         status: "confirmed",
-        notes: changeBookingModal.notes || "",
+        notes: directBookingModal.notes || "",
         booking_number: num,
         source: "direct",
       }),
