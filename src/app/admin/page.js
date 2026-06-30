@@ -90,6 +90,8 @@ export default function AdminPage() {
   const [todayBookings, setTodayBookings] = useState([]);
   const [staffMembers, setStaffMembers] = useState([]);
   const [courseMenus, setCourseMenus] = useState([]);
+  const [subMenus, setSubMenus] = useState([]);
+  const [editingSubMenu, setEditingSubMenu] = useState(null);
   const [settingsSubTab, setSettingsSubTab] = useState("staff");
   const [editingStaff, setEditingStaff] = useState(null);
   const [editingCourse, setEditingCourse] = useState(null);
@@ -571,6 +573,12 @@ const handleAdminQrInput = async (value) => {
     setCourseMenus(Array.isArray(data) ? data : []);
   };
 
+  const fetchSubMenus = async () => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/sub_menus?store_id=eq.${currentStore.id}&order=sort_order.asc`, { headers });
+    const data = await res.json();
+    setSubMenus(Array.isArray(data) ? data : []);
+  };
+
   const fetchStoreSettings = async () => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/store_settings?store_id=eq.${currentStore.id}`, { headers });
     const data = await res.json();
@@ -970,8 +978,8 @@ const handleAdminQrInput = async (value) => {
   useEffect(() => {
     if (loggedIn && tab === "customers") fetchCustomers();
     if (loggedIn && tab === "shifts") { fetchMonthShifts(); fetchShiftPlans(); fetchStaffMembers(); }
-    if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchProducts(); fetchCourseMenus(); fetchGiftTicketTemplates(); }
-    if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); fetchStoreSettings(); fetchGiftTicketTemplates(); }
+    if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchProducts(); fetchCourseMenus(); fetchSubMenus(); fetchGiftTicketTemplates(); }
+    if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); fetchSubMenus(); fetchStoreSettings(); fetchGiftTicketTemplates(); }
     if (loggedIn && tab === "calendar") { fetchStaffMembers(); if (selectedDate) fetchAll(selectedDate); }
     if (loggedIn && tab === "checkin") { fetchTodayReceived(); }
     if (loggedIn && tab === "bookings") { fetchBookings(selectedDate || new Date()); }
@@ -1058,6 +1066,22 @@ const handleAdminQrInput = async (value) => {
     await fetchProducts();
   };
 
+  const saveSubMenu = async () => {
+    if (!editingSubMenu?.name) return;
+    if (editingSubMenu.id) {
+      await fetch(`${SUPABASE_URL}/rest/v1/sub_menus?id=eq.${editingSubMenu.id}`, { method: "PATCH", headers, body: JSON.stringify({ name: editingSubMenu.name, price: parseInt(editingSubMenu.price) || 0, is_active: editingSubMenu.is_active !== false }) });
+    } else {
+      await fetch(`${SUPABASE_URL}/rest/v1/sub_menus`, { method: "POST", headers, body: JSON.stringify({ store_id: currentStore.id, name: editingSubMenu.name, price: parseInt(editingSubMenu.price) || 0, is_active: true, sort_order: subMenus.length + 1 }) });
+    }
+    await fetchSubMenus();
+    setEditingSubMenu(null);
+  };
+
+  const deleteSubMenu = async (id) => {
+    await fetch(`${SUPABASE_URL}/rest/v1/sub_menus?id=eq.${id}`, { method: "DELETE", headers });
+    await fetchSubMenus();
+  };
+
   const startCheckout = (booking) => {
     const course = courseMenus.find(c => c.id === booking.course_id) || { name: booking.course_name, price: 0 };
     setCheckoutBooking(booking);
@@ -1078,6 +1102,16 @@ const handleAdminQrInput = async (value) => {
       setCheckoutItems(checkoutItems.map(i => i.id === product.id ? { ...i, quantity: i.quantity + 1 } : i));
     } else {
       setCheckoutItems([...checkoutItems, { id: product.id, type: "product", name: product.name, price: product.price, quantity: 1 }]);
+    }
+  };
+
+  const addSubMenu = (subMenu) => {
+    const itemId = "sub_" + subMenu.id;
+    const existing = checkoutItems.find(i => i.id === itemId);
+    if (existing) {
+      setCheckoutItems(checkoutItems.map(i => i.id === itemId ? { ...i, quantity: i.quantity + 1 } : i));
+    } else {
+      setCheckoutItems([...checkoutItems, { id: itemId, type: "submenu", name: subMenu.name, price: subMenu.price, quantity: 1 }]);
     }
   };
 
@@ -1803,6 +1837,37 @@ const handleAdminQrInput = async (value) => {
         </div>
       )}
 
+      {editingSubMenu !== null && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setEditingSubMenu(null)}>
+          <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 400, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>{editingSubMenu.id ? "サブメニュー編集" : "サブメニュー追加"}</div>
+              <button onClick={() => setEditingSubMenu(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 24 }}>
+              {[
+                { label: "サブメニュー名", key: "name", placeholder: "ヘッドマッサージ追加", required: true },
+                { label: "料金（円）", key: "price", placeholder: "1100", type: "number" },
+              ].map(f => (
+                <div key={f.key}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>{f.label}{f.required && <span style={{ color: "#e07070" }}> *</span>}</label>
+                  <input type={f.type || "text"} value={editingSubMenu[f.key] || ""} onChange={e => setEditingSubMenu({ ...editingSubMenu, [f.key]: e.target.value })} placeholder={f.placeholder} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+                </div>
+              ))}
+              {editingSubMenu.id && (
+                <div onClick={() => setEditingSubMenu({ ...editingSubMenu, is_active: editingSubMenu.is_active === false ? true : false })} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                  <div style={{ width: 20, height: 20, borderRadius: 4, border: `2px solid ${editingSubMenu.is_active !== false ? "#5a9e7a" : "#e8ddd0"}`, background: editingSubMenu.is_active !== false ? "#5a9e7a" : "white", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {editingSubMenu.is_active !== false && <span style={{ color: "white", fontSize: 12 }}>✓</span>}
+                  </div>
+                  <span style={{ fontSize: 13, color: "#3a5a3a" }}>公開する</span>
+                </div>
+              )}
+            </div>
+            <button onClick={saveSubMenu} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>保存</button>
+          </div>
+        </div>
+      )}
+
       {editingProduct !== null && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setEditingProduct(null)}>
           <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 400, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
@@ -2036,6 +2101,7 @@ const handleAdminQrInput = async (value) => {
               {[
                 { id: "staff", label: "👤 スタッフ管理" },
                 { id: "courses", label: "📋 メニュー管理" },
+                { id: "submenus", label: "➕ サブメニュー管理" },
                 { id: "products", label: "🛍️ 物販商品管理" },
                 { id: "booking", label: "⏰ 予約設定" },
                 { id: "tickets", label: "🎫 金券管理" },
@@ -2067,6 +2133,33 @@ const handleAdminQrInput = async (value) => {
                         <button onClick={async () => { if (idx < staffMembers.length - 1) { await fetch(`${SUPABASE_URL}/rest/v1/staff_members?id=eq.${s.id}`, { method: "PATCH", headers, body: JSON.stringify({ sort_order: staffMembers[idx+1].sort_order }) }); await fetch(`${SUPABASE_URL}/rest/v1/staff_members?id=eq.${staffMembers[idx+1].id}`, { method: "PATCH", headers, body: JSON.stringify({ sort_order: s.sort_order }) }); fetchStaffMembers(); } }} style={{ padding: "6px 10px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, cursor: "pointer" }}>↓</button>
                         <button onClick={() => setEditingStaff(s)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, cursor: "pointer" }}>編集</button>
                         <button onClick={() => deleteStaff(s.id)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #ffcccc", background: "white", color: "#e07070", fontSize: 12, cursor: "pointer" }}>削除</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {settingsSubTab === "submenus" && (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>サブメニュー一覧</div>
+                  <button onClick={() => setEditingSubMenu({})} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>＋ サブメニュー追加</button>
+                </div>
+                {subMenus.length === 0 && <div style={{ textAlign: "center", padding: 40, background: "white", borderRadius: 16, color: "#aaa" }}>サブメニューが登録されていません</div>}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {subMenus.map((s, idx) => (
+                    <div key={s.id} style={{ background: "white", borderRadius: 14, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: s.is_active ? "#3a5a3a" : "#aaa" }}>{s.name}</div>
+                          {!s.is_active && <div style={{ fontSize: 10, background: "#f0ebe4", color: "#aaa", borderRadius: 10, padding: "2px 8px" }}>非公開</div>}
+                        </div>
+                        <div style={{ fontSize: 12, color: "#888" }}>¥{s.price?.toLocaleString()}</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => setEditingSubMenu(s)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, cursor: "pointer" }}>編集</button>
+                        <button onClick={() => deleteSubMenu(s.id)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #ffcccc", background: "white", color: "#e07070", fontSize: 12, cursor: "pointer" }}>削除</button>
                       </div>
                     </div>
                   ))}
@@ -2355,6 +2448,21 @@ const handleAdminQrInput = async (value) => {
                   </div>
                 </div>
                 <div style={{ width: 320, display: "flex", flexDirection: "column", gap: 16 }}>
+                  <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>➕ サブメニューを追加</div>
+                    {subMenus.filter(s => s.is_active).length === 0 ? (
+                      <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", padding: 20 }}>サブメニューが登録されていません</div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {subMenus.filter(s => s.is_active).map(s => (
+                          <div key={s.id} onClick={() => addSubMenu(s)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "#f9f6f2", borderRadius: 10, cursor: "pointer" }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{s.name}</div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#5a9e7a" }}>{formatPrice(s.price)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>物販を追加</div>
                     {products.filter(p => p.is_active).length === 0 ? (
