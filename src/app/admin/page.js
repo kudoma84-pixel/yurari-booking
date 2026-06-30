@@ -575,6 +575,11 @@ const handleAdminQrInput = async (value) => {
 
   const fetchSubMenus = async () => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/sub_menus?store_id=eq.${currentStore.id}&order=sort_order.asc`, { headers });
+    if (!res.ok) {
+      console.warn("[fetchSubMenus] エラー:", res.status, await res.text());
+      setSubMenus([]);
+      return;
+    }
     const data = await res.json();
     setSubMenus(Array.isArray(data) ? data : []);
   };
@@ -1067,18 +1072,40 @@ const handleAdminQrInput = async (value) => {
   };
 
   const saveSubMenu = async () => {
-    if (!editingSubMenu?.name) return;
-    if (editingSubMenu.id) {
-      await fetch(`${SUPABASE_URL}/rest/v1/sub_menus?id=eq.${editingSubMenu.id}`, { method: "PATCH", headers, body: JSON.stringify({ name: editingSubMenu.name, price: parseInt(editingSubMenu.price) || 0, is_active: editingSubMenu.is_active !== false }) });
-    } else {
-      await fetch(`${SUPABASE_URL}/rest/v1/sub_menus`, { method: "POST", headers, body: JSON.stringify({ store_id: currentStore.id, name: editingSubMenu.name, price: parseInt(editingSubMenu.price) || 0, is_active: true, sort_order: subMenus.length + 1 }) });
+    if (!editingSubMenu?.name) {
+      alert("サブメニュー名を入力してください");
+      return;
     }
-    await fetchSubMenus();
-    setEditingSubMenu(null);
+    try {
+      let res;
+      if (editingSubMenu.id) {
+        res = await fetch(`${SUPABASE_URL}/rest/v1/sub_menus?id=eq.${editingSubMenu.id}`, { method: "PATCH", headers, body: JSON.stringify({ name: editingSubMenu.name, price: parseInt(editingSubMenu.price) || 0, is_active: editingSubMenu.is_active !== false }) });
+      } else {
+        const body = { store_id: String(currentStore.id), name: editingSubMenu.name, price: parseInt(editingSubMenu.price) || 0, is_active: true, sort_order: subMenus.length + 1 };
+        console.log("[saveSubMenu] POST body:", body);
+        res = await fetch(`${SUPABASE_URL}/rest/v1/sub_menus`, { method: "POST", headers, body: JSON.stringify(body) });
+      }
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("[saveSubMenu] エラー:", res.status, errText);
+        alert(`保存失敗 (${res.status})\n${errText}\n\n※sub_menusテーブルが存在しない場合はSupabaseで作成してください`);
+        return;
+      }
+      await fetchSubMenus();
+      setEditingSubMenu(null);
+    } catch (e) {
+      console.error("[saveSubMenu] 例外:", e);
+      alert(`保存中にエラーが発生しました\n${e.message}`);
+    }
   };
 
   const deleteSubMenu = async (id) => {
-    await fetch(`${SUPABASE_URL}/rest/v1/sub_menus?id=eq.${id}`, { method: "DELETE", headers });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/sub_menus?id=eq.${id}`, { method: "DELETE", headers });
+    if (!res.ok) {
+      const errText = await res.text();
+      alert(`削除失敗 (${res.status})\n${errText}`);
+      return;
+    }
     await fetchSubMenus();
   };
 
