@@ -76,12 +76,45 @@ function AppInner() {
   useEffect(() => {
     if (notifyFromUrl !== 'line') return;
     setNotificationMethod('line');
-    if (sessionStatus === 'loading') return; // セッション確立待ち
-    if (sessionStatus === 'unauthenticated' || !session?.lineUserId) {
+
+    // 診断ログ（Vercelのブラウザコンソールで確認）
+    console.log("[NextAuth診断]", {
+      sessionStatus,
+      lineUserId: session?.lineUserId ?? "(なし)",
+      sessionKeys: session ? Object.keys(session) : [],
+      url: typeof window !== "undefined" ? window.location.href : "",
+    });
+
+    if (sessionStatus === 'loading') return; // セッション確立待ち（最大数秒）
+
+    if (sessionStatus === 'unauthenticated') {
+      // pages.signIn:'/src' によりNextAuthが再度ここへリダイレクトしループするのを防ぐ
+      // URLからnotify=lineを除去してからエラー表示する
+      if (typeof window !== "undefined") window.history.replaceState({}, "", "/src");
       setScreen("auth");
-      alert("LINEログインに失敗しました。もう一度お試しください。");
+      alert(
+        "【LINEログイン失敗 - セッション未確立】\n\n" +
+        "Vercelの環境変数を確認してください：\n" +
+        "・NEXTAUTH_SECRET が設定されているか\n" +
+        "・NEXTAUTH_URL = https://yurari-booking.vercel.app\n" +
+        "・LINE_CLIENT_ID / LINE_CLIENT_SECRET\n\n" +
+        "LINE Developersのコールバック URL:\n" +
+        "https://yurari-booking.vercel.app/api/auth/callback/line"
+      );
       return;
     }
+
+    if (!session?.lineUserId) {
+      if (typeof window !== "undefined") window.history.replaceState({}, "", "/src");
+      setScreen("auth");
+      alert(
+        "【LINEログイン失敗 - lineUserIdが取得できません】\n" +
+        "セッション内容: " + JSON.stringify(session) + "\n\n" +
+        "ブラウザのコンソールに [NextAuth診断] ログが出ています。"
+      );
+      return;
+    }
+
     checkExistingCustomer();
   }, [notifyFromUrl, session, sessionStatus]);
 
