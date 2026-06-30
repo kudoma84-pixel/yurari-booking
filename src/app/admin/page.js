@@ -2656,23 +2656,23 @@ const handleAdminQrInput = async (value) => {
                                 const onShift = isOnShift(s.id);
                                 const isExt = ["09:00","09:30","20:00","20:30"].includes(time) && isSlotExtended(time);
 
-                                // 予約の所要時間からrowSpanを計算
-                                let rowSpan = 1;
+                                // 予約の所要時間からcolSpanを計算（横軸＝時間列に展開）
+                                let colSpan = 1;
                                 if (booking && booking.status !== "cancelled") {
                                   const durationMin = parseInt((booking.course_duration || booking.course_name?.match(/(\d+)分/)?.[1] || "30")) || 30;
-                                  rowSpan = Math.max(1, Math.round(durationMin / 30));
-                                  // スキップするスロットを登録
+                                  colSpan = Math.max(1, Math.round(durationMin / 30));
+                                  // colSpanで占有する後続の時間列をスキップ登録
                                   const startIdx = timeSlots.indexOf(time);
-                                  for (let i = 1; i < rowSpan; i++) {
+                                  for (let i = 1; i < colSpan; i++) {
                                     if (timeSlots[startIdx + i]) skipSlots.add(timeSlots[startIdx + i]);
                                   }
                                 }
 
                                 cells.push(
-                                  <td key={time} rowSpan={rowSpan} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: (BREAK_SLOTS.includes(time) && !isSlotBreakReleased(time)) ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", minWidth: 38, maxWidth: 60, width: 60, verticalAlign: "top", overflow: "hidden" }}>
+                                  <td key={time} colSpan={colSpan} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: (BREAK_SLOTS.includes(time) && !isSlotBreakReleased(time)) ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden" }}>
                                     {isBreak && !isSlotBreakReleased(time) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
                                     : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
-                                    : booking && booking.status !== "cancelled" ? <div onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "pointer", lineHeight: 1.4, height: rowSpan * 38 - 8, minHeight: 30, display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center" }}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div></div>                                    : blocked ? (() => { const blk = getBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, cursor: "pointer", lineHeight: 1.3 }} onClick={() => { if (window.confirm("ブロックを解除しますか？")) toggleBlock(s.id, time); }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()                                    : <div onClick={() => setBlockModal({ staffId: s.id, time })} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}                                  </td>
+                                    : booking && booking.status !== "cancelled" ? <div onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "pointer", lineHeight: 1.4, minHeight: 30, display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center" }}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div></div>                                    : blocked ? (() => { const blk = getBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, cursor: "pointer", lineHeight: 1.3 }} onClick={() => { if (window.confirm("ブロックを解除しますか？")) toggleBlock(s.id, time); }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()                                    : <div onClick={() => setBlockModal({ staffId: s.id, time })} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}                                  </td>
                                 );
                               });
                               return cells;
