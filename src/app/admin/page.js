@@ -363,8 +363,11 @@ const handleAdminQrInput = async (value) => {
   };
 
   const fetchDailyReport = async (dateStr) => {
+    // JST 0:00〜23:59 をUTCに変換（UTC = JST - 9h）
+    const utcStart = new Date(`${dateStr}T00:00:00+09:00`).toISOString().slice(0, 19);
+    const utcEnd   = new Date(`${dateStr}T23:59:59+09:00`).toISOString().slice(0, 19);
     const [paymentsRes, bookingsRes] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&created_at=gte.${dateStr}T00:00:00+09:00&created_at=lte.${dateStr}T23:59:59+09:00&select=*,payment_methods(method,amount)`, { headers }),
+      fetch(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&created_at=gte.${utcStart}&created_at=lte.${utcEnd}&select=*,payment_methods(method,amount)`, { headers }),
       fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${dateStr}&select=*,customers(name)`, { headers }),
     ]);
     const payments = await paymentsRes.json();
