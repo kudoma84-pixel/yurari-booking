@@ -41,6 +41,7 @@ const BREAK_SLOTS = ["13:30","14:00","14:30"];
 const BREAK_RELEASED_SLOTS = ["13:30","14:00","14:30"];
 const DAYS_JP = ["日","月","火","水","木","金","土"];
 const DAYS_FULL = ["日曜","月曜","火曜","水曜","木曜","金曜","土曜"];
+const NOMINEE_STAFFS = ["工藤昌彦", "久保田誠", "工藤浩哉", "工藤都"];
 
 export default function AdminPage() {
   const [loggedIn, setLoggedIn] = useState(false);
@@ -143,6 +144,14 @@ const [checkinResult, setCheckinResult] = useState(null);
 const [todayReceived, setTodayReceived] = useState([]);
 const [monthBookingDates, setMonthBookingDates] = useState(new Set());
 const [monthShiftOffDates, setMonthShiftOffDates] = useState(new Set());
+  const [monthlyReport, setMonthlyReport] = useState(null);
+  const [monthlyReportMonth, setMonthlyReportMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [monthlyReportLoading, setMonthlyReportLoading] = useState(false);
+  const [editingMonthlyTarget, setEditingMonthlyTarget] = useState(false);
+  const [monthlyTargetInput, setMonthlyTargetInput] = useState("");
   useEffect(() => {
     const storeId = localStorage.getItem('yurari_admin_store');
     const expire = localStorage.getItem('yurari_admin_expire');
@@ -410,6 +419,232 @@ const handleAdminQrInput = async (value) => {
     });
 
     setDailyReport({ totalSales, totalDiscount, methodTotals, customerCount: validPayments.length, cancelCount: cancelled.length, staffCount, courseCount, payments: validPayments, bookings: validBookings });
+  };
+
+  const fetchMonthlyReport = async (monthStr) => {
+    if (!currentStore) return;
+    setMonthlyReportLoading(true);
+    setMonthlyReport(null);
+    try {
+      const [yearN, monthN] = monthStr.split('-').map(Number);
+      const lastDayN = new Date(yearN, monthN, 0).getDate();
+      const curStart = `${monthStr}-01`;
+      const curEnd = `${monthStr}-${String(lastDayN).padStart(2,'0')}`;
+
+      // 直近6ヶ月の月リスト（古い順）
+      const histMonths = [];
+      for (let i = 5; i >= 0; i--) {
+        let y = yearN, m = monthN - i;
+        while (m <= 0) { m += 12; y--; }
+        histMonths.push(`${y}-${String(m).padStart(2,'0')}`);
+      }
+      const h6Start = histMonths[0] + '-01';
+      const [h6y, h6m] = histMonths[5].split('-').map(Number);
+      const h6End = `${histMonths[5]}-${String(new Date(h6y, h6m, 0).getDate()).padStart(2,'0')}`;
+
+      // 前年同月
+      const pyYear = yearN - 1;
+      const pyMonthStr = `${pyYear}-${String(monthN).padStart(2,'0')}`;
+      const pyLastDay = new Date(pyYear, monthN, 0).getDate();
+      const pyStart = `${pyMonthStr}-01`;
+      const pyEnd = `${pyMonthStr}-${String(pyLastDay).padStart(2,'0')}`;
+
+      // UTC変換（payments用）
+      const toUtcStr = (dateStr, time) => new Date(`${dateStr}T${time}+09:00`).toISOString().slice(0,19);
+      const h6UtcStart = toUtcStr(h6Start, '00:00:00');
+      const h6UtcEnd = toUtcStr(h6End, '23:59:59');
+      const pyUtcStart = toUtcStr(pyStart, '00:00:00');
+      const pyUtcEnd = toUtcStr(pyEnd, '23:59:59');
+
+      // 並列フェッチ
+      const [bookingsRaw, paymentsRaw, pyPayRaw, pyBookRaw, shiftsRaw] = await Promise.all([
+        fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=gte.${h6Start}&booking_date=lte.${h6End}&select=id,customer_id,staff_id,staff_name,booking_date,status&order=booking_date.asc`, { headers }).then(r => r.json()),
+        fetch(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&created_at=gte.${h6UtcStart}&created_at=lte.${h6UtcEnd}&select=id,booking_id,total,created_at`, { headers }).then(r => r.json()),
+        fetch(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&created_at=gte.${pyUtcStart}&created_at=lte.${pyUtcEnd}&select=total`, { headers }).then(r => r.json()),
+        fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=gte.${pyStart}&booking_date=lte.${pyEnd}&select=id,status,staff_name`, { headers }).then(r => r.json()),
+        fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&work_date=gte.${curStart}&work_date=lte.${curEnd}&select=staff_id,work_date`, { headers }).then(r => r.json()),
+      ]);
+
+      const allBookings = Array.isArray(bookingsRaw) ? bookingsRaw : [];
+      const allPayments = Array.isArray(paymentsRaw) ? paymentsRaw : [];
+      const pyPayments = Array.isArray(pyPayRaw) ? pyPayRaw : [];
+      const pyBookings = Array.isArray(pyBookRaw) ? pyBookRaw : [];
+      const shiftsData = Array.isArray(shiftsRaw) ? shiftsRaw : [];
+
+      const validBookings = allBookings.filter(b => b.status !== 'cancelled');
+
+      // 当月のpayments
+      const payToJstMonth = (p) => {
+        if (!p.created_at) return null;
+        const s = /[Z+]/.test(p.created_at) ? p.created_at : p.created_at + 'Z';
+        const jst = new Date(new Date(s).getTime() + 9 * 3600000);
+        return `${jst.getUTCFullYear()}-${String(jst.getUTCMonth()+1).padStart(2,'0')}`;
+      };
+      const curPayments = allPayments.filter(p => payToJstMonth(p) === monthStr);
+
+      // payment_items（当月のみ、100件ごとチャンク）
+      let allItems = [];
+      const payIds = curPayments.map(p => p.id);
+      for (let i = 0; i < payIds.length; i += 100) {
+        const chunk = payIds.slice(i, i+100);
+        const raw = await fetch(`${SUPABASE_URL}/rest/v1/payment_items?payment_id=in.(${chunk.join(',')})&select=payment_id,item_type,item_name,price,quantity`, { headers }).then(r => r.json());
+        if (Array.isArray(raw)) allItems = allItems.concat(raw);
+      }
+
+      // 顧客のfirst_visit（100件ごとチャンク）
+      const custIds = [...new Set(validBookings.map(b => b.customer_id).filter(Boolean))];
+      const custMap = {};
+      for (let i = 0; i < custIds.length; i += 100) {
+        const chunk = custIds.slice(i, i+100);
+        const raw = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=in.(${chunk.join(',')})&select=id,first_visit`, { headers }).then(r => r.json());
+        if (Array.isArray(raw)) raw.forEach(c => { custMap[c.id] = c; });
+      }
+
+      // 初回来店月マップ（customers.first_visitを優先、なければ6ヶ月データの最古）
+      const firstVisitM = {};
+      custIds.forEach(id => {
+        if (custMap[id]?.first_visit) firstVisitM[id] = custMap[id].first_visit.slice(0,7);
+      });
+      validBookings.forEach(b => {
+        if (!b.customer_id || firstVisitM[b.customer_id]) return;
+        const ms = b.booking_date.slice(0,7);
+        if (!firstVisitM[b.customer_id] || ms < firstVisitM[b.customer_id]) firstVisitM[b.customer_id] = ms;
+      });
+
+      // 月別グループ
+      const mData = {};
+      histMonths.forEach(ms => { mData[ms] = { bookings: [], payments: [], visitC: new Set(), newC: new Set(), repC: new Set() }; });
+      validBookings.forEach(b => {
+        const ms = b.booking_date.slice(0,7);
+        if (!mData[ms]) return;
+        mData[ms].bookings.push(b);
+        if (b.customer_id) {
+          mData[ms].visitC.add(b.customer_id);
+          if (firstVisitM[b.customer_id] === ms) mData[ms].newC.add(b.customer_id);
+          else mData[ms].repC.add(b.customer_id);
+        }
+      });
+      allPayments.forEach(p => {
+        const ms = payToJstMonth(p);
+        if (ms && mData[ms]) mData[ms].payments.push(p);
+      });
+
+      // スタッフ別出勤日数
+      const staffWorkDays = {};
+      shiftsData.filter(s => s.staff_id !== 'closed').forEach(s => {
+        if (!staffWorkDays[s.staff_id]) staffWorkDays[s.staff_id] = new Set();
+        staffWorkDays[s.staff_id].add(s.work_date);
+      });
+
+      // payment lookup
+      const payByBookId = {};
+      curPayments.forEach(p => { payByBookId[p.booking_id] = p; });
+      const itemsByPayId = {};
+      allItems.forEach(item => {
+        if (!itemsByPayId[item.payment_id]) itemsByPayId[item.payment_id] = [];
+        itemsByPayId[item.payment_id].push(item);
+      });
+
+      // スタッフ別実績（当月）
+      const staffMap2 = {};
+      (mData[monthStr]?.bookings || []).forEach(b => {
+        if (!b.staff_name) return;
+        if (!staffMap2[b.staff_name]) staffMap2[b.staff_name] = { name: b.staff_name, staffId: b.staff_id, count: 0, custIds: new Set(), newCount: 0, courseSales: 0, productSales: 0, nomineeSales: 0 };
+        const s = staffMap2[b.staff_name];
+        s.count++;
+        if (b.customer_id) {
+          s.custIds.add(b.customer_id);
+          if (firstVisitM[b.customer_id] === monthStr) s.newCount++;
+        }
+        const pay = payByBookId[b.id];
+        if (pay) {
+          const items = itemsByPayId[pay.id] || [];
+          if (items.length > 0) {
+            items.forEach(item => {
+              const amt = (item.price || 0) * (item.quantity || 1);
+              if (item.item_type === 'course') s.courseSales += amt;
+              else if (item.item_type === 'product') s.productSales += amt;
+              else if (item.item_type === 'submenu' && (item.item_name || '').includes('指名')) s.nomineeSales += amt;
+            });
+          } else {
+            s.courseSales += (pay.total || 0);
+          }
+        }
+      });
+
+      // 当月サマリー
+      const curMd = mData[monthStr] || { bookings: [], payments: [], visitC: new Set(), newC: new Set(), repC: new Set() };
+      const curSales = curMd.payments.reduce((s, p) => s + (p.total || 0), 0);
+      const curNominee = curMd.bookings.filter(b => NOMINEE_STAFFS.includes(b.staff_name)).length;
+
+      // 前月比
+      const prevIdx = histMonths.indexOf(monthStr) - 1;
+      const prevMs = prevIdx >= 0 ? histMonths[prevIdx] : null;
+      const prevSales = prevMs && mData[prevMs] ? mData[prevMs].payments.reduce((s, p) => s + (p.total || 0), 0) : null;
+      const prevMonthRatio = (prevSales !== null && prevSales > 0) ? Math.round(curSales / prevSales * 100) : null;
+
+      // 前年比
+      const pySales = pyPayments.reduce((s, p) => s + (p.total || 0), 0);
+      const prevYearRatio = pySales > 0 ? Math.round(curSales / pySales * 100) : null;
+
+      // 着地予測（当月のみ日割り、過去月はそのまま）
+      const jstNow = new Date(Date.now() + 9 * 3600000);
+      const nowJstMs = `${jstNow.getUTCFullYear()}-${String(jstNow.getUTCMonth()+1).padStart(2,'0')}`;
+      const isCurrentMonth = monthStr === nowJstMs;
+      const elapsed = isCurrentMonth ? jstNow.getUTCDate() : lastDayN;
+      const projected = (elapsed > 0 && isCurrentMonth) ? Math.round(curSales / elapsed * lastDayN) : curSales;
+
+      // 6ヶ月ヒストリー
+      const history = histMonths.map((ms, idx) => {
+        const md = mData[ms] || { bookings: [], payments: [], newC: new Set(), repC: new Set() };
+        const sales = md.payments.reduce((s, p) => s + (p.total || 0), 0);
+        const prevMd = idx > 0 ? mData[histMonths[idx-1]] : null;
+        const prevS = prevMd ? prevMd.payments.reduce((s, p) => s + (p.total || 0), 0) : null;
+        return {
+          month: ms,
+          totalVisits: md.bookings.length,
+          newCount: md.newC?.size || 0,
+          repeatCount: md.repC?.size || 0,
+          totalSales: sales,
+          nomineeCount: md.bookings.filter(b => NOMINEE_STAFFS.includes(b.staff_name)).length,
+          prevMonthRatio: (prevS !== null && prevS > 0) ? Math.round(sales / prevS * 100) : null,
+        };
+      });
+
+      setMonthlyReport({
+        month: monthStr,
+        totalVisits: curMd.bookings.length,
+        newCount: curMd.newC?.size || 0,
+        repeatCount: curMd.repC?.size || 0,
+        nomineeCount: curNominee,
+        totalSales: curSales,
+        projected,
+        isCurrentMonth,
+        prevMonthRatio,
+        prevYearRatio,
+        history,
+        staffBreakdown: Object.values(staffMap2).sort((a, b) => b.count - a.count),
+        staffWorkDays,
+      });
+    } catch (e) {
+      console.error('[fetchMonthlyReport]', e);
+      alert('月報の読み込みに失敗しました: ' + e.message);
+    } finally {
+      setMonthlyReportLoading(false);
+    }
+  };
+
+  const saveMonthlyTarget = async () => {
+    const val = parseInt(monthlyTargetInput) || 0;
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/store_settings?store_id=eq.${currentStore.id}`, {
+        method: "PATCH", headers, body: JSON.stringify({ monthly_target: val })
+      });
+      await fetchStoreSettings();
+      setEditingMonthlyTarget(false);
+    } catch (e) {
+      alert('目標の保存に失敗しました: ' + e.message);
+    }
   };
 
   const fetchCustomers = async () => {
@@ -995,6 +1230,7 @@ const handleAdminQrInput = async (value) => {
     if (loggedIn && tab === "gifts") { fetchGiftTicketTemplates(); fetchGiftHistory(); }
   if (loggedIn && tab === "messages") { fetchLineMessages(); }
   if (loggedIn && tab === "report") { fetchDailyReport(reportDate); }
+  if (loggedIn && tab === "monthlyreport") { fetchStoreSettings(); fetchMonthlyReport(monthlyReportMonth); }
   if (loggedIn) { fetchAdminNotifications(); }
   }, [loggedIn, tab]);
 
@@ -1995,6 +2231,7 @@ const handleAdminQrInput = async (value) => {
           { id: "gifts", label: "🎫 金券管理" },
           { id: "messages", label: `💬 メッセージ${unreadLineCount > 0 ? `(${unreadLineCount})` : ""}` },
           { id: "report", label: "📊 日報" },
+          { id: "monthlyreport", label: "📈 月報" },
           { id: "settings", label: "⚙️ 設定" },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "14px 20px", border: "none", background: "none", fontSize: 14, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? "#3a5a3a" : "#aaa", borderBottom: tab === t.id ? "3px solid #5a9e7a" : "3px solid transparent", cursor: "pointer", whiteSpace: "nowrap" }}>{t.label}</button>
@@ -2122,6 +2359,183 @@ const handleAdminQrInput = async (value) => {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {tab === "monthlyreport" && (
+          <div>
+            {/* ヘッダー・月選択 */}
+            <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 20, flexWrap: "wrap" }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", margin: 0 }}>📈 月報</h2>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button onClick={() => {
+                  const [y, m] = monthlyReportMonth.split('-').map(Number);
+                  let pm = m - 1, py = y; if (pm <= 0) { pm += 12; py--; }
+                  const ns = `${py}-${String(pm).padStart(2,'0')}`;
+                  setMonthlyReportMonth(ns); fetchMonthlyReport(ns);
+                }} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", fontSize: 16, cursor: "pointer", color: "#5a9e7a" }}>◀</button>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a", minWidth: 100, textAlign: "center" }}>
+                  {monthlyReportMonth.slice(0,4) + '年' + parseInt(monthlyReportMonth.slice(5,7)) + '月'}
+                </div>
+                <button onClick={() => {
+                  const [y, m] = monthlyReportMonth.split('-').map(Number);
+                  let nm = m + 1, ny = y; if (nm > 12) { nm -= 12; ny++; }
+                  const ns = `${ny}-${String(nm).padStart(2,'0')}`;
+                  setMonthlyReportMonth(ns); fetchMonthlyReport(ns);
+                }} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", fontSize: 16, cursor: "pointer", color: "#5a9e7a" }}>▶</button>
+              </div>
+              <button onClick={() => fetchMonthlyReport(monthlyReportMonth)} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>更新</button>
+            </div>
+
+            {monthlyReportLoading ? (
+              <div style={{ textAlign: "center", padding: 60, color: "#aaa", fontSize: 14 }}>読み込み中...</div>
+            ) : !monthlyReport ? (
+              <div style={{ textAlign: "center", padding: 60, color: "#aaa", fontSize: 14 }}>データなし</div>
+            ) : (() => {
+              const target = storeSettings?.monthly_target || 0;
+              const progress = target > 0 ? Math.round(monthlyReport.projected / target * 100) : null;
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+                  {/* 来店サマリー */}
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    {[
+                      { label: "総来店数", value: monthlyReport.totalVisits + "件", color: "#3a5a3a" },
+                      { label: "新規客数", value: monthlyReport.newCount + "名", color: "#5a9e7a" },
+                      { label: "リピータ数", value: monthlyReport.repeatCount + "名", color: "#4a8a6a" },
+                      { label: "指名客数", value: monthlyReport.nomineeCount + "件", color: "#e07070" },
+                      { label: "総売上", value: "¥" + monthlyReport.totalSales.toLocaleString(), color: "#3a5a3a", big: true },
+                    ].map(c => (
+                      <div key={c.label} style={{ flex: "1 1 130px", background: "white", borderRadius: 16, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", textAlign: "center" }}>
+                        <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>{c.label}</div>
+                        <div style={{ fontSize: c.big ? 22 : 20, fontWeight: 700, color: c.color }}>{c.value}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* 目標・予測・進捗 */}
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ flex: "1 1 160px", background: "white", borderRadius: 16, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", textAlign: "center" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, color: "#888" }}>月間目標</span>
+                        {!editingMonthlyTarget && (
+                          <button onClick={() => { setEditingMonthlyTarget(true); setMonthlyTargetInput(String(target)); }}
+                            style={{ fontSize: 10, padding: "2px 8px", borderRadius: 6, border: "1px solid #e8ddd0", background: "white", color: "#888", cursor: "pointer" }}>編集</button>
+                        )}
+                      </div>
+                      {editingMonthlyTarget ? (
+                        <div style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center" }}>
+                          <input type="number" value={monthlyTargetInput} onChange={e => setMonthlyTargetInput(e.target.value)}
+                            style={{ width: 100, padding: "4px 8px", borderRadius: 8, border: "2px solid #5a9e7a", fontSize: 14, textAlign: "right" }} />
+                          <button onClick={saveMonthlyTarget} style={{ padding: "4px 12px", borderRadius: 8, border: "none", background: "#5a9e7a", color: "white", fontSize: 12, cursor: "pointer" }}>保存</button>
+                          <button onClick={() => setEditingMonthlyTarget(false)} style={{ padding: "4px 8px", borderRadius: 8, border: "1px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, cursor: "pointer" }}>✕</button>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 20, fontWeight: 700, color: "#e0a040" }}>{target > 0 ? "¥" + target.toLocaleString() : "未設定"}</div>
+                      )}
+                    </div>
+                    {[
+                      { label: monthlyReport.isCurrentMonth ? "着地予測" : "確定売上", value: "¥" + monthlyReport.projected.toLocaleString(), color: "#5a9e7a" },
+                      { label: "進捗率", value: progress !== null ? progress + "%" : "－", color: progress !== null ? (progress >= 100 ? "#5a9e7a" : progress >= 80 ? "#e0a040" : "#e07070") : "#aaa" },
+                      { label: "前月比", value: monthlyReport.prevMonthRatio !== null ? monthlyReport.prevMonthRatio + "%" : "－", color: monthlyReport.prevMonthRatio !== null ? (monthlyReport.prevMonthRatio >= 100 ? "#5a9e7a" : "#e07070") : "#aaa" },
+                      { label: "前年比", value: monthlyReport.prevYearRatio !== null ? monthlyReport.prevYearRatio + "%" : "－", color: monthlyReport.prevYearRatio !== null ? (monthlyReport.prevYearRatio >= 100 ? "#5a9e7a" : "#e07070") : "#aaa" },
+                    ].map(c => (
+                      <div key={c.label} style={{ flex: "1 1 120px", background: "white", borderRadius: 16, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", textAlign: "center" }}>
+                        <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>{c.label}</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: c.color }}>{c.value}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* 進捗バー */}
+                  {progress !== null && target > 0 && (
+                    <div style={{ background: "white", borderRadius: 16, padding: "16px 24px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a" }}>目標達成率 {progress}%</span>
+                        <span style={{ fontSize: 12, color: "#888" }}>¥{monthlyReport.projected.toLocaleString()} / ¥{target.toLocaleString()}</span>
+                      </div>
+                      <div style={{ height: 10, background: "#f0ebe4", borderRadius: 5, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: Math.min(progress, 100) + "%", background: progress >= 100 ? "linear-gradient(90deg,#5a9e7a,#3a7a5a)" : progress >= 80 ? "linear-gradient(90deg,#e0a040,#c08030)" : "linear-gradient(90deg,#e07070,#c05050)", borderRadius: 5 }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 直近6ヶ月推移 */}
+                  <div style={{ background: "white", borderRadius: 16, padding: "20px 24px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 14 }}>📊 直近6ヶ月推移</div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ background: "#f5f2ef" }}>
+                            {["月","総売上","前月比","総来店","新規","リピータ","指名"].map(h => (
+                              <th key={h} style={{ padding: "10px 14px", textAlign: h === "月" ? "left" : "right", fontSize: 12, fontWeight: 700, color: "#7a9a7a", whiteSpace: "nowrap" }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...monthlyReport.history].reverse().map(row => (
+                            <tr key={row.month} style={{ borderTop: "1px solid #f0ebe4", background: row.month === monthlyReport.month ? "#f0f8f4" : "white" }}>
+                              <td style={{ padding: "10px 14px", fontWeight: row.month === monthlyReport.month ? 700 : 400, color: "#3a5a3a", whiteSpace: "nowrap" }}>
+                                {row.month.slice(0,4) + '年' + parseInt(row.month.slice(5)) + '月'}
+                              </td>
+                              <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: 700, color: "#3a5a3a" }}>¥{row.totalSales.toLocaleString()}</td>
+                              <td style={{ padding: "10px 14px", textAlign: "right", color: row.prevMonthRatio !== null ? (row.prevMonthRatio >= 100 ? "#5a9e7a" : "#e07070") : "#aaa" }}>
+                                {row.prevMonthRatio !== null ? row.prevMonthRatio + "%" : "－"}
+                              </td>
+                              <td style={{ padding: "10px 14px", textAlign: "right", color: "#3a5a3a" }}>{row.totalVisits}</td>
+                              <td style={{ padding: "10px 14px", textAlign: "right", color: "#5a9e7a" }}>{row.newCount}</td>
+                              <td style={{ padding: "10px 14px", textAlign: "right", color: "#4a8a6a" }}>{row.repeatCount}</td>
+                              <td style={{ padding: "10px 14px", textAlign: "right", color: "#e07070" }}>{row.nomineeCount}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* スタッフ別実績 */}
+                  <div style={{ background: "white", borderRadius: 16, padding: "20px 24px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 14 }}>👤 スタッフ別実績</div>
+                    {monthlyReport.staffBreakdown.length === 0 ? (
+                      <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", padding: 20 }}>データなし</div>
+                    ) : (
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                          <thead>
+                            <tr style={{ background: "#f5f2ef" }}>
+                              {["スタッフ","施術回数","施術売上","物販売上","指名料","来院者数","新規数","レイシオ","1日平均"].map(h => (
+                                <th key={h} style={{ padding: "10px 14px", textAlign: h === "スタッフ" ? "left" : "right", fontSize: 12, fontWeight: 700, color: "#7a9a7a", whiteSpace: "nowrap" }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {monthlyReport.staffBreakdown.map(s => {
+                              const workDays = monthlyReport.staffWorkDays[s.staffId]?.size || 0;
+                              const avg = workDays > 0 ? (s.count / workDays).toFixed(1) : "－";
+                              const ratio = s.custIds.size > 0 ? (s.count / s.custIds.size).toFixed(2) : "－";
+                              return (
+                                <tr key={s.name} style={{ borderTop: "1px solid #f0ebe4" }}>
+                                  <td style={{ padding: "10px 14px", fontWeight: 700, color: "#3a5a3a", whiteSpace: "nowrap" }}>{s.name}</td>
+                                  <td style={{ padding: "10px 14px", textAlign: "right", color: "#3a5a3a" }}>{s.count}件</td>
+                                  <td style={{ padding: "10px 14px", textAlign: "right", color: "#3a5a3a" }}>¥{s.courseSales.toLocaleString()}</td>
+                                  <td style={{ padding: "10px 14px", textAlign: "right", color: "#5a9e7a" }}>¥{s.productSales.toLocaleString()}</td>
+                                  <td style={{ padding: "10px 14px", textAlign: "right", color: "#e07070" }}>¥{s.nomineeSales.toLocaleString()}</td>
+                                  <td style={{ padding: "10px 14px", textAlign: "right", color: "#3a5a3a" }}>{s.custIds.size}名</td>
+                                  <td style={{ padding: "10px 14px", textAlign: "right", color: "#5a9e7a" }}>{s.newCount}名</td>
+                                  <td style={{ padding: "10px 14px", textAlign: "right", color: "#888" }}>{ratio}</td>
+                                  <td style={{ padding: "10px 14px", textAlign: "right", color: "#888" }}>{avg}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+              );
+            })()}
           </div>
         )}
 
