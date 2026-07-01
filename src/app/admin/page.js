@@ -701,7 +701,7 @@ const handleAdminQrInput = async (value) => {
 
   const fetchCustomers = async () => {
     setLoading(true);
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?is_deleted=eq.false&order=created_at.desc`, { headers });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?is_deleted=eq.false&order=created_at.desc&limit=1000`, { headers });
     const data = await res.json();
     setCustomers(Array.isArray(data) ? data : []);
     setLoading(false);
