@@ -2834,8 +2834,8 @@ const handleAdminQrInput = async (value) => {
                           let success = 0, skip = 0;
                           for (let i = 0; i < importData.length; i++) {
                             const r = importData[i];
-                            // 電話番号で重複チェック
-                            if (r.tel) {
+                            // 電話番号で重複チェック（電話番号がある場合のみ）
+                            if (r.tel && r.tel.length > 5) {
                               const check = await fetch(`${SUPABASE_URL}/rest/v1/customers?tel=eq.${r.tel}&select=id`, { headers });
                               const exists = await check.json();
                               if (exists && exists.length > 0) { skip++; setImportProgress((i + 1) / importData.length * 100); continue; }
