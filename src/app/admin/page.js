@@ -707,7 +707,7 @@ const handleAdminQrInput = async (value) => {
         booking_date: f.booking_date,
         booking_time: f.booking_time,
         course_name: course?.name || "",
-        course_duration: course?.duration || "30分",
+        course_duration: f.course_duration || course?.duration || "30分",
         staff_name: staff?.name || "",
         status: "confirmed",
         notes: f.notes || "",
@@ -1812,7 +1812,7 @@ const handleAdminQrInput = async (value) => {
                <button key={s} onClick={async () => { await updateBookingStatus(selectedBooking.id, s); if (s === "received" && selectedBooking.customer_id) { const r = await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + selectedBooking.customer_id, { headers }); const d = await r.json(); if (d[0]?.customer_number) alert("受付完了！顧客番号：" + d[0].customer_number); } if (s === "cancelled") setSelectedBooking(null); }} disabled={selectedBooking.status === "received" && s === "received"} style={{ flex: 1, padding: "10px", borderRadius: 10, border: "2px solid " + statusColor(s), background: selectedBooking.status === s ? statusColor(s) : "white", color: selectedBooking.status === s ? "white" : statusColor(s), fontSize: 11, fontWeight: 600, cursor: selectedBooking.status === "received" && s === "received" ? "not-allowed" : "pointer", opacity: selectedBooking.status === "received" && s === "received" ? 0.5 : 1 }}>{statusLabel(s)}</button>
               ))}
             </div>
-            <button onClick={() => { setChangeBookingModal(selectedBooking); setChangeBookingForm({ staff_id: selectedBooking.staff_id, course_id: selectedBooking.course_id, booking_date: selectedBooking.booking_date, booking_time: selectedBooking.booking_time }); fetchStaffMembers(); fetchCourseMenus(); }} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 6 }}>📝 予約を変更する</button>
+            <button onClick={() => { setChangeBookingModal(selectedBooking); setChangeBookingForm({ staff_id: selectedBooking.staff_id, course_id: selectedBooking.course_id, booking_date: selectedBooking.booking_date, booking_time: selectedBooking.booking_time, course_duration: selectedBooking.course_duration || "30分" }); fetchStaffMembers(); fetchCourseMenus(); }} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 6 }}>📝 予約を変更する</button>
             <button onClick={() => { setSelectedBooking(null); setTab("checkout"); }} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>💴 会計へ</button>          </div>
         </div>
       )}
@@ -3080,10 +3080,20 @@ const handleAdminQrInput = async (value) => {
                 </div>
                 <div>
                   <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>コース</div>
-                  <select value={changeBookingForm.course_id || ""} onChange={e => setChangeBookingForm({ ...changeBookingForm, course_id: e.target.value })}
+                  <select value={changeBookingForm.course_id || ""} onChange={e => {
+                    const course = courseMenus.find(c => c.id === e.target.value);
+                    setChangeBookingForm({ ...changeBookingForm, course_id: e.target.value, course_duration: course?.duration || "30分" });
+                  }}
                     style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13 }}>
                     <option value="">選択してください</option>
                     {courseMenus.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>所要時間</div>
+                  <select value={changeBookingForm.course_duration || "30分"} onChange={e => setChangeBookingForm({ ...changeBookingForm, course_duration: e.target.value })}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13 }}>
+                    {["30分", "60分", "90分", "120分", "150分"].map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
                 </div>
                 <button onClick={saveChangeBooking} disabled={!changeBookingForm.booking_date || !changeBookingForm.booking_time || !changeBookingForm.course_id}
