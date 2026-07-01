@@ -36,7 +36,8 @@ export async function GET(request) {
     if (!customer) continue;
 
     const timeLabel = type === "tomorrow" ? "明日" : "本日";
-    const message = timeLabel + " " + booking.booking_time + "より「" + booking.course_name + "」のご予約があります。\n担当：" + booking.staff_name + "\n\nご来院をお待ちしております。\n整体院 癒楽里";
+    const storeName = booking.store_id === "toda" ? "戸田院" : "南浦和本院";
+    const message = timeLabel + " " + booking.booking_time + "より「" + booking.course_name + "」のご予約があります。\n担当：" + booking.staff_name + "\n店舗：整体院 癒楽里 " + storeName + "\n\nご来院をお待ちしております。";
 
     // プッシュ通知（通知方法に関わらず送信）
     await fetch(process.env.NEXTAUTH_URL + "/api/push-send", {
