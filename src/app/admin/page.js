@@ -57,6 +57,10 @@ export default function AdminPage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [blocks, setBlocks] = useState([]);
   const [showDeleted, setShowDeleted] = useState(false);
+  const [duplicates, setDuplicates] = useState([]);
+  const [showDuplicates, setShowDuplicates] = useState(false);
+  const [mergeTarget, setMergeTarget] = useState(null);
+  const [mergeSource, setMergeSource] = useState(null);
   const [importData, setImportData] = useState([]);
   const [importProgress, setImportProgress] = useState(0);
   const [importResult, setImportResult] = useState(null);
@@ -347,6 +351,55 @@ const handleAdminQrInput = async (value) => {
     win.document.write(html);
     win.document.close();
   };
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [duplicates, setDuplicates] = useState([]);
+  const [showDuplicates, setShowDuplicates] = useState(false);
+  const [mergeTarget, setMergeTarget] = useState(null);
+  const [mergeSource, setMergeSource] = useState(null);
+
+  const findDuplicates = async () => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?is_deleted=eq.false&select=id,name,tel,email,line_user_id,customer_number,points`, { headers });
+    const data = await res.json();
+    if (!Array.isArray(data)) return;
+    const groups = {};
+    data.forEach(c => {
+      if (c.tel) { const key = `tel:${c.tel}`; if (!groups[key]) groups[key] = []; groups[key].push(c); }
+      if (c.name) { const key = `name:${c.name}`; if (!groups[key]) groups[key] = []; groups[key].push(c); }
+    });
+    const seen = new Set();
+    const uniqueDupes = Object.values(groups).filter(g => g.length > 1).filter(g => {
+      const key = g.map(c => c.id).sort().join(',');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    setDuplicates(uniqueDupes);
+    setShowDuplicates(true);
+  };
+
+  const mergeCustomers = async (targetId, sourceId) => {
+    if (!window.confirm("2つの顧客を統合します。統合元は削除されます。よいですか？")) return;
+    await fetch(`${SUPABASE_URL}/rest/v1/bookings?customer_id=eq.${sourceId}`, { method: "PATCH", headers, body: JSON.stringify({ customer_id: targetId }) });
+    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?customer_id=eq.${sourceId}`, { method: "PATCH", headers, body: JSON.stringify({ customer_id: targetId }) });
+    await fetch(`${SUPABASE_URL}/rest/v1/notifications?customer_id=eq.${sourceId}`, { method: "PATCH", headers, body: JSON.stringify({ customer_id: targetId }) });
+    await fetch(`${SUPABASE_URL}/rest/v1/payments?customer_id=eq.${sourceId}`, { method: "PATCH", headers, body: JSON.stringify({ customer_id: targetId }) });
+    await fetch(`${SUPABASE_URL}/rest/v1/line_messages?customer_id=eq.${sourceId}`, { method: "PATCH", headers, body: JSON.stringify({ customer_id: targetId }) });
+    const srcRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${sourceId}&select=points,line_user_id`, { headers });
+    const srcData = await srcRes.json();
+    const tgtRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${targetId}&select=points,line_user_id`, { headers });
+    const tgtData = await tgtRes.json();
+    const newPoints = (tgtData[0]?.points || 0) + (srcData[0]?.points || 0);
+    const updateData = { points: newPoints };
+    if (!tgtData[0]?.line_user_id && srcData[0]?.line_user_id) updateData.line_user_id = srcData[0].line_user_id;
+    await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${targetId}`, { method: "PATCH", headers, body: JSON.stringify(updateData) });
+    await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${sourceId}`, { method: "DELETE", headers });
+    setMergeTarget(null);
+    setMergeSource(null);
+    setShowDuplicates(false);
+    fetchCustomers();
+    alert("統合完了しました");
+  };
+
   const deleteCustomer = async (customerId, permanent = false) => {
     if (permanent) {
       if (!window.confirm("完全に削除します。予約履歴等も全て削除されます。本当によいですか？")) return;
