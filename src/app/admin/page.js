@@ -1539,6 +1539,7 @@ const handleAdminQrInput = async (value) => {
     setCheckoutResult({ paymentId, total, subtotal, discount: checkoutDiscount, discountReason: checkoutDiscountReason, paymentMethod: checkoutPaymentMethods.map(p => p.method).join(","), customerName: checkoutBooking?.customers?.name || "お客様", items: checkoutItems });
     setCheckoutComplete(true);
     fetchTodayBookings();
+    fetchCompletedBookings();
   };
 
   const saveShift = async (staffId, date, startTime, endTime, type) => {
