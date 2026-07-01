@@ -57,6 +57,10 @@ export default function AdminPage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [blocks, setBlocks] = useState([]);
   const [showDeleted, setShowDeleted] = useState(false);
+  const [importData, setImportData] = useState([]);
+  const [importProgress, setImportProgress] = useState(0);
+  const [importResult, setImportResult] = useState(null);
+  const [importLoading, setImportLoading] = useState(false);
   const [dailyReport, setDailyReport] = useState(null);
   const [reportDate, setReportDate] = useState(new Date().toISOString().split("T")[0]);
   const [blockModal, setBlockModal] = useState(null);
@@ -2549,6 +2553,7 @@ const handleAdminQrInput = async (value) => {
                 { id: "products", label: "🛍️ 物販商品管理" },
                 { id: "booking", label: "⏰ 予約設定" },
                 { id: "tickets", label: "🎫 金券管理" },
+                { id: "import", label: "📥 顧客インポート" },
               ].map(t => (
                 <button key={t.id} onClick={() => setSettingsSubTab(t.id)} style={{ padding: "10px 20px", borderRadius: 10, border: `2px solid ${settingsSubTab === t.id ? "#5a9e7a" : "#e8ddd0"}`, background: settingsSubTab === t.id ? "#eaf5ec" : "white", color: settingsSubTab === t.id ? "#3a5a3a" : "#aaa", fontSize: 14, fontWeight: settingsSubTab === t.id ? 700 : 400, cursor: "pointer" }}>{t.label}</button>
               ))}
@@ -2727,6 +2732,87 @@ const handleAdminQrInput = async (value) => {
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+          {settingsSubTab === "import" && (
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a", marginBottom: 16 }}>📥 顧客CSVインポート（リピッテ形式）</div>
+                <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>リピッテからエクスポートした「顧客名簿」CSVを選択してください。</div>
+                  <input type="file" accept=".csv" onChange={async e => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    const buffer = await file.arrayBuffer();
+                    const decoder = new TextDecoder('utf-16le');
+                    const text = decoder.decode(buffer);
+                    const lines = text.split('\n').filter(l => l.trim());
+                    const rows = lines.slice(2).map(line => {
+                      const cols = line.split('\t').map(c => c.replace(/^"|"$/g, '').replace(/^\uFEFF/, '').trim());
+                      return {
+                        name: (cols[1] + ' ' + cols[2]).trim(),
+                        kana: (cols[3] + ' ' + cols[4]).trim(),
+                        tel: cols[5]?.replace(/^'/, '').trim(),
+                        email: cols[6]?.trim(),
+                        first_visit: cols[7]?.split(' ')[0]?.trim(),
+                        customer_number: cols[19]?.trim(),
+                      };
+                    }).filter(r => r.name && r.name !== ' ');
+                    setImportData(rows);
+                    setImportResult(null);
+                    setImportProgress(0);
+                  }} style={{ marginBottom: 16 }} />
+                  {importData.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a", marginBottom: 8 }}>プレビュー：{importData.length}件</div>
+                      <div style={{ background: "#f9f6f2", borderRadius: 10, padding: 12, marginBottom: 16 }}>
+                        {importData.slice(0, 3).map((r, i) => (
+                          <div key={i} style={{ fontSize: 12, color: "#555", marginBottom: 4 }}>{r.name}　{r.tel}　{r.customer_number}</div>
+                        ))}
+                        {importData.length > 3 && <div style={{ fontSize: 11, color: "#aaa" }}>...他{importData.length - 3}件</div>}
+                      </div>
+                      {importLoading ? (
+                        <div>
+                          <div style={{ background: "#e8e8e8", borderRadius: 20, height: 12, overflow: "hidden", marginBottom: 8 }}>
+                            <div style={{ background: "#5a9e7a", height: "100%", borderRadius: 20, width: `${importProgress}%`, transition: "width 0.3s" }} />
+                          </div>
+                          <div style={{ fontSize: 13, color: "#888", textAlign: "center" }}>{Math.round(importProgress)}% 処理中...</div>
+                        </div>
+                      ) : (
+                        <button onClick={async () => {
+                          setImportLoading(true);
+                          setImportProgress(0);
+                          setImportResult(null);
+                          let success = 0, skip = 0;
+                          for (let i = 0; i < importData.length; i++) {
+                            const r = importData[i];
+                            // 電話番号で重複チェック
+                            if (r.tel) {
+                              const check = await fetch(`${SUPABASE_URL}/rest/v1/customers?tel=eq.${r.tel}&select=id`, { headers });
+                              const exists = await check.json();
+                              if (exists && exists.length > 0) { skip++; setImportProgress((i + 1) / importData.length * 100); continue; }
+                            }
+                            await fetch(`${SUPABASE_URL}/rest/v1/customers`, {
+                              method: "POST", headers,
+                              body: JSON.stringify({ name: r.name, kana: r.kana, tel: r.tel, email: r.email, first_visit: r.first_visit || null, customer_number: r.customer_number, store_id: currentStore.id }),
+                            });
+                            success++;
+                            setImportProgress((i + 1) / importData.length * 100);
+                          }
+                          setImportResult({ success, skip });
+                          setImportLoading(false);
+                        }} style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: "#5a9e7a", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                          取り込み開始（{importData.length}件）
+                        </button>
+                      )}
+                      {importResult && (
+                        <div style={{ marginTop: 16, background: "#eaf5ec", borderRadius: 12, padding: 16, textAlign: "center" }}>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>✅ 完了</div>
+                          <div style={{ fontSize: 13, color: "#555", marginTop: 8 }}>成功：{importResult.success}件　スキップ（重複）：{importResult.skip}件</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
