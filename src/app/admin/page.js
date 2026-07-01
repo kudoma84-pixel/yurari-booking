@@ -62,6 +62,8 @@ export default function AdminPage() {
   const [mergeTarget, setMergeTarget] = useState(null);
   const [mergeSource, setMergeSource] = useState(null);
   const [importData, setImportData] = useState([]);
+  const [completedBookings, setCompletedBookings] = useState([]);
+  const [selectedCompletedPayment, setSelectedCompletedPayment] = useState(null);
   const [importProgress, setImportProgress] = useState(0);
   const [importResult, setImportResult] = useState(null);
   const [importLoading, setImportLoading] = useState(false);
@@ -256,6 +258,48 @@ const handleAdminQrInput = async (value) => {
     const data = await res.json();
     setBookings(Array.isArray(data) ? data : []);
     setLoading(false);
+  };
+
+  const fetchCompletedBookings = async (dateStr) => {
+    const d = dateStr || formatDate(new Date());
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${d}&status=eq.completed&select=*,customers(name,tel)&order=booking_time.asc`, { headers });
+    const data = await res.json();
+    if (!Array.isArray(data)) { setCompletedBookings([]); return; }
+    // 各予約の支払い情報を取得
+    const bookingsWithPayment = await Promise.all(data.map(async b => {
+      const pRes = await fetch(`${SUPABASE_URL}/rest/v1/payments?booking_id=eq.${b.id}&select=*,payment_methods(method,amount)`, { headers });
+      const pData = await pRes.json();
+      const payment = Array.isArray(pData) && pData.length > 0 ? pData[0] : null;
+      const piRes = await fetch(`${SUPABASE_URL}/rest/v1/payment_items?payment_id=eq.${payment?.id}&select=*`, { headers });
+      const piData = await piRes.json();
+      return { ...b, payment, paymentItems: Array.isArray(piData) ? piData : [] };
+    }));
+    setCompletedBookings(bookingsWithPayment);
+  };
+
+  const revertPayment = async (booking) => {
+    if (!window.confirm("会計を取り消して再会計しますか？")) return;
+    if (booking.payment) {
+      await fetch(`${SUPABASE_URL}/rest/v1/payment_items?payment_id=eq.${booking.payment.id}`, { method: "DELETE", headers });
+      await fetch(`${SUPABASE_URL}/rest/v1/payment_methods?payment_id=eq.${booking.payment.id}`, { method: "DELETE", headers });
+      await fetch(`${SUPABASE_URL}/rest/v1/payments?id=eq.${booking.payment.id}`, { method: "DELETE", headers });
+    }
+    await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${booking.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "treatment_done", completed_at: null }) });
+    // ポイントを1点戻す
+    const ptRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${booking.customer_id}&select=points`, { headers });
+    const ptData = await ptRes.json();
+    if (ptData && ptData[0] && ptData[0].points > 0) {
+      await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${booking.customer_id}`, { method: "PATCH", headers, body: JSON.stringify({ points: ptData[0].points - 1 }) });
+    }
+    setSelectedCompletedPayment(null);
+    fetchCompletedBookings();
+    fetchTodayBookings();
+    // 再会計画面へ
+    setCheckoutBooking({ ...booking, customers: booking.customers });
+    fetchProducts();
+    fetchCourseMenus();
+    fetchSubMenus();
+    fetchGiftTicketTemplates();
   };
 
   const fetchTodayBookings = async (dateStr) => {
@@ -1273,7 +1317,7 @@ const handleAdminQrInput = async (value) => {
   useEffect(() => {
     if (loggedIn && tab === "customers") fetchCustomers();
     if (loggedIn && tab === "shifts") { fetchMonthShifts(); fetchShiftPlans(); fetchStaffMembers(); }
-    if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchProducts(); fetchCourseMenus(); fetchSubMenus(); fetchGiftTicketTemplates(); }
+    if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchCompletedBookings(); fetchProducts(); fetchCourseMenus(); fetchSubMenus(); fetchGiftTicketTemplates(); }
     if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); fetchSubMenus(); fetchStoreSettings(); fetchGiftTicketTemplates(); }
     if (loggedIn && tab === "calendar") { fetchStaffMembers(); if (selectedDate) fetchAll(selectedDate); }
     if (loggedIn && tab === "checkin") { fetchTodayReceived(); }
@@ -2933,6 +2977,60 @@ const handleAdminQrInput = async (value) => {
                     </div>
                   ))}
                 </div>
+                {completedBookings.length > 0 && (
+                  <div style={{ marginTop: 24 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>✅ 会計済み</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {completedBookings.map(b => (
+                        <div key={b.id} style={{ background: "white", borderRadius: 16, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                            <div>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a" }}>{b.customers?.name || "未登録"}</div>
+                              <div style={{ fontSize: 12, color: "#888" }}>{b.booking_time} / {b.course_name} / {b.staff_name}</div>
+                              {b.payment && <div style={{ fontSize: 13, color: "#5a9e7a", fontWeight: 700, marginTop: 4 }}>¥{b.payment.total?.toLocaleString()}</div>}
+                            </div>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <button onClick={() => setSelectedCompletedPayment(selectedCompletedPayment?.id === b.id ? null : b)}
+                                style={{ padding: "8px 14px", borderRadius: 10, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                                {selectedCompletedPayment?.id === b.id ? "閉じる" : "詳細"}
+                              </button>
+                              <button onClick={() => revertPayment(b)}
+                                style={{ padding: "8px 14px", borderRadius: 10, border: "2px solid #e07070", background: "white", color: "#e07070", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                                修正
+                              </button>
+                            </div>
+                          </div>
+                          {selectedCompletedPayment?.id === b.id && b.payment && (
+                            <div style={{ marginTop: 12, padding: "12px", background: "#f9f6f2", borderRadius: 10 }}>
+                              {b.paymentItems.map((item, i) => (
+                                <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0", borderBottom: "1px solid #f0e8d8" }}>
+                                  <span>{item.item_name}</span>
+                                  <span>¥{(item.price * item.quantity).toLocaleString()}</span>
+                                </div>
+                              ))}
+                              {b.payment.discount > 0 && (
+                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0", color: "#e07070" }}>
+                                  <span>値引き{b.payment.discount_reason ? `（${b.payment.discount_reason}）` : ""}</span>
+                                  <span>-¥{b.payment.discount?.toLocaleString()}</span>
+                                </div>
+                              )}
+                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 700, padding: "8px 0 4px", borderTop: "2px solid #e8ddd0", marginTop: 4 }}>
+                                <span>合計</span>
+                                <span>¥{b.payment.total?.toLocaleString()}</span>
+                              </div>
+                              <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>
+                                {(b.payment.payment_method || "").split(",").map(id => PAYMENT_METHODS.find(m => m.id === id)?.name || id).join(" / ")}
+                                {b.payment.payment_methods?.length > 0 && (
+                                  <span>　{b.payment.payment_methods.map(pm => `${PAYMENT_METHODS.find(m => m.id === pm.method)?.name || pm.method}:¥${pm.amount?.toLocaleString()}`).join(" / ")}</span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : checkoutComplete ? (
               <div style={{ maxWidth: 480, margin: "0 auto", textAlign: "center", paddingTop: 40 }}>
