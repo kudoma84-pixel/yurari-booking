@@ -351,10 +351,7 @@ const handleAdminQrInput = async (value) => {
     win.document.write(html);
     win.document.close();
   };
-  const [showDeleted, setShowDeleted] = useState(false);
-  const [duplicates, setDuplicates] = useState([]);
-  const [showDuplicates, setShowDuplicates] = useState(false);
-  const [mergeTarget, setMergeTarget] = useState(null);
+
   const findDuplicates = async () => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?is_deleted=eq.false&select=id,name,tel,email,line_user_id,customer_number,points`, { headers });
     const data = await res.json();
