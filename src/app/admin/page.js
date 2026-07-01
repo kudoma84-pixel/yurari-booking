@@ -3710,7 +3710,43 @@ const handleAdminQrInput = async (value) => {
                 }} />
                 非表示顧客を表示
               </label>
+              <button onClick={findDuplicates} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #e07070", background: "white", color: "#e07070", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>🔍 重複検出</button>
             </div>
+            {showDuplicates && duplicates.length > 0 && (
+              <div style={{ background: "white", borderRadius: 16, padding: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#e07070" }}>⚠️ 重複が{duplicates.length}件見つかりました</div>
+                  <button onClick={() => setShowDuplicates(false)} style={{ padding: "4px 12px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#aaa", fontSize: 12, cursor: "pointer" }}>閉じる</button>
+                </div>
+                {duplicates.map((group, gi) => (
+                  <div key={gi} style={{ background: "#fdf5f0", borderRadius: 12, padding: 16, marginBottom: 12 }}>
+                    <div style={{ fontSize: 12, color: "#e07070", marginBottom: 8 }}>重複グループ {gi + 1}</div>
+                    {group.map(c => (
+                      <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #f0e8d8" }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 700 }}>{c.name}</div>
+                          <div style={{ fontSize: 11, color: "#aaa" }}>No.{c.customer_number} / {c.tel} / {c.points}P</div>
+                          <div style={{ fontSize: 11, color: "#aaa" }}>LINE：{c.line_user_id ? "連携済" : "未連携"}</div>
+                        </div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => setMergeTarget(c)} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${mergeTarget?.id === c.id ? "#5a9e7a" : "#e8ddd0"}`, background: mergeTarget?.id === c.id ? "#eaf5ec" : "white", color: mergeTarget?.id === c.id ? "#3a5a3a" : "#888", fontSize: 12, cursor: "pointer" }}>統合先</button>
+                          <button onClick={() => setMergeSource(c)} style={{ padding: "6px 12px", borderRadius: 8, border: `2px solid ${mergeSource?.id === c.id ? "#e07070" : "#e8ddd0"}`, background: mergeSource?.id === c.id ? "#fdf0f0" : "white", color: mergeSource?.id === c.id ? "#e07070" : "#888", fontSize: 12, cursor: "pointer" }}>統合元</button>
+                        </div>
+                      </div>
+                    ))}
+                    {mergeTarget && mergeSource && group.some(c => c.id === mergeTarget.id) && group.some(c => c.id === mergeSource.id) && (
+                      <button onClick={() => mergeCustomers(mergeTarget.id, mergeSource.id)}
+                        style={{ width: "100%", marginTop: 12, padding: "10px", borderRadius: 10, border: "none", background: "#e07070", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                        🔗 「{mergeTarget.name}」に「{mergeSource.name}」を統合する
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {showDuplicates && duplicates.length === 0 && (
+              <div style={{ background: "#eaf5ec", borderRadius: 12, padding: 16, marginBottom: 16, textAlign: "center", fontSize: 13, color: "#3a5a3a" }}>✅ 重複は見つかりませんでした</div>
+            )}
             {loading ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div> : (
               <div style={{ background: "white", borderRadius: 16, overflow: "auto", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
