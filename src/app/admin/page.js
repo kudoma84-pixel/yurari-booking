@@ -296,6 +296,12 @@ const handleAdminQrInput = async (value) => {
     fetchTodayBookings();
     // 再会計画面へ
     setCheckoutBooking({ ...booking, customers: booking.customers });
+    // 施術メニューをcheckoutItemsにセット
+    const course = courseMenus.find(c => c.name === booking.course_name);
+    setCheckoutItems([{ type: "course", name: booking.course_name, price: course?.price || 0, quantity: 1 }]);
+    setCheckoutDiscount(0);
+    setCheckoutDiscountReason("");
+    setCheckoutPaymentMethods([{ method: "cash", amount: 0 }]);
     fetchProducts();
     fetchCourseMenus();
     fetchSubMenus();
