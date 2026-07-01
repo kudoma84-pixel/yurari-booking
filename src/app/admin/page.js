@@ -2842,7 +2842,7 @@ const handleAdminQrInput = async (value) => {
                             }
                             await fetch(`${SUPABASE_URL}/rest/v1/customers`, {
                               method: "POST", headers,
-                              body: JSON.stringify({ name: r.name, kana: r.kana, tel: r.tel, email: r.email, first_visit: r.first_visit || null, customer_number: r.customer_number, store_id: currentStore.id }),
+                              body: JSON.stringify({ name: r.name, kana: r.kana, tel: r.tel, email: r.email, first_visit: r.first_visit || null, customer_number: r.customer_number }),
                             });
                             success++;
                             setImportProgress((i + 1) / importData.length * 100);
