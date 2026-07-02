@@ -2984,7 +2984,7 @@ const handleAdminQrInput = async (value) => {
               <div>
                 <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 8 }}>会計</h2>
                 <div style={{ marginBottom: 16 }}>
-                  <input type="date" defaultValue={formatDate(new Date())} onChange={e => fetchTodayBookings(e.target.value)} style={{ padding: "10px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: "#3a5a3a" }} />
+                  <input type="date" defaultValue={formatDate(new Date())} onChange={e => { fetchTodayBookings(e.target.value); fetchCompletedBookings(e.target.value); }} style={{ padding: "10px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: "#3a5a3a" }} />
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                   {todayBookings.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#aaa", background: "white", borderRadius: 16 }}>予約がありません</div>}
