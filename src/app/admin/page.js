@@ -115,6 +115,7 @@ export default function AdminPage() {
   const [leadTime, setLeadTime] = useState(60);
   const [giftTicketTemplates, setGiftTicketTemplates] = useState([]);
   const [customerTickets, setCustomerTickets] = useState([]);
+  const [allCustomerTickets, setAllCustomerTickets] = useState({});
   const [editingTicketTemplate, setEditingTicketTemplate] = useState(null);
   const [lineMessages, setLineMessages] = useState([]);
   const [adminNotifications, setAdminNotifications] = useState([]);
@@ -948,6 +949,21 @@ const handleAdminQrInput = async (value) => {
     setCustomerTickets(Array.isArray(data) ? data : []);
   };
 
+  const fetchAllCustomerTickets = async () => {
+    if (!currentStore?.id) return;
+    const today = formatDate(new Date());
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?store_id=eq.${currentStore.id}&status=eq.active&expires_at=gte.${today}&select=customer_id,ticket_type`, { headers });
+    const data = await res.json();
+    if (!Array.isArray(data)) return;
+    const map = {};
+    data.forEach(t => {
+      if (!map[t.customer_id]) map[t.customer_id] = { purchase: 0, present: 0 };
+      if (t.ticket_type === "purchase") map[t.customer_id].purchase++;
+      else if (t.ticket_type === "present") map[t.customer_id].present++;
+    });
+    setAllCustomerTickets(map);
+  };
+
   const issueGiftTicket = async (template) => {
     if (!checkoutBooking?.customer_id) { alert("顧客情報がない場合は金券を発行できません"); return; }
     const today = new Date();
@@ -1333,7 +1349,7 @@ const handleAdminQrInput = async (value) => {
   };
 
   useEffect(() => {
-    if (loggedIn && tab === "customers") fetchCustomers();
+    if (loggedIn && tab === "customers") { fetchCustomers(); fetchAllCustomerTickets(); }
     if (loggedIn && tab === "shifts") { fetchMonthShifts(); fetchShiftPlans(); fetchStaffMembers(); }
     if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchCompletedBookings(); fetchProducts(); fetchCourseMenus(); fetchSubMenus(); fetchGiftTicketTemplates(); }
     if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); fetchSubMenus(); fetchStoreSettings(); fetchGiftTicketTemplates(); }
@@ -2052,6 +2068,25 @@ const handleAdminQrInput = async (value) => {
           ))}
         </div>
       )}
+
+      {/* 保有金券 */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 10 }}>保有金券</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1, background: "#f0f8f4", borderRadius: 12, padding: "12px 16px", textAlign: "center" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#5a9e7a", marginBottom: 4 }}>A. 購入金券</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: "#3a5a3a" }}>{customerTickets.filter(t => t.ticket_type === "purchase").length}<span style={{ fontSize: 13, fontWeight: 400, marginLeft: 2 }}>枚</span></div>
+          </div>
+          <div style={{ flex: 1, background: "#fff5ee", borderRadius: 12, padding: "12px 16px", textAlign: "center" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#e07b39", marginBottom: 4 }}>B. プレゼント金券</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: "#3a5a3a" }}>{customerTickets.filter(t => t.ticket_type === "present").length}<span style={{ fontSize: 13, fontWeight: 400, marginLeft: 2 }}>枚</span></div>
+          </div>
+          <div style={{ flex: 1, background: "#f5f5f5", borderRadius: 12, padding: "12px 16px", textAlign: "center" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#888", marginBottom: 4 }}>合計</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: "#3a5a3a" }}>{customerTickets.length}<span style={{ fontSize: 13, fontWeight: 400, marginLeft: 2 }}>枚</span></div>
+          </div>
+        </div>
+      </div>
 
       <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>予約履歴（{customerHistory.length}件）</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -3889,13 +3924,13 @@ const handleAdminQrInput = async (value) => {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ background: "#f5f5f5" }}>
-                      {["顧客番号","氏名","電話番号","メール","LINE"].map(h => (
+                      {["顧客番号","氏名","電話番号","メール","LINE","保有金券"].map(h => (
                         <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a" }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {customers.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", padding: 40, color: "#aaa" }}>顧客がいません</td></tr>}
+                    {customers.length === 0 && <tr><td colSpan={6} style={{ textAlign: "center", padding: 40, color: "#aaa" }}>顧客がいません</td></tr>}
                   {customers
                     .filter(c => !customerListSearch || c.name?.includes(customerListSearch) || c.tel?.includes(customerListSearch) || c.kana?.includes(customerListSearch))
                     .sort((a, b) => {
@@ -3905,15 +3940,29 @@ const handleAdminQrInput = async (value) => {
                       if (aVal > bVal) return customerSortOrder === "asc" ? 1 : -1;
                       return 0;
                     })
-                    .map((c, i) => (
-                      <tr key={c.id} style={{ borderTop: "1px solid #f0ebe4", cursor: "pointer" }} onClick={() => { setSelectedCustomer(c); fetchCustomerDetail(c.id); fetchCustomerHistory(c.id); }}>
-                        <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.customer_number || i+1}</td>
-                        <td style={{ padding: "12px 16px", fontSize: 13, fontWeight: 600, color: "#5a9e7a" }}>{c.name}</td>
-                        <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.tel}</td>
-                        <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.email}</td>
-                        <td style={{ padding: "12px 16px", fontSize: 13, color: c.line_user_id ? "#5a9e7a" : "#ccc" }}>{c.line_user_id ? "✓ 連携済" : "未連携"}</td>
-                      </tr>
-                    ))}
+                    .map((c, i) => {
+                      const tkt = allCustomerTickets[c.id] || { purchase: 0, present: 0 };
+                      return (
+                        <tr key={c.id} style={{ borderTop: "1px solid #f0ebe4", cursor: "pointer" }} onClick={() => { setSelectedCustomer(c); fetchCustomerDetail(c.id); fetchCustomerHistory(c.id); fetchCustomerTickets(c.id); }}>
+                          <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.customer_number || i+1}</td>
+                          <td style={{ padding: "12px 16px", fontSize: 13, fontWeight: 600, color: "#5a9e7a" }}>{c.name}</td>
+                          <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.tel}</td>
+                          <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.email}</td>
+                          <td style={{ padding: "12px 16px", fontSize: 13, color: c.line_user_id ? "#5a9e7a" : "#ccc" }}>{c.line_user_id ? "✓ 連携済" : "未連携"}</td>
+                          <td style={{ padding: "12px 16px", fontSize: 12, color: "#3a5a3a" }}>
+                            {tkt.purchase === 0 && tkt.present === 0 ? (
+                              <span style={{ color: "#ccc" }}>-</span>
+                            ) : (
+                              <span>
+                                {tkt.purchase > 0 && <span style={{ color: "#5a9e7a", fontWeight: 600 }}>A:{tkt.purchase}</span>}
+                                {tkt.purchase > 0 && tkt.present > 0 && <span style={{ color: "#ccc", margin: "0 4px" }}>|</span>}
+                                {tkt.present > 0 && <span style={{ color: "#e07b39", fontWeight: 600 }}>B:{tkt.present}</span>}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
