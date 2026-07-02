@@ -116,6 +116,7 @@ export default function AdminPage() {
   const [giftTicketTemplates, setGiftTicketTemplates] = useState([]);
   const [customerTickets, setCustomerTickets] = useState([]);
   const [allCustomerTickets, setAllCustomerTickets] = useState({});
+  const [editTicketModal, setEditTicketModal] = useState(null); // { customer, type: "purchase"|"present", count, date }
   const [editingTicketTemplate, setEditingTicketTemplate] = useState(null);
   const [lineMessages, setLineMessages] = useState([]);
   const [adminNotifications, setAdminNotifications] = useState([]);
@@ -962,6 +963,40 @@ const handleAdminQrInput = async (value) => {
       else if (t.ticket_type === "present") map[t.customer_id].present++;
     });
     setAllCustomerTickets(map);
+  };
+
+  const saveTicketEdit = async () => {
+    if (!editTicketModal) return;
+    const { customer, type, count, date } = editTicketModal;
+    const today = formatDate(new Date());
+    // 既存の同タイプの有効チケットを削除
+    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?customer_id=eq.${customer.id}&store_id=eq.${currentStore.id}&ticket_type=eq.${type}&status=eq.active`, {
+      method: "DELETE", headers,
+    });
+    // 新しいチケットをINSERT
+    const issuedDate = date || today;
+    const expiresDate = (() => {
+      const d = new Date(issuedDate);
+      d.setFullYear(d.getFullYear() + 1);
+      return formatDate(d);
+    })();
+    for (let i = 0; i < count; i++) {
+      await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
+        method: "POST", headers,
+        body: JSON.stringify({
+          customer_id: customer.id,
+          store_id: currentStore.id,
+          ticket_type: type,
+          ticket_name: type === "purchase" ? "購入金券" : "プレゼント金券",
+          face_value: 1000,
+          issued_at: issuedDate,
+          expires_at: expiresDate,
+          status: "active",
+        }),
+      });
+    }
+    setEditTicketModal(null);
+    await fetchAllCustomerTickets();
   };
 
   const issueGiftTicket = async (template) => {
@@ -1957,6 +1992,51 @@ const handleAdminQrInput = async (value) => {
             <button onClick={() => { setSelectedBooking(null); setTab("checkout"); }} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>💴 会計へ</button>          </div>
         </div>
       )}
+
+    {editTicketModal && (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setEditTicketModal(null)}>
+        <div style={{ background: "white", borderRadius: 20, padding: 28, width: "100%", maxWidth: 360, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>
+              {editTicketModal.type === "purchase" ? "A. 購入金券" : "B. プレゼント金券"}を編集
+            </div>
+            <button onClick={() => setEditTicketModal(null)} style={{ border: "none", background: "none", fontSize: 22, cursor: "pointer", color: "#aaa" }}>×</button>
+          </div>
+          <div style={{ fontSize: 12, color: "#888", marginBottom: 16 }}>{editTicketModal.customer.name} 様</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: editTicketModal.type === "purchase" ? "#5a9e7a" : "#e07b39", display: "block", marginBottom: 6 }}>
+                枚数
+              </label>
+              <input
+                type="number" min="0" max="99"
+                value={editTicketModal.count}
+                onChange={e => setEditTicketModal({ ...editTicketModal, count: Math.max(0, parseInt(e.target.value) || 0) })}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `2px solid ${editTicketModal.type === "purchase" ? "#b0d8b8" : "#f0c8a0"}`, fontSize: 18, fontWeight: 700, boxSizing: "border-box", textAlign: "center" }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: editTicketModal.type === "purchase" ? "#5a9e7a" : "#e07b39", display: "block", marginBottom: 6 }}>
+                {editTicketModal.type === "purchase" ? "購入日" : "プレゼント日"}
+              </label>
+              <input
+                type="date"
+                value={editTicketModal.date}
+                onChange={e => setEditTicketModal({ ...editTicketModal, date: e.target.value })}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `2px solid ${editTicketModal.type === "purchase" ? "#b0d8b8" : "#f0c8a0"}`, fontSize: 14, boxSizing: "border-box" }}
+              />
+            </div>
+            <div style={{ fontSize: 11, color: "#aaa", background: "#f9f6f2", borderRadius: 8, padding: "8px 12px" }}>
+              ※ 保存すると同タイプの既存有効金券を削除し、入力枚数で再発行します（有効期限: {editTicketModal.type === "purchase" ? "購入日" : "プレゼント日"}から1年）
+            </div>
+            <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+              <button onClick={() => setEditTicketModal(null)} style={{ flex: 1, padding: "12px", borderRadius: 12, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>キャンセル</button>
+              <button onClick={saveTicketEdit} style={{ flex: 2, padding: "12px", borderRadius: 12, border: "none", background: editTicketModal.type === "purchase" ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "linear-gradient(135deg, #e07b39, #c05020)", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>保存</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
 
     {selectedCustomer && (
   <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => { setSelectedCustomer(null); setEditingCustomer(null); }}>
@@ -3949,16 +4029,17 @@ const handleAdminQrInput = async (value) => {
                           <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.tel}</td>
                           <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.email}</td>
                           <td style={{ padding: "12px 16px", fontSize: 13, color: c.line_user_id ? "#5a9e7a" : "#ccc" }}>{c.line_user_id ? "✓ 連携済" : "未連携"}</td>
-                          <td style={{ padding: "12px 16px", fontSize: 12, color: "#3a5a3a" }}>
-                            {tkt.purchase === 0 && tkt.present === 0 ? (
-                              <span style={{ color: "#ccc" }}>-</span>
-                            ) : (
-                              <span>
-                                {tkt.purchase > 0 && <span style={{ color: "#5a9e7a", fontWeight: 600 }}>A:{tkt.purchase}</span>}
-                                {tkt.purchase > 0 && tkt.present > 0 && <span style={{ color: "#ccc", margin: "0 4px" }}>|</span>}
-                                {tkt.present > 0 && <span style={{ color: "#e07b39", fontWeight: 600 }}>B:{tkt.present}</span>}
-                              </span>
-                            )}
+                          <td style={{ padding: "8px 16px", fontSize: 12, color: "#3a5a3a" }} onClick={e => e.stopPropagation()}>
+                            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                              <button onClick={() => setEditTicketModal({ customer: c, type: "purchase", count: tkt.purchase, date: formatDate(new Date()) })}
+                                style={{ padding: "3px 8px", borderRadius: 6, border: "1px solid #b0d8b8", background: tkt.purchase > 0 ? "#eaf5ec" : "#f5f5f5", color: tkt.purchase > 0 ? "#3a7a5a" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                                A:{tkt.purchase}
+                              </button>
+                              <button onClick={() => setEditTicketModal({ customer: c, type: "present", count: tkt.present, date: formatDate(new Date()) })}
+                                style={{ padding: "3px 8px", borderRadius: 6, border: "1px solid #f0c8a0", background: tkt.present > 0 ? "#fff5ee" : "#f5f5f5", color: tkt.present > 0 ? "#c06020" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                                B:{tkt.present}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
