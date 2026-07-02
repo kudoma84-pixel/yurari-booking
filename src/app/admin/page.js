@@ -579,7 +579,8 @@ const handleAdminQrInput = async (value) => {
       // 当月のpayments
       const payToJstMonth = (p) => {
         if (!p.created_at) return null;
-        const s = (p.created_at.includes('Z') || p.created_at.includes('+')) ? p.created_at : p.created_at + 'Z';
+        const hasTimezone = p.created_at.endsWith('Z') || p.created_at.indexOf('+') > 0;
+        const s = hasTimezone ? p.created_at : p.created_at + 'Z';
         const jst = new Date(new Date(s).getTime() + 9 * 3600000);
         return `${jst.getUTCFullYear()}-${String(jst.getUTCMonth()+1).padStart(2,'0')}`;
       };
