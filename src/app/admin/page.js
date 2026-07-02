@@ -1009,7 +1009,7 @@ const handleAdminQrInput = async (value) => {
   const searchCustomerByNumber = async (query) => {
     if (!query) { setCustomerSearchResult(null); return; }
     // 数字のみなら顧客番号、それ以外は氏名で検索
-    const isNumber = /^\d+$/.test(query);
+    const isNumber = query.split("").every(c => c >= "0" && c <= "9");
     const url = isNumber
       ? `${SUPABASE_URL}/rest/v1/customers?customer_number=eq.${query}`
       : `${SUPABASE_URL}/rest/v1/customers?name=ilike.*${query}*&limit=5`;
