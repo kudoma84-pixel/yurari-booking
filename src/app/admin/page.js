@@ -126,6 +126,7 @@ export default function AdminPage() {
   const [directBookingModal, setDirectBookingModal] = useState(null);
   const [directBookingForm, setDirectBookingForm] = useState({});
   const [customerSearchResult, setCustomerSearchResult] = useState(null);
+  const [customerSearchResults, setCustomerSearchResults] = useState([]);
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [notifications, setNotifications] = useState([]);
   const [giftModal, setGiftModal] = useState(null); // { customer, mode: 'sell' or 'present' }
@@ -1014,11 +1015,14 @@ const handleAdminQrInput = async (value) => {
       : `${SUPABASE_URL}/rest/v1/customers?name=ilike.*${query}*&limit=5`;
     const res = await fetch(url, { headers });
     const data = await res.json();
-    const found = Array.isArray(data) ? data[0] : null;
-    if (found) {
-      setCustomerSearchResult(found);
-      setDirectBookingForm(f => ({ ...f, customer_id: found.id, customer_name: found.name, customer_kana: found.kana || "", tel: found.tel || "" }));
+    if (Array.isArray(data) && data.length > 0) {
+      setCustomerSearchResults(data);
+      setCustomerSearchResult(data[0]);
+      if (data.length === 1) {
+        setDirectBookingForm(f => ({ ...f, customer_id: data[0].id, customer_name: data[0].name, customer_kana: data[0].kana || "", tel: data[0].tel || "" }));
+      }
     } else {
+      setCustomerSearchResults([]);
       setCustomerSearchResult(null);
       setDirectBookingForm(f => ({ ...f, customer_id: null, customer_name: "", customer_kana: "", tel: "" }));
     }
@@ -1839,7 +1843,17 @@ const handleAdminQrInput = async (value) => {
                   <input type="text" value={customerSearchQuery} onChange={e => setCustomerSearchQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && searchCustomerByNumber(customerSearchQuery)} placeholder="例：1001 または 田中" style={{ flex: 1, padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
                   <button onClick={() => searchCustomerByNumber(customerSearchQuery)} style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>検索</button>
                 </div>
-                {customerSearchResult && <div style={{ marginTop: 8, padding: "10px 14px", background: "#eaf5ec", borderRadius: 10, fontSize: 13, color: "#3a5a3a" }}>✓ {customerSearchResult.name}（{customerSearchResult.kana}）{customerSearchResult.tel}</div>}
+                {customerSearchResults.length > 1 && (
+                  <div style={{ marginTop: 8, background: "white", borderRadius: 10, border: "2px solid #e8ddd0", overflow: "hidden" }}>
+                    {customerSearchResults.map(c => (
+                      <div key={c.id} onClick={() => { setCustomerSearchResult(c); setDirectBookingForm(f => ({ ...f, customer_id: c.id, customer_name: c.name, customer_kana: c.kana || "", tel: c.tel || "" })); setCustomerSearchResults([]); }}
+                        style={{ padding: "10px 14px", borderBottom: "1px solid #f0e8d8", fontSize: 13, color: "#3a5a3a", cursor: "pointer" }}>
+                        {c.name}（{c.kana}）{c.tel}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {customerSearchResults.length === 1 && customerSearchResult && <div style={{ marginTop: 8, padding: "10px 14px", background: "#eaf5ec", borderRadius: 10, fontSize: 13, color: "#3a5a3a" }}>✓ {customerSearchResult.name}（{customerSearchResult.kana}）{customerSearchResult.tel}</div>}
                 {customerSearchQuery && !customerSearchResult && <div style={{ marginTop: 8, fontSize: 12, color: "#e0a040" }}>該当なし → 下に手入力すると新規顧客として登録されます</div>}
               </div>
               <div>
