@@ -1006,13 +1006,19 @@ const handleAdminQrInput = async (value) => {
     alert("保存しました");
   };
 
-  const searchCustomerByNumber = async (num) => {
-    if (!num) { setCustomerSearchResult(null); return; }
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?customer_number=eq.${num}`, { headers });
+  const searchCustomerByNumber = async (query) => {
+    if (!query) { setCustomerSearchResult(null); return; }
+    // 数字のみなら顧客番号、それ以外は氏名で検索
+    const isNumber = /^\d+$/.test(query);
+    const url = isNumber
+      ? `${SUPABASE_URL}/rest/v1/customers?customer_number=eq.${query}`
+      : `${SUPABASE_URL}/rest/v1/customers?name=ilike.*${query}*&limit=5`;
+    const res = await fetch(url, { headers });
     const data = await res.json();
-    if (data[0]) {
-      setCustomerSearchResult(data[0]);
-      setDirectBookingForm(f => ({ ...f, customer_id: data[0].id, customer_name: data[0].name, customer_kana: data[0].kana || "", tel: data[0].tel || "" }));
+    const found = Array.isArray(data) ? data[0] : null;
+    if (found) {
+      setCustomerSearchResult(found);
+      setDirectBookingForm(f => ({ ...f, customer_id: found.id, customer_name: found.name, customer_kana: found.kana || "", tel: found.tel || "" }));
     } else {
       setCustomerSearchResult(null);
       setDirectBookingForm(f => ({ ...f, customer_id: null, customer_name: "", customer_kana: "", tel: "" }));
@@ -1829,10 +1835,8 @@ const handleAdminQrInput = async (value) => {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>顧客番号で検索</label>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input type="number" inputMode="numeric" value={customerSearchQuery} onChange={e => setCustomerSearchQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && searchCustomerByNumber(customerSearchQuery)} placeholder="例：1001" style={{ flex: 1, padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
-                  <button onClick={() => searchCustomerByNumber(customerSearchQuery)} style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>検索</button>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>顧客番号または氏名で検索</label>
+                  <input type="text" value={customerSearchQuery} onChange={e => setCustomerSearchQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && searchCustomerByNumber(customerSearchQuery)} placeholder="例：1001 または 田中" style={{ flex: 1, padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />                  <button onClick={() => searchCustomerByNumber(customerSearchQuery)} style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>検索</button>
                 </div>
                 {customerSearchResult && <div style={{ marginTop: 8, padding: "10px 14px", background: "#eaf5ec", borderRadius: 10, fontSize: 13, color: "#3a5a3a" }}>✓ {customerSearchResult.name}（{customerSearchResult.kana}）{customerSearchResult.tel}</div>}
                 {customerSearchQuery && !customerSearchResult && <div style={{ marginTop: 8, fontSize: 12, color: "#e0a040" }}>該当なし → 下に手入力すると新規顧客として登録されます</div>}
