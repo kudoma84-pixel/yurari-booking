@@ -58,6 +58,8 @@ export default function AdminPage() {
   const [blocks, setBlocks] = useState([]);
   const [showDeleted, setShowDeleted] = useState(false);
   const [customerListSearch, setCustomerListSearch] = useState("");
+  const [customerSortKey, setCustomerSortKey] = useState("customer_number");
+  const [customerSortOrder, setCustomerSortOrder] = useState("asc");
   const [duplicates, setDuplicates] = useState([]);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [mergeTarget, setMergeTarget] = useState(null);
@@ -3823,7 +3825,16 @@ const handleAdminQrInput = async (value) => {
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
               <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", margin: 0 }}>顧客一覧</h2>
-              <input type="text" value={customerListSearch} onChange={e => setCustomerListSearch(e.target.value)} placeholder="氏名・電話番号で絞り込み" style={{ padding: "8px 14px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13, width: 200 }} />
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input type="text" value={customerListSearch} onChange={e => setCustomerListSearch(e.target.value)} placeholder="氏名・電話番号で絞り込み" style={{ padding: "8px 14px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13, width: 180 }} />
+                <select value={customerSortKey} onChange={e => setCustomerSortKey(e.target.value)} style={{ padding: "8px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13 }}>
+                  <option value="customer_number">顧客番号</option>
+                  <option value="kana">50音順</option>
+                </select>
+                <button onClick={() => setCustomerSortOrder(o => o === "asc" ? "desc" : "asc")} style={{ padding: "8px 12px", borderRadius: 10, border: "2px solid #e8ddd0", background: "white", fontSize: 13, cursor: "pointer" }}>
+                  {customerSortOrder === "asc" ? "↑ 昇順" : "↓ 降順"}
+                </button>
+              </div>
               <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#888", cursor: "pointer" }}>
                 <input type="checkbox" checked={showDeleted} onChange={async e => {
                   const val = e.target.checked;
@@ -3885,7 +3896,16 @@ const handleAdminQrInput = async (value) => {
                   </thead>
                   <tbody>
                     {customers.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", padding: 40, color: "#aaa" }}>顧客がいません</td></tr>}
-                    {customers.filter(c => !customerListSearch || c.name?.includes(customerListSearch) || c.tel?.includes(customerListSearch) || c.kana?.includes(customerListSearch)).map((c, i) => (
+                  {customers
+                    .filter(c => !customerListSearch || c.name?.includes(customerListSearch) || c.tel?.includes(customerListSearch) || c.kana?.includes(customerListSearch))
+                    .sort((a, b) => {
+                      const aVal = customerSortKey === "customer_number" ? (parseInt(a.customer_number) || 99999) : (a.kana || a.name || "");
+                      const bVal = customerSortKey === "customer_number" ? (parseInt(b.customer_number) || 99999) : (b.kana || b.name || "");
+                      if (aVal < bVal) return customerSortOrder === "asc" ? -1 : 1;
+                      if (aVal > bVal) return customerSortOrder === "asc" ? 1 : -1;
+                      return 0;
+                    })
+                    .map((c, i) => (
                       <tr key={c.id} style={{ borderTop: "1px solid #f0ebe4", cursor: "pointer" }} onClick={() => { setSelectedCustomer(c); fetchCustomerDetail(c.id); fetchCustomerHistory(c.id); }}>
                         <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.customer_number || i+1}</td>
                         <td style={{ padding: "12px 16px", fontSize: 13, fontWeight: 600, color: "#5a9e7a" }}>{c.name}</td>
