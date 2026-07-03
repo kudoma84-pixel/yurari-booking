@@ -2066,6 +2066,38 @@ const handleAdminQrInput = async (value) => {
             { label: "顧客番号", key: "customer_number" },
             { label: "氏名", key: "name" },
             { label: "フリガナ", key: "kana" },
+          ].map(f => (
+            <div key={f.key}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 4 }}>{f.label}</label>
+              <input
+                type="text"
+                value={editingCustomer[f.key] || ""}
+                onChange={e => setEditingCustomer({ ...editingCustomer, [f.key]: e.target.value })}
+                style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box" }}
+              />
+            </div>
+          ))}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 4 }}>生年月日</label>
+            <input
+              inputMode="numeric" maxLength={10} placeholder="19650401"
+              value={(() => {
+                const digits = (editingCustomer.birthday || "").replace(/\D/g, "").slice(0, 8);
+                if (digits.length >= 7) return digits.slice(0,4) + "/" + digits.slice(4,6) + "/" + digits.slice(6);
+                if (digits.length >= 5) return digits.slice(0,4) + "/" + digits.slice(4);
+                return digits;
+              })()}
+              onChange={e => {
+                const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
+                const dbValue = digits.length === 8
+                  ? digits.slice(0,4) + "-" + digits.slice(4,6) + "-" + digits.slice(6,8)
+                  : digits;
+                setEditingCustomer({ ...editingCustomer, birthday: dbValue });
+              }}
+              style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box" }}
+            />
+          </div>
+          {[
             { label: "郵便番号", key: "zipcode" },
             { label: "住所", key: "address" },
             { label: "電話番号1", key: "tel" },
@@ -2083,30 +2115,6 @@ const handleAdminQrInput = async (value) => {
               />
             </div>
           ))}
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 4 }}>生年月日</label>
-            <input
-              inputMode="numeric" maxLength={10} placeholder="19650401"
-              value={(() => {
-                const b = editingCustomer.birthday || "";
-                const digits = b.replace(/-/g, "");
-                if (digits.length >= 8) return digits.slice(0,4) + "/" + digits.slice(4,6) + "/" + digits.slice(6,8);
-                if (digits.length >= 6) return digits.slice(0,4) + "/" + digits.slice(4,6) + "/";
-                if (digits.length >= 4) return digits.slice(0,4) + "/" + digits.slice(4);
-                return digits;
-              })()}
-              onChange={e => {
-                const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
-                let display = digits;
-                if (digits.length >= 8) display = digits.slice(0,4) + "/" + digits.slice(4,6) + "/" + digits.slice(6,8);
-                else if (digits.length >= 6) display = digits.slice(0,4) + "/" + digits.slice(4,6) + "/";
-                else if (digits.length >= 4) display = digits.slice(0,4) + "/" + digits.slice(4);
-                const dbValue = digits.length === 8 ? digits.slice(0,4) + "-" + digits.slice(4,6) + "-" + digits.slice(6,8) : digits;
-                setEditingCustomer({ ...editingCustomer, birthday: dbValue });
-              }}
-              style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box" }}
-            />
-          </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 4 }}>通知方法</label>
             <div style={{ display: "flex", gap: 8 }}>
