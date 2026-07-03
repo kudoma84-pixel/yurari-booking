@@ -99,6 +99,7 @@ export default function AdminPage() {
   const [checkoutDiscountReason, setCheckoutDiscountReason] = useState("");
   const [checkoutPaymentMethods, setCheckoutPaymentMethods] = useState([{ method: "cash", amount: 0 }]);
   const [checkoutNote, setCheckoutNote] = useState("");
+  const [checkoutFreeProduct, setCheckoutFreeProduct] = useState({ name: "", price: "", quantity: 1 });
   const [checkoutComplete, setCheckoutComplete] = useState(false);
   const [checkoutResult, setCheckoutResult] = useState(null);
   const [todayBookings, setTodayBookings] = useState([]);
@@ -3316,21 +3317,49 @@ const handleAdminQrInput = async (value) => {
                   </div>
                   <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>物販を追加</div>
-                    {products.filter(p => p.is_active).length === 0 ? (
-                      <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", padding: 20 }}>商品が登録されていません</div>
-                    ) : (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {products.filter(p => p.is_active).map(p => (
-                          <div key={p.id} onClick={() => addProduct(p)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "#f9f6f2", borderRadius: 10, cursor: "pointer" }}>
-                            <div>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{p.name}</div>
-                              <div style={{ fontSize: 11, color: "#aaa" }}>{p.category}</div>
-                            </div>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: "#5a9e7a" }}>{formatPrice(p.price)}</div>
-                          </div>
-                        ))}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <input
+                        type="text" placeholder="品名"
+                        value={checkoutFreeProduct.name}
+                        onChange={e => setCheckoutFreeProduct(p => ({ ...p, name: e.target.value }))}
+                        style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box" }}
+                      />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 11, color: "#7a9a7a", marginBottom: 3 }}>単価（円）</div>
+                          <input
+                            type="number" min="0" placeholder="0"
+                            value={checkoutFreeProduct.price}
+                            onChange={e => setCheckoutFreeProduct(p => ({ ...p, price: e.target.value }))}
+                            style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box" }}
+                          />
+                        </div>
+                        <div style={{ width: 72 }}>
+                          <div style={{ fontSize: 11, color: "#7a9a7a", marginBottom: 3 }}>数量</div>
+                          <input
+                            type="number" min="1"
+                            value={checkoutFreeProduct.quantity}
+                            onChange={e => setCheckoutFreeProduct(p => ({ ...p, quantity: Math.max(1, parseInt(e.target.value) || 1) }))}
+                            style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box" }}
+                          />
+                        </div>
                       </div>
-                    )}
+                      <button
+                        onClick={() => {
+                          if (!checkoutFreeProduct.name || !checkoutFreeProduct.price) return;
+                          setCheckoutItems(prev => [...prev, {
+                            type: "product",
+                            name: checkoutFreeProduct.name,
+                            price: parseInt(checkoutFreeProduct.price) || 0,
+                            quantity: checkoutFreeProduct.quantity,
+                          }]);
+                          setCheckoutFreeProduct({ name: "", price: "", quantity: 1 });
+                        }}
+                        disabled={!checkoutFreeProduct.name || !checkoutFreeProduct.price}
+                        style={{ width: "100%", padding: "9px", borderRadius: 10, border: "none", background: checkoutFreeProduct.name && checkoutFreeProduct.price ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: checkoutFreeProduct.name && checkoutFreeProduct.price ? "white" : "#bbb", fontSize: 13, fontWeight: 700, cursor: checkoutFreeProduct.name && checkoutFreeProduct.price ? "pointer" : "not-allowed" }}>
+                        ＋ 追加
+                      </button>
+                    </div>
                   </div>
                   <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>🎫 金券</div>
