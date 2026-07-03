@@ -1142,7 +1142,12 @@ const handleAdminQrInput = async (value) => {
           store_id: currentStore.id,
           booking_id: bookingId,
           customer_id: customerId || null,
-          total_amount: total,
+          subtotal: total,
+          discount: 0,
+          total: total,
+          payment_method: "現金",
+          payment_status: "paid",
+          notes: "",
         }),
       });
       const payData = await payRes.json();
