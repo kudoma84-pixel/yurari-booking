@@ -1160,7 +1160,7 @@ const handleAdminQrInput = async (value) => {
             store_id: currentStore.id,
             customer_id: giftSelectedCustomer.id,
             ticket_type: giftModal.mode === 'sell' ? 'purchase' : 'present',
-            purchase_group_id: giftModal.mode === 'sell' ? groupId : null,
+            purchase_group_id: groupId,
             ticket_name: template.name,
             face_value: template.face_value,
             issued_at: formatDate(today),
@@ -3399,6 +3399,7 @@ const handleAdminQrInput = async (value) => {
                                 store_id: currentStore.id,
                                 customer_id: checkoutBooking.customer_id,
                                 ticket_type: "present",
+                                purchase_group_id: crypto.randomUUID(),
                                 ticket_name: template.name,
                                 face_value: template.face_value,
                                 issued_at: formatDate(today),
@@ -3906,29 +3907,39 @@ const handleAdminQrInput = async (value) => {
                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
                   <thead>
                     <tr style={{ background: "#f5f5f5" }}>
-                      {["顧客番号","顧客名","金券名","プレゼント日","有効期限","使用状況"].map(h => (
+                      {["顧客番号","顧客名","金券名","枚数","プレゼント日","有効期限","使用状況"].map(h => (
                         <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a" }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {giftHistory.filter(g => g.ticket_type === "present").length === 0 && (
-                      <tr><td colSpan={6} style={{ textAlign: "center", padding: 32, color: "#aaa" }}>プレゼント履歴がありません</td></tr>
-                    )}
-                    {giftHistory.filter(g => g.ticket_type === "present").map((g, i) => (
-                      <tr key={g.id} style={{ borderTop: "1px solid #f0ebe4" }}>
-                        <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.customers?.customer_number || "-"}</td>
-                        <td style={{ padding: "10px 14px", fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{g.customers?.name || "-"}</td>
-                        <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.ticket_name}</td>
-                        <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.issued_at}</td>
-                        <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.expires_at}</td>
-                        <td style={{ padding: "10px 14px" }}>
-                          <div style={{ fontSize: 11, background: g.status === "active" ? "#fdf5e0" : "#f0ebe4", color: g.status === "active" ? "#e0a040" : "#aaa", borderRadius: 20, padding: "3px 10px", display: "inline-block" }}>
-                            {g.status === "active" ? "未使用" : g.status === "used" ? "使用済" : g.status}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {(() => {
+                      const presents = giftHistory.filter(g => g.ticket_type === "present");
+                      const groups = {};
+                      presents.forEach(g => {
+                        const key = g.purchase_group_id || g.id;
+                        if (!groups[key]) groups[key] = { ...g, total: 0, used: 0 };
+                        groups[key].total++;
+                        if (g.status === "used") groups[key].used++;
+                      });
+                      const rows = Object.values(groups);
+                      if (rows.length === 0) return <tr><td colSpan={7} style={{ textAlign: "center", padding: 32, color: "#aaa" }}>プレゼント履歴がありません</td></tr>;
+                      return rows.map(g => (
+                        <tr key={g.purchase_group_id || g.id} style={{ borderTop: "1px solid #f0ebe4" }}>
+                          <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.customers?.customer_number || "-"}</td>
+                          <td style={{ padding: "10px 14px", fontSize: 13, fontWeight: 600, color: "#3a5a3a" }}>{g.customers?.name || "-"}</td>
+                          <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.ticket_name}</td>
+                          <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.total}枚（使用済{g.used}枚）</td>
+                          <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.issued_at}</td>
+                          <td style={{ padding: "10px 14px", fontSize: 13, color: "#3a5a3a" }}>{g.expires_at}</td>
+                          <td style={{ padding: "10px 14px" }}>
+                            <div style={{ fontSize: 11, background: g.used === g.total ? "#f0ebe4" : "#fdf5e0", color: g.used === g.total ? "#aaa" : "#e0a040", borderRadius: 20, padding: "3px 10px", display: "inline-block" }}>
+                              {g.used === g.total ? "全使用済" : `残${g.total - g.used}枚`}
+                            </div>
+                          </td>
+                        </tr>
+                      ));
+                    })()}
                   </tbody>
                 </table>
               </div>
