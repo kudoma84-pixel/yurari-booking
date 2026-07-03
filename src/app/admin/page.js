@@ -1143,7 +1143,6 @@ const handleAdminQrInput = async (value) => {
           booking_id: bookingId,
           customer_id: customerId || null,
           total_amount: total,
-          payment_date: bookingDate,
         }),
       });
       const payData = await payRes.json();
