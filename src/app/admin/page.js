@@ -1126,6 +1126,7 @@ const handleAdminQrInput = async (value) => {
           status: "confirmed",
           notes: f.notes || "",
           booking_number: num,
+          course_id: null,
           source: "direct",
         }),
       });
