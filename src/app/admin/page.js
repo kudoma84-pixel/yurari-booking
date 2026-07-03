@@ -132,6 +132,8 @@ export default function AdminPage() {
   const [checkoutPresentTicketId, setCheckoutPresentTicketId] = useState("");
   const [directBookingModal, setDirectBookingModal] = useState(null);
   const [directBookingForm, setDirectBookingForm] = useState({});
+  const [directBookingMode, setDirectBookingMode] = useState("normal");
+  const [directBookingProducts, setDirectBookingProducts] = useState([{ name: "", price: "", quantity: 1 }]);
   const [customerSearchResult, setCustomerSearchResult] = useState(null);
   const [customerSearchResults, setCustomerSearchResults] = useState([]);
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
@@ -1087,7 +1089,8 @@ const handleAdminQrInput = async (value) => {
 
   const saveDirectBooking = async () => {
     const f = directBookingForm;
-    if (!f.customer_name || !f.course_id) return;
+    if (directBookingMode === "normal" && (!f.customer_name || !f.course_id)) return;
+    if (directBookingMode === "product" && (!f.customer_name || !directBookingProducts.some(p => p.name && p.price))) return;
     let customerId = f.customer_id;
     if (!customerId && f.customer_name) {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/customers`, {
@@ -1097,44 +1100,97 @@ const handleAdminQrInput = async (value) => {
       const data = await res.json();
       customerId = data[0]?.id;
     }
-    const course = courseMenus.find(c => c.id === f.course_id);
     const staff = staffMembers.find(s => s.id === f.staff_id);
     const bookingDate = formatDate(directBookingModal.date);
     const num = `YR-${Date.now().toString().slice(-8)}`;
-    await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
-      method: "POST", headers,
-      body: JSON.stringify({
-        store_id: currentStore.id,
-        customer_id: customerId || null,
-        staff_id: f.staff_id,
-        course_id: f.course_id,
-        booking_date: bookingDate,
-        booking_time: f.booking_time,
-        course_name: course?.name || "",
-        course_duration: course?.duration || "30分",
-        staff_name: staff?.name || "",
-        status: "confirmed",
-        notes: directBookingModal.notes || "",
-        booking_number: num,
-        source: "direct",
-      }),
-    });
-    // マイページ通知欄に通知
-    if (customerId) {
-      await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
-        method: "POST", headers,
+
+    if (directBookingMode === "product") {
+      const validProducts = directBookingProducts.filter(p => p.name && p.price);
+      const total = validProducts.reduce((sum, p) => sum + Number(p.price) * Number(p.quantity || 1), 0);
+      const bookingRes = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
+        method: "POST", headers: { ...headers, Prefer: "return=representation" },
         body: JSON.stringify({
-          customer_id: customerId,
           store_id: currentStore.id,
-          title: "ご予約確定のお知らせ",
-          body: bookingDate + " " + f.booking_time + " " + (course?.name || "") + "（" + (staff?.name || "") + "）",
-          is_read: false,
-          sent_via: "system",
+          customer_id: customerId || null,
+          staff_id: f.staff_id || null,
+          booking_date: bookingDate,
+          booking_time: directBookingModal.time,
+          course_name: "物販",
+          course_duration: "0分",
+          staff_name: staff?.name || "",
+          status: "completed",
+          notes: f.notes || "",
+          booking_number: num,
+          source: "direct",
         }),
       });
+      const bookingData = await bookingRes.json();
+      const bookingId = bookingData[0]?.id;
+      if (bookingId) {
+        const payRes = await fetch(`${SUPABASE_URL}/rest/v1/payments`, {
+          method: "POST", headers: { ...headers, Prefer: "return=representation" },
+          body: JSON.stringify({
+            store_id: currentStore.id,
+            booking_id: bookingId,
+            customer_id: customerId || null,
+            total_amount: total,
+            payment_date: bookingDate,
+          }),
+        });
+        const payData = await payRes.json();
+        const paymentId = payData[0]?.id;
+        if (paymentId) {
+          await fetch(`${SUPABASE_URL}/rest/v1/payment_items`, {
+            method: "POST", headers,
+            body: JSON.stringify(validProducts.map(p => ({
+              payment_id: paymentId,
+              name: p.name,
+              unit_price: Number(p.price),
+              quantity: Number(p.quantity || 1),
+              subtotal: Number(p.price) * Number(p.quantity || 1),
+            }))),
+          });
+        }
+      }
+    } else {
+      const course = courseMenus.find(c => c.id === f.course_id);
+      await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
+        method: "POST", headers,
+        body: JSON.stringify({
+          store_id: currentStore.id,
+          customer_id: customerId || null,
+          staff_id: f.staff_id,
+          course_id: f.course_id,
+          booking_date: bookingDate,
+          booking_time: f.booking_time,
+          course_name: course?.name || "",
+          course_duration: course?.duration || "30分",
+          staff_name: staff?.name || "",
+          status: "confirmed",
+          notes: directBookingModal.notes || "",
+          booking_number: num,
+          source: "direct",
+        }),
+      });
+      if (customerId) {
+        const course = courseMenus.find(c => c.id === f.course_id);
+        await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
+          method: "POST", headers,
+          body: JSON.stringify({
+            customer_id: customerId,
+            store_id: currentStore.id,
+            title: "ご予約確定のお知らせ",
+            body: bookingDate + " " + f.booking_time + " " + (course?.name || "") + "（" + (staff?.name || "") + "）",
+            is_read: false,
+            sent_via: "system",
+          }),
+        });
+      }
     }
     setDirectBookingModal(null);
     setDirectBookingForm({});
+    setDirectBookingMode("normal");
+    setDirectBookingProducts([{ name: "", price: "", quantity: 1 }]);
     setCustomerSearchResult(null);
     setCustomerSearchQuery("");
     fetchAll(directBookingModal.date);
@@ -1885,16 +1941,23 @@ const handleAdminQrInput = async (value) => {
     <div style={{ minHeight: "100vh", background: "#f5f5f5", fontFamily: "'Noto Sans JP', sans-serif" }}>
 
       {directBookingModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setDirectBookingModal(null)}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => { setDirectBookingModal(null); setDirectBookingMode("normal"); setDirectBookingProducts([{ name: "", price: "", quantity: 1 }]); }}>
           <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 480, maxHeight: "90vh", overflow: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
               <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>📝 直接予約入力</div>
-              <button onClick={() => setDirectBookingModal(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+              <button onClick={() => { setDirectBookingModal(null); setDirectBookingMode("normal"); setDirectBookingProducts([{ name: "", price: "", quantity: 1 }]); }} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+            </div>
+            {/* タブ切替 */}
+            <div style={{ display: "flex", background: "#f0ebe4", borderRadius: 12, padding: 4, marginBottom: 20, gap: 4 }}>
+              {[{ key: "normal", label: "通常予約" }, { key: "product", label: "物販のみ" }].map(tab => (
+                <button key={tab.key} onClick={() => setDirectBookingMode(tab.key)} style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: directBookingMode === tab.key ? "white" : "transparent", color: directBookingMode === tab.key ? "#3a5a3a" : "#999", fontSize: 14, fontWeight: 700, cursor: "pointer", boxShadow: directBookingMode === tab.key ? "0 2px 8px rgba(0,0,0,0.1)" : "none" }}>{tab.label}</button>
+              ))}
             </div>
             <div style={{ background: "#f9f6f2", borderRadius: 12, padding: "10px 16px", marginBottom: 20, fontSize: 13, color: "#7a9a7a" }}>
               📅 {directBookingModal.date.getMonth()+1}月{directBookingModal.date.getDate()}日　⏰ {directBookingModal.time}　👤 {staffMembers.find(s => s.id === directBookingModal.staffId)?.name}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* 共通：顧客検索 */}
               <div>
                 <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>顧客番号または氏名で検索</label>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -1926,21 +1989,61 @@ const handleAdminQrInput = async (value) => {
                 <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>電話番号</label>
                 <input value={directBookingForm.tel || ""} onChange={e => setDirectBookingForm(f => ({ ...f, tel: e.target.value.replace(/[^0-9-]/g, "") }))} placeholder="090-1234-5678" inputMode="tel" style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
               </div>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>コース <span style={{ color: "#e07070" }}>*</span></label>
-                <select value={directBookingForm.course_id || ""} onChange={e => setDirectBookingForm(f => ({ ...f, course_id: e.target.value }))} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", background: "white" }}>
-                  <option value="">選択してください</option>
-                  {courseMenus.filter(c => c.is_active).map(c => <option key={c.id} value={c.id}>{c.name}（{c.duration} / ¥{c.price?.toLocaleString()}）</option>)}
-                </select>
-              </div>
+              {/* 通常予約のみ: コース選択 */}
+              {directBookingMode === "normal" && (
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>コース <span style={{ color: "#e07070" }}>*</span></label>
+                  <select value={directBookingForm.course_id || ""} onChange={e => setDirectBookingForm(f => ({ ...f, course_id: e.target.value }))} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", background: "white" }}>
+                    <option value="">選択してください</option>
+                    {courseMenus.filter(c => c.is_active).map(c => <option key={c.id} value={c.id}>{c.name}（{c.duration} / ¥{c.price?.toLocaleString()}）</option>)}
+                  </select>
+                </div>
+              )}
+              {/* 物販のみ: 担当スタッフ + 商品入力 */}
+              {directBookingMode === "product" && (
+                <>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>担当スタッフ</label>
+                    <select value={directBookingForm.staff_id || ""} onChange={e => setDirectBookingForm(f => ({ ...f, staff_id: e.target.value }))} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", background: "white" }}>
+                      <option value="">選択してください</option>
+                      {staffMembers.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>商品</label>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {directBookingProducts.map((p, i) => (
+                        <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <input value={p.name} onChange={e => setDirectBookingProducts(ps => ps.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} placeholder="品名" style={{ flex: 3, padding: "8px 12px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box" }} />
+                          <input value={p.price} onChange={e => setDirectBookingProducts(ps => ps.map((x, j) => j === i ? { ...x, price: e.target.value.replace(/[^0-9]/g, "") } : x))} placeholder="単価" inputMode="numeric" style={{ flex: 2, padding: "8px 12px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box" }} />
+                          <input value={p.quantity} onChange={e => setDirectBookingProducts(ps => ps.map((x, j) => j === i ? { ...x, quantity: e.target.value.replace(/[^0-9]/g, "") || 1 } : x))} placeholder="数量" inputMode="numeric" style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box" }} />
+                          {directBookingProducts.length > 1 && (
+                            <button onClick={() => setDirectBookingProducts(ps => ps.filter((_, j) => j !== i))} style={{ border: "none", background: "#f5e8e8", color: "#e07070", borderRadius: 8, padding: "8px 10px", cursor: "pointer", fontSize: 14, fontWeight: 700 }}>×</button>
+                          )}
+                        </div>
+                      ))}
+                      <button onClick={() => setDirectBookingProducts(ps => [...ps, { name: "", price: "", quantity: 1 }])} style={{ padding: "8px", borderRadius: 8, border: "2px dashed #e8ddd0", background: "white", color: "#aaa", fontSize: 13, cursor: "pointer" }}>＋ 商品を追加</button>
+                    </div>
+                    {directBookingProducts.some(p => p.name && p.price) && (
+                      <div style={{ marginTop: 10, textAlign: "right", fontSize: 14, fontWeight: 700, color: "#3a5a3a" }}>
+                        合計：¥{directBookingProducts.filter(p => p.name && p.price).reduce((sum, p) => sum + Number(p.price) * Number(p.quantity || 1), 0).toLocaleString()}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
               <div>
                 <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>メモ</label>
                 <input value={directBookingForm.notes || ""} onChange={e => setDirectBookingForm(f => ({ ...f, notes: e.target.value }))} placeholder="施術メモ・来院理由など" style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
               </div>
             </div>
             <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
-              <button onClick={() => setDirectBookingModal(null)} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>キャンセル</button>
-              <button onClick={saveDirectBooking} disabled={!directBookingForm.customer_name || !directBookingForm.course_id} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: directBookingForm.customer_name && directBookingForm.course_id ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: directBookingForm.customer_name && directBookingForm.course_id ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: directBookingForm.customer_name && directBookingForm.course_id ? "pointer" : "not-allowed" }}>予約を登録する</button>
+              <button onClick={() => { setDirectBookingModal(null); setDirectBookingMode("normal"); setDirectBookingProducts([{ name: "", price: "", quantity: 1 }]); }} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>キャンセル</button>
+              {directBookingMode === "normal" ? (
+                <button onClick={saveDirectBooking} disabled={!directBookingForm.customer_name || !directBookingForm.course_id} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: directBookingForm.customer_name && directBookingForm.course_id ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: directBookingForm.customer_name && directBookingForm.course_id ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: directBookingForm.customer_name && directBookingForm.course_id ? "pointer" : "not-allowed" }}>予約を登録する</button>
+              ) : (
+                <button onClick={saveDirectBooking} disabled={!directBookingForm.customer_name || !directBookingProducts.some(p => p.name && p.price)} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "linear-gradient(135deg, #e07b39, #c05a20)" : "#e8ddd0", color: directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "pointer" : "not-allowed" }}>物販を登録する</button>
+              )}
             </div>
           </div>
         </div>
