@@ -1067,7 +1067,7 @@ const handleAdminQrInput = async (value) => {
     const isNumber = query.split("").every(c => c >= "0" && c <= "9");
     const url = isNumber
       ? `${SUPABASE_URL}/rest/v1/customers?customer_number=eq.${query}`
-      : `${SUPABASE_URL}/rest/v1/customers?name=ilike.*${query}*&limit=5`;
+      : `${SUPABASE_URL}/rest/v1/customers?name=ilike.*${query}*&limit=50`;
     const res = await fetch(url, { headers });
     const data = await res.json();
     if (Array.isArray(data) && data.length > 0) {
