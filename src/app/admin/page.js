@@ -1094,15 +1094,20 @@ const handleAdminQrInput = async (value) => {
     let customerId = f.customer_id;
     if (!customerId && f.customer_name) {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/customers`, {
-        method: "POST", headers,
+        method: "POST", headers: { ...headers, Prefer: "return=representation" },
         body: JSON.stringify({ name: f.customer_name, kana: f.customer_kana || "", tel: f.tel || "", email: f.email || "" }),
       });
       const data = await res.json();
-      customerId = data[0]?.id;
+      if (!Array.isArray(data) || !data[0]?.id) {
+        alert("顧客の登録に失敗しました。\n" + JSON.stringify(data));
+        return;
+      }
+      customerId = data[0].id;
     }
-    const staff = staffMembers.find(s => s.id === f.staff_id);
+    const staff = staffMembers.find(s => s.id === (directBookingMode === "product" ? f.staff_id : f.staff_id));
     const bookingDate = formatDate(directBookingModal.date);
     const num = `YR-${Date.now().toString().slice(-8)}`;
+    const savedDate = directBookingModal.date;
 
     if (directBookingMode === "product") {
       const validProducts = directBookingProducts.filter(p => p.name && p.price);
@@ -1118,43 +1123,50 @@ const handleAdminQrInput = async (value) => {
           course_name: "物販",
           course_duration: "0分",
           staff_name: staff?.name || "",
-          status: "completed",
+          status: "confirmed",
           notes: f.notes || "",
           booking_number: num,
           source: "direct",
         }),
       });
       const bookingData = await bookingRes.json();
-      const bookingId = bookingData[0]?.id;
-      if (bookingId) {
-        const payRes = await fetch(`${SUPABASE_URL}/rest/v1/payments`, {
-          method: "POST", headers: { ...headers, Prefer: "return=representation" },
-          body: JSON.stringify({
-            store_id: currentStore.id,
-            booking_id: bookingId,
-            customer_id: customerId || null,
-            total_amount: total,
-            payment_date: bookingDate,
-          }),
-        });
-        const payData = await payRes.json();
-        const paymentId = payData[0]?.id;
-        if (paymentId) {
-          await fetch(`${SUPABASE_URL}/rest/v1/payment_items`, {
-            method: "POST", headers,
-            body: JSON.stringify(validProducts.map(p => ({
-              payment_id: paymentId,
-              name: p.name,
-              unit_price: Number(p.price),
-              quantity: Number(p.quantity || 1),
-              subtotal: Number(p.price) * Number(p.quantity || 1),
-            }))),
-          });
-        }
+      if (!Array.isArray(bookingData) || !bookingData[0]?.id) {
+        alert("予約の登録に失敗しました。\n" + JSON.stringify(bookingData));
+        return;
+      }
+      const bookingId = bookingData[0].id;
+      const payRes = await fetch(`${SUPABASE_URL}/rest/v1/payments`, {
+        method: "POST", headers: { ...headers, Prefer: "return=representation" },
+        body: JSON.stringify({
+          store_id: currentStore.id,
+          booking_id: bookingId,
+          customer_id: customerId || null,
+          total_amount: total,
+          payment_date: bookingDate,
+        }),
+      });
+      const payData = await payRes.json();
+      if (!Array.isArray(payData) || !payData[0]?.id) {
+        alert("売上の登録に失敗しました。\n" + JSON.stringify(payData));
+        return;
+      }
+      const paymentId = payData[0].id;
+      const itemsRes = await fetch(`${SUPABASE_URL}/rest/v1/payment_items`, {
+        method: "POST", headers,
+        body: JSON.stringify(validProducts.map(p => ({
+          payment_id: paymentId,
+          name: p.name,
+          unit_price: Number(p.price),
+          quantity: Number(p.quantity || 1),
+          subtotal: Number(p.price) * Number(p.quantity || 1),
+        }))),
+      });
+      if (!itemsRes.ok) {
+        alert("商品明細の登録に失敗しました。ステータス：" + itemsRes.status);
       }
     } else {
       const course = courseMenus.find(c => c.id === f.course_id);
-      await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
+      const bookingRes = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
         method: "POST", headers,
         body: JSON.stringify({
           store_id: currentStore.id,
@@ -1162,25 +1174,29 @@ const handleAdminQrInput = async (value) => {
           staff_id: f.staff_id,
           course_id: f.course_id,
           booking_date: bookingDate,
-          booking_time: f.booking_time,
+          booking_time: directBookingModal.time,
           course_name: course?.name || "",
           course_duration: course?.duration || "30分",
           staff_name: staff?.name || "",
           status: "confirmed",
-          notes: directBookingModal.notes || "",
+          notes: f.notes || "",
           booking_number: num,
           source: "direct",
         }),
       });
+      if (!bookingRes.ok) {
+        const err = await bookingRes.json();
+        alert("予約の登録に失敗しました。\n" + JSON.stringify(err));
+        return;
+      }
       if (customerId) {
-        const course = courseMenus.find(c => c.id === f.course_id);
         await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
           method: "POST", headers,
           body: JSON.stringify({
             customer_id: customerId,
             store_id: currentStore.id,
             title: "ご予約確定のお知らせ",
-            body: bookingDate + " " + f.booking_time + " " + (course?.name || "") + "（" + (staff?.name || "") + "）",
+            body: bookingDate + " " + directBookingModal.time + " " + (course?.name || "") + "（" + (staff?.name || "") + "）",
             is_read: false,
             sent_via: "system",
           }),
@@ -1193,7 +1209,10 @@ const handleAdminQrInput = async (value) => {
     setDirectBookingProducts([{ name: "", price: "", quantity: 1 }]);
     setCustomerSearchResult(null);
     setCustomerSearchQuery("");
-    fetchAll(directBookingModal.date);
+    const savedDateStr = formatDate(savedDate);
+    fetchAll(savedDate);
+    fetchTodayBookings(savedDateStr);
+    fetchCompletedBookings(savedDateStr);
   };
 
   const searchGiftCustomer = async (query) => {
