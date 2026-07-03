@@ -954,7 +954,7 @@ const handleAdminQrInput = async (value) => {
   const fetchAllCustomerTickets = async () => {
     if (!currentStore?.id) return;
     const today = formatDate(new Date());
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?store_id=eq.${currentStore.id}&status=eq.active&expires_at=gte.${today}&select=customer_id,ticket_type`, { headers });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?status=eq.active&expires_at=gte.${today}&select=customer_id,ticket_type`, { headers });
     const data = await res.json();
     if (!Array.isArray(data)) return;
     const map = {};
