@@ -1558,8 +1558,7 @@ const handleAdminQrInput = async (value) => {
   };
 
   const subtotal = checkoutItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const ticketDiscount = (checkoutTicketUse.purchase + checkoutTicketUse.present) * 1000;
-  const total = Math.max(0, subtotal - checkoutDiscount - ticketDiscount);
+  const total = Math.max(0, subtotal - checkoutDiscount);
 
   const savePayment = async () => {
     const paymentRes = await fetch(`${SUPABASE_URL}/rest/v1/payments`, {
@@ -1603,16 +1602,6 @@ const handleAdminQrInput = async (value) => {
           }
         }
       }
-    }
-    // 金券消費処理（expires_at昇順、購入→プレゼントの順）
-    const usedAt = new Date().toISOString();
-    const purchaseTickets = customerTickets.filter(t => t.ticket_type === "purchase").slice(0, checkoutTicketUse.purchase);
-    const presentTickets = customerTickets.filter(t => t.ticket_type === "present").slice(0, checkoutTicketUse.present);
-    for (const t of [...purchaseTickets, ...presentTickets]) {
-      await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, {
-        method: "PATCH", headers,
-        body: JSON.stringify({ status: "used", used_at: usedAt }),
-      });
     }
     setCheckoutResult({ paymentId, total, subtotal, discount: checkoutDiscount, discountReason: checkoutDiscountReason, paymentMethod: checkoutPaymentMethods.map(p => p.method).join(","), customerName: checkoutBooking?.customers?.name || "お客様", items: checkoutItems });
     setCheckoutComplete(true);
@@ -3274,45 +3263,6 @@ const handleAdminQrInput = async (value) => {
                           <input value={checkoutDiscountReason} onChange={e => setCheckoutDiscountReason(e.target.value)} placeholder="値引き理由を入力..." style={{ width: "100%", padding: "6px 10px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 12, boxSizing: "border-box" }} />
                         </div>
                       )}
-                      {/* 金券を使用する */}
-                      {checkoutBooking?.customer_id && (() => {
-                        const purchaseCount = customerTickets.filter(t => t.ticket_type === "purchase").length;
-                        const presentCount = customerTickets.filter(t => t.ticket_type === "present").length;
-                        if (purchaseCount === 0 && presentCount === 0) return null;
-                        return (
-                          <div style={{ background: "#f5fdf8", border: "1.5px solid #b0d8b8", borderRadius: 10, padding: "10px 12px", marginBottom: 8 }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: "#3a7a5a", marginBottom: 8 }}>🎫 金券を使用する</div>
-                            {purchaseCount > 0 && (
-                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                                <span style={{ fontSize: 12, color: "#3a5a3a" }}>A. 購入金券（{purchaseCount}枚保有）</span>
-                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                  <button onClick={() => setCheckoutTicketUse(u => ({ ...u, purchase: Math.max(0, u.purchase - 1) }))} style={{ width: 24, height: 24, borderRadius: "50%", border: "1px solid #b0d8b8", background: "white", cursor: "pointer", fontSize: 14, color: "#3a7a5a" }}>－</button>
-                                  <span style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", minWidth: 20, textAlign: "center" }}>{checkoutTicketUse.purchase}</span>
-                                  <button onClick={() => setCheckoutTicketUse(u => ({ ...u, purchase: Math.min(purchaseCount, u.purchase + 1) }))} style={{ width: 24, height: 24, borderRadius: "50%", border: "1px solid #b0d8b8", background: "white", cursor: "pointer", fontSize: 14, color: "#3a7a5a" }}>＋</button>
-                                  <span style={{ fontSize: 11, color: "#888" }}>枚</span>
-                                </div>
-                              </div>
-                            )}
-                            {presentCount > 0 && (
-                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                                <span style={{ fontSize: 12, color: "#3a5a3a" }}>B. プレゼント金券（{presentCount}枚保有）</span>
-                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                  <button onClick={() => setCheckoutTicketUse(u => ({ ...u, present: Math.max(0, u.present - 1) }))} style={{ width: 24, height: 24, borderRadius: "50%", border: "1px solid #f0c8a0", background: "white", cursor: "pointer", fontSize: 14, color: "#c06020" }}>－</button>
-                                  <span style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", minWidth: 20, textAlign: "center" }}>{checkoutTicketUse.present}</span>
-                                  <button onClick={() => setCheckoutTicketUse(u => ({ ...u, present: Math.min(presentCount, u.present + 1) }))} style={{ width: 24, height: 24, borderRadius: "50%", border: "1px solid #f0c8a0", background: "white", cursor: "pointer", fontSize: 14, color: "#c06020" }}>＋</button>
-                                  <span style={{ fontSize: 11, color: "#888" }}>枚</span>
-                                </div>
-                              </div>
-                            )}
-                            {ticketDiscount > 0 && (
-                              <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #b0d8b8", paddingTop: 6, marginTop: 4 }}>
-                                <span style={{ fontSize: 12, color: "#3a7a5a", fontWeight: 700 }}>金券割引</span>
-                                <span style={{ fontSize: 12, color: "#3a7a5a", fontWeight: 700 }}>－{formatPrice(ticketDiscount)}</span>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
                       <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, borderTop: "2px solid #e8ddd0" }}>
                         <span style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>合計</span>
                         <span style={{ fontSize: 20, fontWeight: 700, color: "#5a9e7a" }}>{formatPrice(total)}</span>
@@ -3425,20 +3375,70 @@ const handleAdminQrInput = async (value) => {
                             <div style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: 12 }}>金券がありません</div>
                           ) : (
                             <>
-                              <div style={{ background: "#f0f8f4", borderRadius: 12, padding: "12px 16px", marginBottom: 8 }}>
-                                <div style={{ fontSize: 24, fontWeight: 700, color: "#3a5a3a" }}>{customerTickets.length}枚</div>
-                                <div style={{ fontSize: 11, color: "#888" }}>有効期限が近い順に使用されます</div>
-                                <div style={{ fontSize: 11, color: "#aaa", marginTop: 4 }}>最短期限: {customerTickets[0]?.expires_at}</div>
-                              </div>
-                              <button onClick={async () => {
-                                const used = await useGiftTicketByCount(checkoutBooking.customer_id);
-                                if (used) {
-                                  setSelectedTicket(used);
-                                                                    await fetchCustomerTicketCount(checkoutBooking.customer_id);
-                                }
-                              }} disabled={!!selectedTicket} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "none", background: selectedTicket ? "#aaa" : "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: selectedTicket ? "not-allowed" : "pointer" }}>
-                                {selectedTicket ? `✓ 1枚使用済（-¥${selectedTicket.face_value?.toLocaleString()}）` : "1枚使用する"}
-                              </button>
+                              {/* A. 購入金券 */}
+                              {(() => {
+                                const purchaseTickets = customerTickets.filter(t => t.ticket_type === "purchase");
+                                if (purchaseTickets.length === 0) return null;
+                                const useCount = checkoutTicketUse.purchase;
+                                return (
+                                  <div style={{ background: "#f0f8f4", borderRadius: 12, padding: "10px 14px", marginBottom: 8 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#5a9e7a", marginBottom: 6 }}>A. 購入金券（{purchaseTickets.length}枚）</div>
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                        <button onClick={() => setCheckoutTicketUse(u => ({ ...u, purchase: Math.max(0, u.purchase - 1) }))} style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid #b0d8b8", background: "white", cursor: "pointer", fontSize: 15, color: "#3a7a5a" }}>－</button>
+                                        <span style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", minWidth: 24, textAlign: "center" }}>{useCount}</span>
+                                        <button onClick={() => setCheckoutTicketUse(u => ({ ...u, purchase: Math.min(purchaseTickets.length, u.purchase + 1) }))} style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid #b0d8b8", background: "white", cursor: "pointer", fontSize: 15, color: "#3a7a5a" }}>＋</button>
+                                        <span style={{ fontSize: 11, color: "#888" }}>枚使用</span>
+                                      </div>
+                                      <button onClick={async () => {
+                                        if (useCount === 0) return;
+                                        const targets = purchaseTickets.slice(0, useCount);
+                                        const usedAt = new Date().toISOString();
+                                        for (const t of targets) {
+                                          await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "used", used_at: usedAt }) });
+                                        }
+                                        setCheckoutTicketUse(u => ({ ...u, purchase: 0 }));
+                                        await fetchCustomerTicketCount(checkoutBooking.customer_id);
+                                      }} disabled={useCount === 0} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: useCount > 0 ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: useCount > 0 ? "white" : "#bbb", fontSize: 12, fontWeight: 700, cursor: useCount > 0 ? "pointer" : "not-allowed" }}>
+                                        {useCount}枚使用する
+                                      </button>
+                                    </div>
+                                    <div style={{ fontSize: 10, color: "#aaa", marginTop: 4 }}>最短期限: {purchaseTickets[0]?.expires_at}</div>
+                                  </div>
+                                );
+                              })()}
+                              {/* B. プレゼント金券 */}
+                              {(() => {
+                                const presentTickets = customerTickets.filter(t => t.ticket_type === "present");
+                                if (presentTickets.length === 0) return null;
+                                const useCount = checkoutTicketUse.present;
+                                return (
+                                  <div style={{ background: "#fff8f0", borderRadius: 12, padding: "10px 14px", marginBottom: 8 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#e07b39", marginBottom: 6 }}>B. プレゼント金券（{presentTickets.length}枚）</div>
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                        <button onClick={() => setCheckoutTicketUse(u => ({ ...u, present: Math.max(0, u.present - 1) }))} style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid #f0c8a0", background: "white", cursor: "pointer", fontSize: 15, color: "#c06020" }}>－</button>
+                                        <span style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", minWidth: 24, textAlign: "center" }}>{useCount}</span>
+                                        <button onClick={() => setCheckoutTicketUse(u => ({ ...u, present: Math.min(presentTickets.length, u.present + 1) }))} style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid #f0c8a0", background: "white", cursor: "pointer", fontSize: 15, color: "#c06020" }}>＋</button>
+                                        <span style={{ fontSize: 11, color: "#888" }}>枚使用</span>
+                                      </div>
+                                      <button onClick={async () => {
+                                        if (useCount === 0) return;
+                                        const targets = presentTickets.slice(0, useCount);
+                                        const usedAt = new Date().toISOString();
+                                        for (const t of targets) {
+                                          await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "used", used_at: usedAt }) });
+                                        }
+                                        setCheckoutTicketUse(u => ({ ...u, present: 0 }));
+                                        await fetchCustomerTicketCount(checkoutBooking.customer_id);
+                                      }} disabled={useCount === 0} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: useCount > 0 ? "linear-gradient(135deg, #e07b39, #c05020)" : "#e8ddd0", color: useCount > 0 ? "white" : "#bbb", fontSize: 12, fontWeight: 700, cursor: useCount > 0 ? "pointer" : "not-allowed" }}>
+                                        {useCount}枚使用する
+                                      </button>
+                                    </div>
+                                    <div style={{ fontSize: 10, color: "#aaa", marginTop: 4 }}>最短期限: {presentTickets[0]?.expires_at}</div>
+                                  </div>
+                                );
+                              })()}
                             </>
                           )}
                         </div>
