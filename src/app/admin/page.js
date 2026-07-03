@@ -2085,40 +2085,27 @@ const handleAdminQrInput = async (value) => {
           ))}
           <div>
             <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 4 }}>生年月日</label>
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <input
-                inputMode="numeric" maxLength={4} placeholder="1965"
-                value={(editingCustomer.birthday || "").split("-")[0] || ""}
-                onChange={e => {
-                  const parts = (editingCustomer.birthday || "--").split("-");
-                  parts[0] = e.target.value;
-                  setEditingCustomer({ ...editingCustomer, birthday: parts.join("-") });
-                }}
-                style={{ width: 70, padding: "8px 10px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, textAlign: "center" }}
-              />
-              <span style={{ color: "#aaa", fontSize: 14 }}>-</span>
-              <input
-                inputMode="numeric" maxLength={2} placeholder="01"
-                value={(editingCustomer.birthday || "").split("-")[1] || ""}
-                onChange={e => {
-                  const parts = (editingCustomer.birthday || "--").split("-");
-                  parts[1] = e.target.value;
-                  setEditingCustomer({ ...editingCustomer, birthday: parts.join("-") });
-                }}
-                style={{ width: 48, padding: "8px 10px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, textAlign: "center" }}
-              />
-              <span style={{ color: "#aaa", fontSize: 14 }}>-</span>
-              <input
-                inputMode="numeric" maxLength={2} placeholder="01"
-                value={(editingCustomer.birthday || "").split("-")[2] || ""}
-                onChange={e => {
-                  const parts = (editingCustomer.birthday || "--").split("-");
-                  parts[2] = e.target.value;
-                  setEditingCustomer({ ...editingCustomer, birthday: parts.join("-") });
-                }}
-                style={{ width: 48, padding: "8px 10px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, textAlign: "center" }}
-              />
-            </div>
+            <input
+              inputMode="numeric" maxLength={10} placeholder="19650401"
+              value={(() => {
+                const b = editingCustomer.birthday || "";
+                const digits = b.replace(/-/g, "");
+                if (digits.length >= 8) return digits.slice(0,4) + "/" + digits.slice(4,6) + "/" + digits.slice(6,8);
+                if (digits.length >= 6) return digits.slice(0,4) + "/" + digits.slice(4,6) + "/";
+                if (digits.length >= 4) return digits.slice(0,4) + "/" + digits.slice(4);
+                return digits;
+              })()}
+              onChange={e => {
+                const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
+                let display = digits;
+                if (digits.length >= 8) display = digits.slice(0,4) + "/" + digits.slice(4,6) + "/" + digits.slice(6,8);
+                else if (digits.length >= 6) display = digits.slice(0,4) + "/" + digits.slice(4,6) + "/";
+                else if (digits.length >= 4) display = digits.slice(0,4) + "/" + digits.slice(4);
+                const dbValue = digits.length === 8 ? digits.slice(0,4) + "-" + digits.slice(4,6) + "-" + digits.slice(6,8) : digits;
+                setEditingCustomer({ ...editingCustomer, birthday: dbValue });
+              }}
+              style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box" }}
+            />
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 4 }}>通知方法</label>
