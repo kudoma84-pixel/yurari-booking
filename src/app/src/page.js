@@ -54,6 +54,8 @@ function AppInner() {
     email: "", firstVisit: "初めて", notes: ""
   });
   const [bookingNum, setBookingNum] = useState("");
+  const [pushGranted, setPushGranted] = useState(false);
+  const [pushStatus, setPushStatus] = useState("idle"); // "idle" | "loading" | "done"
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [courses, setCourses] = useState([]);
@@ -71,6 +73,36 @@ function AppInner() {
   };
 
   useEffect(() => { fetchCourses(); }, []);
+
+  useEffect(() => {
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      setPushGranted(true);
+    }
+  }, []);
+
+  const handleRequestPush = async () => {
+    if (pushStatus === "loading" || pushStatus === "done") return;
+    setPushStatus("loading");
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") { setPushStatus("idle"); return; }
+      setPushGranted(true);
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+      });
+      await fetch("/api/push-subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription: sub }),
+      });
+      setPushStatus("done");
+    } catch (e) {
+      console.error("push subscribe error", e);
+      setPushStatus("idle");
+    }
+  };
 
   // NextAuth LINE復帰処理：?notify=line で戻った後、セッションが確立したら顧客照合へ
   useEffect(() => {
@@ -804,6 +836,24 @@ function AppInner() {
           </div>
           <a href="/mypage" style={{ display: "block", width: "100%", padding: "14px", borderRadius: 14, background: GREEN, color: "white", fontSize: 15, fontWeight: 700, textDecoration: "none", textAlign: "center", marginBottom: 12, boxSizing: "border-box" }}>マイページで予約を確認する</a>
           <button onClick={() => { reset(); setScreen("booking"); }} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "2px solid " + GREEN, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer", marginBottom: 20 }}>別の予約をする</button>
+          {!pushGranted && (
+            <div style={{ background: "linear-gradient(135deg, #e8f5ee, #d4eddf)", borderRadius: 16, padding: "20px", marginBottom: 16, textAlign: "left", border: "1px solid " + LIGHT_GREEN }}>
+              {pushStatus === "done" ? (
+                <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, textAlign: "center" }}>✅ 通知を設定しました</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 6 }}>🔔 予約リマインドを受け取りますか？</div>
+                  <div style={{ fontSize: 12, color: "#555", marginBottom: 14, lineHeight: 1.7 }}>前日・当日にLINEまたはプッシュ通知でお知らせします</div>
+                  <button onClick={handleRequestPush} disabled={pushStatus === "loading"} style={{ width: "100%", padding: "12px", borderRadius: 12, border: "none", background: pushStatus === "loading" ? "#aaa" : GREEN, color: "white", fontSize: 14, fontWeight: 700, cursor: pushStatus === "loading" ? "not-allowed" : "pointer" }}>
+                    {pushStatus === "loading" ? "設定中..." : "通知を受け取る"}
+                  </button>
+                  {typeof navigator !== "undefined" && !navigator.standalone && (
+                    <div style={{ fontSize: 11, color: "#888", marginTop: 10, textAlign: "center" }}>📱 iPhoneの方はホーム画面に追加後に有効になります</div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           <div style={{ background: "#f0f8f4", borderRadius: 16, padding: "20px", textAlign: "left" }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 12 }}>📱 アプリとして使うと便利です</div>
             <div style={{ fontSize: 13, color: "#555", lineHeight: 2 }}>
