@@ -56,6 +56,7 @@ function AppInner() {
   const [bookingNum, setBookingNum] = useState("");
   const [pushGranted, setPushGranted] = useState(false);
   const [pushStatus, setPushStatus] = useState("idle"); // "idle" | "loading" | "done"
+  const [isStandalone, setIsStandalone] = useState(true); // デフォルトtrue=iOS警告非表示（SSR安全）
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [courses, setCourses] = useState([]);
@@ -77,6 +78,10 @@ function AppInner() {
   useEffect(() => {
     if (typeof Notification !== "undefined" && Notification.permission === "granted") {
       setPushGranted(true);
+    }
+    // navigator.standaloneはSSRで参照できないのでuseEffect内で設定
+    if (typeof navigator !== "undefined") {
+      setIsStandalone(navigator.standalone === true);
     }
   }, []);
 
@@ -147,6 +152,8 @@ function AppInner() {
       return;
     }
 
+    // 成功パスでもURLから?notify=lineを除去してループを防ぐ
+    if (typeof window !== "undefined") window.history.replaceState({}, "", "/src");
     checkExistingCustomer();
   }, [notifyFromUrl, session, sessionStatus]);
 
@@ -847,7 +854,7 @@ function AppInner() {
                   <button onClick={handleRequestPush} disabled={pushStatus === "loading"} style={{ width: "100%", padding: "12px", borderRadius: 12, border: "none", background: pushStatus === "loading" ? "#aaa" : GREEN, color: "white", fontSize: 14, fontWeight: 700, cursor: pushStatus === "loading" ? "not-allowed" : "pointer" }}>
                     {pushStatus === "loading" ? "設定中..." : "通知を受け取る"}
                   </button>
-                  {typeof navigator !== "undefined" && !navigator.standalone && (
+                  {!isStandalone && (
                     <div style={{ fontSize: 11, color: "#888", marginTop: 10, textAlign: "center" }}>📱 iPhoneの方はホーム画面に追加後に有効になります</div>
                   )}
                 </>
