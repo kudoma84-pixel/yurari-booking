@@ -133,6 +133,7 @@ export default function AdminPage() {
   const [directBookingModal, setDirectBookingModal] = useState(null);
   const [directBookingForm, setDirectBookingForm] = useState({});
   const [directBookingMode, setDirectBookingMode] = useState("normal");
+  const [isSavingDirectBooking, setIsSavingDirectBooking] = useState(false);
   const [directBookingProducts, setDirectBookingProducts] = useState([{ name: "", price: "", quantity: 1 }]);
   const [customerSearchResult, setCustomerSearchResult] = useState(null);
   const [customerSearchResults, setCustomerSearchResults] = useState([]);
@@ -1088,9 +1089,11 @@ const handleAdminQrInput = async (value) => {
   };
 
   const saveDirectBooking = async () => {
+    if (isSavingDirectBooking) return;
     const f = directBookingForm;
     if (directBookingMode === "normal" && (!f.customer_name || !f.course_id)) return;
     if (directBookingMode === "product" && (!f.customer_name || !directBookingProducts.some(p => p.name && p.price))) return;
+    setIsSavingDirectBooking(true);
     let customerId = f.customer_id;
     if (!customerId && f.customer_name) {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/customers`, {
@@ -1100,11 +1103,12 @@ const handleAdminQrInput = async (value) => {
       const data = await res.json();
       if (!Array.isArray(data) || !data[0]?.id) {
         alert("顧客の登録に失敗しました。\n" + JSON.stringify(data));
+        setIsSavingDirectBooking(false);
         return;
       }
       customerId = data[0].id;
     }
-    const staff = staffMembers.find(s => s.id === (directBookingMode === "product" ? f.staff_id : f.staff_id));
+    const staff = staffMembers.find(s => s.id === f.staff_id);
     const bookingDate = formatDate(directBookingModal.date);
     const num = `YR-${Date.now().toString().slice(-8)}`;
     const savedDate = directBookingModal.date;
@@ -1133,6 +1137,7 @@ const handleAdminQrInput = async (value) => {
       const bookingData = await bookingRes.json();
       if (!Array.isArray(bookingData) || !bookingData[0]?.id) {
         alert("予約の登録に失敗しました。\n" + JSON.stringify(bookingData));
+        setIsSavingDirectBooking(false);
         return;
       }
       const bookingId = bookingData[0].id;
@@ -1152,7 +1157,10 @@ const handleAdminQrInput = async (value) => {
       });
       const payData = await payRes.json();
       if (!Array.isArray(payData) || !payData[0]?.id) {
-        alert("売上の登録に失敗しました。\n" + JSON.stringify(payData));
+        // paymentsのINSERT失敗 → bookingをロールバック
+        await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${bookingId}`, { method: "DELETE", headers });
+        alert("売上の登録に失敗しました。予約も取り消しました。\n" + JSON.stringify(payData));
+        setIsSavingDirectBooking(false);
         return;
       }
       const paymentId = payData[0].id;
@@ -1167,7 +1175,12 @@ const handleAdminQrInput = async (value) => {
         }))),
       });
       if (!itemsRes.ok) {
-        alert("商品明細の登録に失敗しました。ステータス：" + itemsRes.status);
+        // 明細INSERT失敗 → payment・bookingをロールバック
+        await fetch(`${SUPABASE_URL}/rest/v1/payments?id=eq.${paymentId}`, { method: "DELETE", headers });
+        await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${bookingId}`, { method: "DELETE", headers });
+        alert("商品明細の登録に失敗しました。登録を取り消しました。ステータス：" + itemsRes.status);
+        setIsSavingDirectBooking(false);
+        return;
       }
     } else {
       const course = courseMenus.find(c => c.id === f.course_id);
@@ -1192,6 +1205,7 @@ const handleAdminQrInput = async (value) => {
       if (!bookingRes.ok) {
         const err = await bookingRes.json();
         alert("予約の登録に失敗しました。\n" + JSON.stringify(err));
+        setIsSavingDirectBooking(false);
         return;
       }
       if (customerId) {
@@ -1208,6 +1222,7 @@ const handleAdminQrInput = async (value) => {
         });
       }
     }
+    setIsSavingDirectBooking(false);
     setDirectBookingModal(null);
     setDirectBookingForm({});
     setDirectBookingMode("normal");
@@ -2064,9 +2079,9 @@ const handleAdminQrInput = async (value) => {
             <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
               <button onClick={() => { setDirectBookingModal(null); setDirectBookingMode("normal"); setDirectBookingProducts([{ name: "", price: "", quantity: 1 }]); }} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>キャンセル</button>
               {directBookingMode === "normal" ? (
-                <button onClick={saveDirectBooking} disabled={!directBookingForm.customer_name || !directBookingForm.course_id} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: directBookingForm.customer_name && directBookingForm.course_id ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: directBookingForm.customer_name && directBookingForm.course_id ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: directBookingForm.customer_name && directBookingForm.course_id ? "pointer" : "not-allowed" }}>予約を登録する</button>
+                <button onClick={saveDirectBooking} disabled={isSavingDirectBooking || !directBookingForm.customer_name || !directBookingForm.course_id} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id ? "pointer" : "not-allowed" }}>{isSavingDirectBooking ? "登録中..." : "予約を登録する"}</button>
               ) : (
-                <button onClick={saveDirectBooking} disabled={!directBookingForm.customer_name || !directBookingProducts.some(p => p.name && p.price)} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "linear-gradient(135deg, #e07b39, #c05a20)" : "#e8ddd0", color: directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "pointer" : "not-allowed" }}>物販を登録する</button>
+                <button onClick={saveDirectBooking} disabled={isSavingDirectBooking || !directBookingForm.customer_name || !directBookingProducts.some(p => p.name && p.price)} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: !isSavingDirectBooking && directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "linear-gradient(135deg, #e07b39, #c05a20)" : "#e8ddd0", color: !isSavingDirectBooking && directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: !isSavingDirectBooking && directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "pointer" : "not-allowed" }}>{isSavingDirectBooking ? "登録中..." : "物販を登録する"}</button>
               )}
             </div>
           </div>
