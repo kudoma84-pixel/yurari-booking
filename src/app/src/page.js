@@ -97,10 +97,11 @@ function AppInner() {
         userVisibleOnly: true,
         applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
       });
+      const customerId = typeof localStorage !== "undefined" ? localStorage.getItem("yurari_customer_id") : null;
       await fetch("/api/push-subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subscription: sub }),
+        body: JSON.stringify({ subscription: sub, customer_id: customerId }),
       });
       setPushStatus("done");
     } catch (e) {
