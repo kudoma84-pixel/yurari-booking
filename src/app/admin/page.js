@@ -318,6 +318,7 @@ const handleAdminQrInput = async (value) => {
     fetchCourseMenus();
     fetchSubMenus();
     fetchGiftTicketTemplates();
+    fetchCustomerTickets(booking.customer_id);
   };
 
   const fetchTodayBookings = async (dateStr) => {
