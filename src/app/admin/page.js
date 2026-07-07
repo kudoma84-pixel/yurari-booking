@@ -2318,6 +2318,7 @@ const handleAdminQrInput = async (value) => {
             { label: "メール", value: selectedCustomer.email },
             { label: "通知方法", value: selectedCustomer.notification_method },
             { label: "LINE", value: selectedCustomer.line_user_id ? "✓ 連携済" : "未連携" },
+            { label: "ポイント", value: (selectedCustomer.points || 0) + "P" },
           ].map((row, i) => (
             <div key={i} style={{ display: "flex", borderBottom: "1px solid #f0ebe4", paddingBottom: 6 }}>
               <div style={{ fontSize: 12, color: "#7a9a7a", fontWeight: 700, width: 90, flexShrink: 0 }}>{row.label}</div>
