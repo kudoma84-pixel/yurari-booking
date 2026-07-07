@@ -335,17 +335,17 @@ const handleAdminQrInput = async (value) => {
 
   const dropBooking = async (targetStaffId, targetTime) => {
     if (!draggedBooking) return;
+    const booking = draggedBooking;
     const targetStaff = staffList.find(s => s.id === targetStaffId);
     const targetDateStr = formatDate(selectedDate);
-    const isStaged = draggedBooking.isStaged;
-    const customerName = draggedBooking.customers?.name || "予約";
+    const isStaged = booking.isStaged;
+    const customerName = booking.customers?.name || "予約";
     const confirmMsg = isStaged
       ? `${customerName}さんの予約を${targetDateStr} ${targetTime}（担当：${targetStaff?.name}）に変更しますか？`
-      : `${customerName}さんの予約を ${draggedBooking.booking_time} → ${targetTime}（担当：${targetStaff?.name}）に変更しますか？`;
-    const confirmed = window.confirm(confirmMsg);
-    const booking = draggedBooking;
+      : `${customerName}さんの予約を ${booking.booking_time} → ${targetTime}（担当：${targetStaff?.name}）に変更しますか？`;
     setDraggedBooking(null);
     setDragOverCell(null);
+    const confirmed = window.confirm(confirmMsg);
     if (!confirmed) return;
     const patch = isStaged
       ? { booking_date: targetDateStr, booking_time: targetTime, staff_id: targetStaffId, staff_name: targetStaff?.name }
@@ -3817,38 +3817,15 @@ const handleAdminQrInput = async (value) => {
         )}
 
         {tab === "calendar" && (
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
-            <div style={{ background: "white", borderRadius: 16, padding: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", minWidth: 240 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth()-1, 1))} style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#5a9e7a" }}>‹</button>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>{currentMonth.getFullYear()}年{currentMonth.getMonth()+1}月</div>
-                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 1))} style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#5a9e7a" }}>›</button>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 8 }}>
-                {DAYS_JP.map(d => <div key={d} style={{ textAlign: "center", fontSize: 11, color: "#aaa", padding: "4px 0" }}>{d}</div>)}
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
-                {getDaysInMonth(currentMonth).map((d, i) => {
-                  if (!d) return <div key={i} />;
-                  const isSelected = selectedDate && d.toDateString() === selectedDate.toDateString();
-                  const isToday = d.toDateString() === new Date().toDateString();
-                  const dayIdx = d.getDay();
-                  const dateStr = formatDate(d);
-                  const hasBooking = monthBookingDates.has(dateStr);
-                  return (
-                    <div key={i} onClick={() => setSelectedDate(d)} style={{ textAlign: "center", padding: "8px 4px", borderRadius: 8, cursor: "pointer", background: isSelected ? "#3a5a3a" : isToday ? "#eaf5ec" : "white", color: isSelected ? "white" : dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : "#3a5a3a", fontWeight: isToday ? 700 : 400, fontSize: 13, border: hasBooking && !isSelected ? "2px solid #e07070" : isToday && !isSelected ? "2px solid #5a9e7a" : "2px solid transparent" }}>                      {d.getDate()}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            <div style={{ flex: "0 0 100%", order: -1, marginBottom: stagedBookings.length > 0 || draggedBooking ? 8 : 0 }}
+          <div>
+            <div
               onDragOver={draggedBooking && !draggedBooking.isStaged ? (e => { e.preventDefault(); setDragOverStaging(true); }) : undefined}
               onDragLeave={draggedBooking && !draggedBooking.isStaged ? (() => setDragOverStaging(false)) : undefined}
               onDrop={draggedBooking && !draggedBooking.isStaged ? (e => { e.preventDefault(); dropToStaging(); }) : undefined}
+              style={{ marginBottom: 8 }}
             >
               {(stagedBookings.length > 0 || draggedBooking) && (
-                <div style={{ background: dragOverStaging ? "#d4f0dc" : stagedBookings.length > 0 ? "#f0f8f4" : "#f9f9f9", border: `2px dashed ${dragOverStaging ? "#5a9e7a" : stagedBookings.length > 0 ? "#a0d4b8" : "#e0e0e0"}`, borderRadius: 12, padding: "10px 16px", marginBottom: 8, transition: "all 0.15s" }}>
+                <div style={{ background: dragOverStaging ? "#d4f0dc" : stagedBookings.length > 0 ? "#f0f8f4" : "#f9f9f9", border: `2px dashed ${dragOverStaging ? "#5a9e7a" : stagedBookings.length > 0 ? "#a0d4b8" : "#e0e0e0"}`, borderRadius: 12, padding: "10px 16px", transition: "all 0.15s" }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: "#7a9a7a", marginBottom: stagedBookings.length > 0 ? 8 : 0 }}>
                     📌 仮置きエリア{stagedBookings.length > 0 ? `（${stagedBookings.length}件）` : "　← ここにドロップで仮置き"}
                   </div>
@@ -3873,6 +3850,31 @@ const handleAdminQrInput = async (value) => {
                   )}
                 </div>
               )}
+            </div>
+            <div style={{ display: "flex", gap: 16, flexWrap: "nowrap", alignItems: "flex-start" }}>
+              <div style={{ background: "white", borderRadius: 16, padding: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", minWidth: 240 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth()-1, 1))} style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#5a9e7a" }}>‹</button>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>{currentMonth.getFullYear()}年{currentMonth.getMonth()+1}月</div>
+                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 1))} style={{ border: "none", background: "none", fontSize: 20, cursor: "pointer", color: "#5a9e7a" }}>›</button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 8 }}>
+                {DAYS_JP.map(d => <div key={d} style={{ textAlign: "center", fontSize: 11, color: "#aaa", padding: "4px 0" }}>{d}</div>)}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+                {getDaysInMonth(currentMonth).map((d, i) => {
+                  if (!d) return <div key={i} />;
+                  const isSelected = selectedDate && d.toDateString() === selectedDate.toDateString();
+                  const isToday = d.toDateString() === new Date().toDateString();
+                  const dayIdx = d.getDay();
+                  const dateStr = formatDate(d);
+                  const hasBooking = monthBookingDates.has(dateStr);
+                  return (
+                    <div key={i} onClick={() => setSelectedDate(d)} style={{ textAlign: "center", padding: "8px 4px", borderRadius: 8, cursor: "pointer", background: isSelected ? "#3a5a3a" : isToday ? "#eaf5ec" : "white", color: isSelected ? "white" : dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : "#3a5a3a", fontWeight: isToday ? 700 : 400, fontSize: 13, border: hasBooking && !isSelected ? "2px solid #e07070" : isToday && !isSelected ? "2px solid #5a9e7a" : "2px solid transparent" }}>                      {d.getDate()}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
             {selectedDate && (
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -3954,6 +3956,7 @@ const handleAdminQrInput = async (value) => {
               </div>
             )}
             {!selectedDate && <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#aaa", fontSize: 14 }}>← 日付を選択してください</div>}
+            </div>
           </div>
         )}
 
