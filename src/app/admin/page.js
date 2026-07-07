@@ -140,6 +140,8 @@ export default function AdminPage() {
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [notifications, setNotifications] = useState([]);
   const [giftModal, setGiftModal] = useState(null); // { customer, mode: 'sell' or 'present' }
+  const [draggedBooking, setDraggedBooking] = useState(null);
+  const [dragOverCell, setDragOverCell] = useState(null);
   const [giftForm, setGiftForm] = useState({});
   const [giftCustomerSearch, setGiftCustomerSearch] = useState("");
   const [giftCustomerResult, setGiftCustomerResult] = useState(null);
@@ -319,6 +321,22 @@ const handleAdminQrInput = async (value) => {
     fetchSubMenus();
     fetchGiftTicketTemplates();
     fetchCustomerTickets(booking.customer_id);
+  };
+
+  const dropBooking = async (targetStaffId, targetTime) => {
+    if (!draggedBooking) return;
+    const targetStaff = staffList.find(s => s.id === targetStaffId);
+    const confirmed = window.confirm(
+      `${draggedBooking.customers?.name || "予約"}さんの予約を ${draggedBooking.booking_time} → ${targetTime}（担当：${targetStaff?.name}）に変更しますか？`
+    );
+    setDraggedBooking(null);
+    setDragOverCell(null);
+    if (!confirmed) return;
+    await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${draggedBooking.id}`, {
+      method: "PATCH", headers,
+      body: JSON.stringify({ booking_time: targetTime, staff_id: targetStaffId, staff_name: targetStaff?.name }),
+    });
+    fetchAll(selectedDate);
   };
 
   const fetchTodayBookings = async (dateStr) => {
@@ -3864,11 +3882,14 @@ const handleAdminQrInput = async (value) => {
                                   }
                                 }
 
+                                const isDroppable = !!draggedBooking && onShift && !(isBreak && !isSlotBreakReleased(time)) && !(booking && booking.status !== "cancelled") && !blocked;
+                                const isDragOver = isDroppable && dragOverCell?.staffId === s.id && dragOverCell?.time === time;
+                                const cellBg = isDragOver ? "#d4f0dc" : (BREAK_SLOTS.includes(time) && !isSlotBreakReleased(time)) ? "#fdf5f0" : isExt ? "#f0f8f4" : "white";
                                 cells.push(
-                                  <td key={time} colSpan={colSpan} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: (BREAK_SLOTS.includes(time) && !isSlotBreakReleased(time)) ? "#fdf5f0" : isExt ? "#f0f8f4" : "white", minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden" }}>
+                                  <td key={time} colSpan={colSpan} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: cellBg, minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden" }} onDragOver={isDroppable ? (e => { e.preventDefault(); setDragOverCell({ staffId: s.id, time }); }) : undefined} onDragLeave={isDroppable ? (() => setDragOverCell(null)) : undefined} onDrop={isDroppable ? (e => { e.preventDefault(); dropBooking(s.id, time); }) : undefined}>
                                     {isBreak && !isSlotBreakReleased(time) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
                                     : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
-                                    : booking && booking.status !== "cancelled" ? <div onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "pointer", lineHeight: 1.4, minHeight: 30, display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center" }}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div></div>                                    : blocked ? (() => { const blk = getBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, cursor: "pointer", lineHeight: 1.3 }} onClick={() => { if (window.confirm("ブロックを解除しますか？")) toggleBlock(s.id, time); }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()                                    : <div onClick={() => setBlockModal({ staffId: s.id, time })} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}                                  </td>
+                                    : booking && booking.status !== "cancelled" ? <div draggable={true} onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDraggedBooking(booking); }} onDragEnd={() => { setDraggedBooking(null); setDragOverCell(null); }} onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "grab", lineHeight: 1.4, minHeight: 30, display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: draggedBooking?.id === booking.id ? 0.5 : 1 }}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div></div>                                    : blocked ? (() => { const blk = getBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, cursor: "pointer", lineHeight: 1.3 }} onClick={() => { if (window.confirm("ブロックを解除しますか？")) toggleBlock(s.id, time); }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()                                    : <div onClick={() => setBlockModal({ staffId: s.id, time })} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}                                  </td>
                                 );
                               });
                               return cells;
