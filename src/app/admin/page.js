@@ -142,6 +142,8 @@ export default function AdminPage() {
   const [giftModal, setGiftModal] = useState(null); // { customer, mode: 'sell' or 'present' }
   const [draggedBooking, setDraggedBooking] = useState(null);
   const [dragOverCell, setDragOverCell] = useState(null);
+  const [stagedBookings, setStagedBookings] = useState([]);
+  const [dragOverStaging, setDragOverStaging] = useState(false);
   const [giftForm, setGiftForm] = useState({});
   const [giftCustomerSearch, setGiftCustomerSearch] = useState("");
   const [giftCustomerResult, setGiftCustomerResult] = useState(null);
@@ -323,19 +325,36 @@ const handleAdminQrInput = async (value) => {
     fetchCustomerTickets(booking.customer_id);
   };
 
+  const dropToStaging = () => {
+    if (!draggedBooking || draggedBooking.isStaged) return;
+    setStagedBookings(prev => prev.find(b => b.id === draggedBooking.id) ? prev : [...prev, draggedBooking]);
+    setDraggedBooking(null);
+    setDragOverCell(null);
+    setDragOverStaging(false);
+  };
+
   const dropBooking = async (targetStaffId, targetTime) => {
     if (!draggedBooking) return;
     const targetStaff = staffList.find(s => s.id === targetStaffId);
-    const confirmed = window.confirm(
-      `${draggedBooking.customers?.name || "予約"}さんの予約を ${draggedBooking.booking_time} → ${targetTime}（担当：${targetStaff?.name}）に変更しますか？`
-    );
+    const targetDateStr = formatDate(selectedDate);
+    const isStaged = draggedBooking.isStaged;
+    const customerName = draggedBooking.customers?.name || "予約";
+    const confirmMsg = isStaged
+      ? `${customerName}さんの予約を${targetDateStr} ${targetTime}（担当：${targetStaff?.name}）に変更しますか？`
+      : `${customerName}さんの予約を ${draggedBooking.booking_time} → ${targetTime}（担当：${targetStaff?.name}）に変更しますか？`;
+    const confirmed = window.confirm(confirmMsg);
+    const booking = draggedBooking;
     setDraggedBooking(null);
     setDragOverCell(null);
     if (!confirmed) return;
-    await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${draggedBooking.id}`, {
+    const patch = isStaged
+      ? { booking_date: targetDateStr, booking_time: targetTime, staff_id: targetStaffId, staff_name: targetStaff?.name }
+      : { booking_time: targetTime, staff_id: targetStaffId, staff_name: targetStaff?.name };
+    await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${booking.id}`, {
       method: "PATCH", headers,
-      body: JSON.stringify({ booking_time: targetTime, staff_id: targetStaffId, staff_name: targetStaff?.name }),
+      body: JSON.stringify(patch),
     });
+    if (isStaged) setStagedBookings(prev => prev.filter(b => b.id !== booking.id));
     fetchAll(selectedDate);
   };
 
@@ -3823,6 +3842,38 @@ const handleAdminQrInput = async (value) => {
                 })}
               </div>
             </div>
+            <div style={{ flex: "0 0 100%", order: -1, marginBottom: stagedBookings.length > 0 || draggedBooking ? 8 : 0 }}
+              onDragOver={draggedBooking && !draggedBooking.isStaged ? (e => { e.preventDefault(); setDragOverStaging(true); }) : undefined}
+              onDragLeave={draggedBooking && !draggedBooking.isStaged ? (() => setDragOverStaging(false)) : undefined}
+              onDrop={draggedBooking && !draggedBooking.isStaged ? (e => { e.preventDefault(); dropToStaging(); }) : undefined}
+            >
+              {(stagedBookings.length > 0 || draggedBooking) && (
+                <div style={{ background: dragOverStaging ? "#d4f0dc" : stagedBookings.length > 0 ? "#f0f8f4" : "#f9f9f9", border: `2px dashed ${dragOverStaging ? "#5a9e7a" : stagedBookings.length > 0 ? "#a0d4b8" : "#e0e0e0"}`, borderRadius: 12, padding: "10px 16px", marginBottom: 8, transition: "all 0.15s" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#7a9a7a", marginBottom: stagedBookings.length > 0 ? 8 : 0 }}>
+                    📌 仮置きエリア{stagedBookings.length > 0 ? `（${stagedBookings.length}件）` : "　← ここにドロップで仮置き"}
+                  </div>
+                  {stagedBookings.length > 0 && (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {stagedBookings.map(b => (
+                        <div key={b.id}
+                          draggable={true}
+                          onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDraggedBooking({ ...b, isStaged: true }); }}
+                          onDragEnd={() => { setDraggedBooking(null); setDragOverCell(null); }}
+                          style={{ display: "flex", alignItems: "center", gap: 6, background: "white", border: "2px solid #a0d4b8", borderRadius: 10, padding: "6px 10px", cursor: "grab", opacity: draggedBooking?.id === b.id ? 0.5 : 1 }}
+                        >
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#3a5a3a" }}>{b.customers?.name || "予約"}</div>
+                            <div style={{ fontSize: 10, color: "#888" }}>元：{b.booking_date} {b.booking_time}　{b.staff_name}</div>
+                          </div>
+                          <button onClick={() => setStagedBookings(prev => prev.filter(s => s.id !== b.id))}
+                            style={{ border: "none", background: "none", color: "#e07070", fontSize: 16, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             {selectedDate && (
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ background: "white", borderRadius: 16, padding: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
@@ -3882,7 +3933,7 @@ const handleAdminQrInput = async (value) => {
                                   }
                                 }
 
-                                const isDroppable = !!draggedBooking && onShift && !(isBreak && !isSlotBreakReleased(time)) && !(booking && booking.status !== "cancelled") && !blocked;
+                                const isDroppable = !!draggedBooking && onShift && !(isBreak && !isSlotBreakReleased(time)) && !(booking && booking.status !== "cancelled") && !blocked && (draggedBooking.isStaged || draggedBooking.id !== (booking?.id));
                                 const isDragOver = isDroppable && dragOverCell?.staffId === s.id && dragOverCell?.time === time;
                                 const cellBg = isDragOver ? "#d4f0dc" : (BREAK_SLOTS.includes(time) && !isSlotBreakReleased(time)) ? "#fdf5f0" : isExt ? "#f0f8f4" : "white";
                                 cells.push(
