@@ -265,14 +265,14 @@ const handleAdminQrInput = async (value) => {
 };
   const formatPrice = (p) => `¥${p.toLocaleString()}`;
 
-  const fetchBookings = async (date) => {
+  const fetchBookings = async (date, silent = false) => {
     if (!date) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     const d = formatDate(date);
     const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${d}&select=*,customers(name,tel,kana,email,line_user_id)`, { headers });
     const data = await res.json();
     setBookings(Array.isArray(data) ? data : []);
-    setLoading(false);
+    if (!silent) setLoading(false);
   };
 
   const fetchCompletedBookings = async (dateStr) => {
@@ -345,6 +345,7 @@ const handleAdminQrInput = async (value) => {
       : `${customerName}さんの予約を ${booking.booking_time} → ${targetTime}（担当：${targetStaff?.name}）に変更しますか？`;
     setDraggedBooking(null);
     setDragOverCell(null);
+    setDragOverStaging(false);
     const confirmed = window.confirm(confirmMsg);
     if (!confirmed) return;
     const patch = isStaged
@@ -355,7 +356,7 @@ const handleAdminQrInput = async (value) => {
       body: JSON.stringify(patch),
     });
     if (isStaged) setStagedBookings(prev => prev.filter(b => b.id !== booking.id));
-    fetchAll(selectedDate);
+    fetchAllSilent(selectedDate);
   };
 
   const fetchTodayBookings = async (dateStr) => {
@@ -1517,6 +1518,9 @@ const handleAdminQrInput = async (value) => {
   };
   const fetchAll = async (date) => {
     await Promise.all([fetchBookings(date), fetchBlocks(date), fetchShifts(date), fetchExtensions(date)]);
+  };
+  const fetchAllSilent = async (date) => {
+    await Promise.all([fetchBookings(date, true), fetchBlocks(date), fetchShifts(date), fetchExtensions(date)]);
   };
 
   useEffect(() => {
