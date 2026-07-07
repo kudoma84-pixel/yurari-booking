@@ -3276,7 +3276,7 @@ const handleAdminQrInput = async (value) => {
   </div>
 )}
         {tab === "checkout" && (
-          <div>
+          <div style={{ maxWidth: 860, margin: "0 auto" }}>
             {!checkoutBooking ? (
               <div>
                 <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 8 }}>会計</h2>
@@ -3446,7 +3446,7 @@ const handleAdminQrInput = async (value) => {
                     <button onClick={savePayment} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>✓ 会計を確定する</button>
                   </div>
                 </div>
-                <div style={{ width: 320, display: "flex", flexDirection: "column", gap: 16 }}>
+                <div style={{ width: 280, display: "flex", flexDirection: "column", gap: 16 }}>
                   <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>➕ サブメニューを追加</div>
                     {subMenus.filter(s => s.is_active).length === 0 ? (
