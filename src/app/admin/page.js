@@ -3465,7 +3465,10 @@ const handleAdminQrInput = async (value) => {
                         <span style={{ fontSize: 13, color: "#888" }}>¥</span>
                         <input type="number" value={pm.amount || ""} onChange={e => setCheckoutPaymentMethods(checkoutPaymentMethods.map((p, i) => i === idx ? { ...p, amount: parseInt(e.target.value) || 0 } : p))}
                           style={{ width: 90, padding: "8px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13, textAlign: "right" }} />
-                        {idx > 0 && <button onClick={() => setCheckoutPaymentMethods(checkoutPaymentMethods.filter((_, i) => i !== idx))} style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: "#f0e8d8", color: "#e07070", cursor: "pointer" }}>✕</button>}
+                        <button onClick={() => idx === 0
+                          ? setCheckoutPaymentMethods(checkoutPaymentMethods.map((p, i) => i === 0 ? { ...p, method: "cash", amount: 0 } : p))
+                          : setCheckoutPaymentMethods(checkoutPaymentMethods.filter((_, i) => i !== idx))}
+                          style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: "#f0e8d8", color: "#e07070", cursor: "pointer" }}>✕</button>
                       </div>
                     ))}
                     <button onClick={() => setCheckoutPaymentMethods([...checkoutPaymentMethods, { method: "cash", amount: 0 }])}
