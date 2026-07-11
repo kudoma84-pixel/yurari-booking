@@ -1002,7 +1002,7 @@ function AppInner() {
             <div style={{ marginBottom: 28 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: "2px solid " + GREEN + "20" }}>担当スタッフ</div>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {[{ id: "any", name: "指名なし", title: "おまかせ" }, ...staffList].map(s => (
+                {staffList.map(s => (
                   <div key={s.id} onClick={() => { setStaff(s); setDate(null); setTime(null); }} style={{ background: staff && staff.id === s.id ? GREEN + "15" : "white", border: "2px solid " + (staff && staff.id === s.id ? GREEN : "#e8ddd0"), borderRadius: 12, padding: "12px 16px", cursor: "pointer", textAlign: "center", minWidth: 90 }}>
                     <div style={{ fontSize: 28 }}>👤</div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: GREEN, marginTop: 4 }}>{s.name}</div>
