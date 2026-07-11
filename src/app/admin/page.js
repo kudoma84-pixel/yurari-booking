@@ -133,6 +133,8 @@ export default function AdminPage() {
   const [directBookingModal, setDirectBookingModal] = useState(null);
   const [directBookingForm, setDirectBookingForm] = useState({});
   const [directBookingMode, setDirectBookingMode] = useState("normal");
+  const [directBookingCategory, setDirectBookingCategory] = useState("");
+  const [directBookingFirstOnly, setDirectBookingFirstOnly] = useState("");
   const [isSavingDirectBooking, setIsSavingDirectBooking] = useState(false);
   const [directBookingProducts, setDirectBookingProducts] = useState([{ name: "", price: "", quantity: 1 }]);
   const [customerSearchResult, setCustomerSearchResult] = useState(null);
@@ -2074,10 +2076,30 @@ const handleAdminQrInput = async (value) => {
               {directBookingMode === "normal" && (
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>コース <span style={{ color: "#e07070" }}>*</span></label>
-                  <select value={directBookingForm.course_id || ""} onChange={e => setDirectBookingForm(f => ({ ...f, course_id: e.target.value }))} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", background: "white" }}>
-                    <option value="">選択してください</option>
-                    {courseMenus.filter(c => c.is_active).map(c => <option key={c.id} value={c.id}>{c.name}（{c.duration} / ¥{c.price?.toLocaleString()}）</option>)}
-                  </select>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                    {["整体", "エステ"].map(cat => (
+                      <button key={cat} onClick={() => { setDirectBookingCategory(cat); setDirectBookingFirstOnly(""); setDirectBookingForm(f => ({ ...f, course_id: "" })); }}
+                        style={{ flex: 1, padding: "8px", borderRadius: 10, border: `2px solid ${directBookingCategory === cat ? "#5a9e7a" : "#e8ddd0"}`, background: directBookingCategory === cat ? "#eaf5ec" : "white", color: directBookingCategory === cat ? "#3a5a3a" : "#888", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                  {directBookingCategory && (
+                    <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                      {["初回", "2回目以降"].map(type => (
+                        <button key={type} onClick={() => { setDirectBookingFirstOnly(type); setDirectBookingForm(f => ({ ...f, course_id: "" })); }}
+                          style={{ flex: 1, padding: "8px", borderRadius: 10, border: `2px solid ${directBookingFirstOnly === type ? "#5a9e7a" : "#e8ddd0"}`, background: directBookingFirstOnly === type ? "#eaf5ec" : "white", color: directBookingFirstOnly === type ? "#3a5a3a" : "#888", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                          {type}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {directBookingCategory && directBookingFirstOnly && (
+                    <select value={directBookingForm.course_id || ""} onChange={e => setDirectBookingForm(f => ({ ...f, course_id: e.target.value }))} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", background: "white" }}>
+                      <option value="">選択してください</option>
+                      {courseMenus.filter(c => c.is_active && c.category === directBookingCategory && (directBookingFirstOnly === "初回" ? c.is_first_only : !c.is_first_only)).sort((a, b) => a.sort_order - b.sort_order).map(c => <option key={c.id} value={c.id}>{c.name}（{c.duration} / ¥{c.price?.toLocaleString()}）</option>)}
+                    </select>
+                  )}
                 </div>
               )}
               {/* 物販のみ: 担当スタッフ + 商品入力 */}
