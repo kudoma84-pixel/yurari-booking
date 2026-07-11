@@ -441,8 +441,8 @@ function AppInner() {
         "Prefer": "return=representation",
       };
       const newRes = await fetch(SUPABASE_URL + "/rest/v1/customers", {
-        method: "POST", headers: postHeaders,
-        body: JSON.stringify({
+            method: "POST", headers: { ...headers, "Prefer": "return=representation" },
+            body: JSON.stringify({
           name: profile.name, kana: profile.kana, tel: profile.tel,
           email: profile.email, address: profile.address,
           zipcode: profile.zipcode, birthday: profile.birthday || null,
@@ -494,6 +494,7 @@ function AppInner() {
           });
           const newCustomer = await newRes.json();
           customerId = newCustomer[0]?.id;
+          if (!customerId) { alert("顧客登録に失敗しました。もう一度お試しください。"); setLoading(false); return; }
         }
       }
       await fetch(SUPABASE_URL + "/rest/v1/bookings", {
