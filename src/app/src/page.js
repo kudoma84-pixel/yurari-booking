@@ -457,8 +457,10 @@ function AppInner() {
       const newCustomer = await newRes.json();
       if (newCustomer[0]) {
         setExistingCustomer(newCustomer[0]);
-        localStorage.setItem('yurari_customer_id', newCustomer[0].id);
-        localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
+        localStorage.removeItem('yurari_customer_id');
+          localStorage.removeItem('yurari_login_expire');
+          localStorage.setItem('yurari_customer_id', newCustomer[0].id);
+          localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
       }
     }
     setScreen("booking");
@@ -552,7 +554,7 @@ function AppInner() {
       }
       if (customerId) {
         localStorage.setItem('yurari_customer_id', customerId);
-        localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
+        localStorage.setItem('yurari_login_expire', Date.now() + 24 * 60 * 60 * 1000);
       }
       // 管理画面への通知
       await fetch(SUPABASE_URL + "/rest/v1/admin_notifications", {
