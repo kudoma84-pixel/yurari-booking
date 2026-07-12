@@ -388,6 +388,9 @@ function AppInner() {
   };
 
   const handleAuthSelect = (method) => {
+    localStorage.removeItem('yurari_customer_id');
+    localStorage.removeItem('yurari_login_expire');
+    localStorage.removeItem('yurari_line_user_id');
     setNotificationMethod(method);
     if (method === "line") {
       localStorage.setItem('yurari_notification_method', 'line');
