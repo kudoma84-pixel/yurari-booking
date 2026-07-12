@@ -202,7 +202,7 @@ function AppInner() {
           setExistingCustomer(c);
           setNotificationMethod("line");
           localStorage.setItem('yurari_customer_id', c.id);
-          localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
+          localStorage.setItem('yurari_login_expire', Date.now() + 24 * 60 * 60 * 1000);
           setScreen("booking");
         }
       };
@@ -371,7 +371,7 @@ function AppInner() {
       });
       setExistingCustomer({ ...c, line_user_id: lineUserId });
       localStorage.setItem('yurari_customer_id', c.id);
-      localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
+      localStorage.setItem('yurari_login_expire', Date.now() + 24 * 60 * 60 * 1000);
       setProfile({
         name: c.name || "", kana: c.kana || "",
         zipcode: c.zipcode || "", address: c.address || "",
@@ -435,7 +435,7 @@ function AppInner() {
       });
       setExistingCustomer({ ...existing[0], ...profile, line_user_id: lineUserId || existing[0].line_user_id });
       localStorage.setItem('yurari_customer_id', existing[0].id);
-      localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
+      localStorage.setItem('yurari_login_expire', Date.now() + 24 * 60 * 60 * 1000);
     } else {
       const postHeaders = {
         "apikey": SUPABASE_KEY,
@@ -460,7 +460,7 @@ function AppInner() {
         localStorage.removeItem('yurari_customer_id');
           localStorage.removeItem('yurari_login_expire');
           localStorage.setItem('yurari_customer_id', newCustomer[0].id);
-          localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
+          localStorage.setItem('yurari_login_expire', Date.now() + 24 * 60 * 60 * 1000);
       }
     }
     setScreen("booking");
