@@ -546,16 +546,28 @@ const handleAdminQrInput = async (value) => {
     const totalSales = validPayments.reduce((s, p) => s + (p.total || 0), 0);
     const totalDiscount = validPayments.reduce((s, p) => s + (p.discount || 0), 0);
 
-    // 金種別集計
+    // 金種別集計（method を常に ID に正規化）
+    const normalizeMethod = (raw) => {
+      if (!raw) return "cash";
+      // すでに ID ならそのまま（例: "cash", "card"）
+      if (PAYMENT_METHODS.find(m => m.id === raw)) return raw;
+      // 日本語名で保存されていた場合は ID に変換
+      const found = PAYMENT_METHODS.find(m => m.name === raw);
+      if (found) return found.id;
+      return raw;
+    };
     const methodTotals = {};
     validPayments.forEach(p => {
       if (p.payment_methods && p.payment_methods.length > 0) {
         p.payment_methods.forEach(pm => {
-          methodTotals[pm.method] = (methodTotals[pm.method] || 0) + pm.amount;
+          const mid = normalizeMethod(pm.method);
+          methodTotals[mid] = (methodTotals[mid] || 0) + pm.amount;
         });
       } else {
-        const method = p.payment_method || "cash";
-        methodTotals[method] = (methodTotals[method] || 0) + p.total;
+        // payment_method は "cash,card" のようなカンマ区切りの場合もあるが
+        // 物販のみ登録は単一メソッドなのでそのまま正規化
+        const mid = normalizeMethod(p.payment_method);
+        methodTotals[mid] = (methodTotals[mid] || 0) + p.total;
       }
     });
 
