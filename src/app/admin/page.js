@@ -1660,7 +1660,6 @@ const handleAdminQrInput = async (value) => {
   const startCheckout = (booking) => {
     const course = courseMenus.find(c => c.id === booking.course_id) || { name: booking.course_name, price: 0 };
     setCheckoutBooking(booking);
-    setCheckoutItems([{ type: "course", name: course.name, price: course.price || 0, quantity: 1 }]);
     setCheckoutDiscount(0);
     setCheckoutPaymentMethods([{ method: "cash", amount: 0 }]);
     setCheckoutTicketUse({ purchase: 0, present: 0 });
@@ -1672,6 +1671,27 @@ const handleAdminQrInput = async (value) => {
     setConnectedBooking(null);
     setIncludeConnectedBooking(false);
     if (booking.customer_id) fetchCustomerTicketCount(booking.customer_id);
+    // 物販のみ予約は既存の payment_items を読み込んで商品名を復元する
+    if (!booking.course_id && booking.course_name === "物販") {
+      fetch(`${SUPABASE_URL}/rest/v1/payments?booking_id=eq.${booking.id}&order=created_at.desc&limit=1`, {
+        headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+      }).then(r => r.json()).then(payData => {
+        if (payData && payData[0]) {
+          fetch(`${SUPABASE_URL}/rest/v1/payment_items?payment_id=eq.${payData[0].id}`, {
+            headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+          }).then(r => r.json()).then(items => {
+            setCheckoutItems(Array.isArray(items) && items.length > 0
+              ? items.map(i => ({ type: i.item_type || "product", name: i.item_name, price: i.price, quantity: i.quantity }))
+              : []
+            );
+          });
+        } else {
+          setCheckoutItems([]);
+        }
+      });
+    } else {
+      setCheckoutItems([{ type: "course", name: course.name, price: course.price || 0, quantity: 1 }]);
+    }
     if (booking.connected_booking_id && booking.status !== "completed") {
       fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${booking.connected_booking_id}&select=*,customers(name)`, {
         headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
