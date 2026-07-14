@@ -1193,7 +1193,7 @@ const handleAdminQrInput = async (value) => {
           subtotal: total,
           discount: 0,
           total: total,
-          payment_method: "現金",
+          payment_method: "cash",
           payment_status: "paid",
           notes: "",
         }),
