@@ -1247,6 +1247,11 @@ const handleAdminQrInput = async (value) => {
         setIsSavingDirectBooking(false);
         return;
       }
+      // 物販のみは会計が完了しているので即 completed にして二重会計を防止
+      await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${bookingId}`, {
+        method: "PATCH", headers,
+        body: JSON.stringify({ status: "completed", completed_at: new Date().toISOString() }),
+      });
     } else {
       const course = courseMenus.find(c => c.id === f.course_id);
       const bookingRes = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
