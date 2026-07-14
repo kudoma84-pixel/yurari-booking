@@ -25,6 +25,12 @@ const ORANGE = "#e07b39";
 const CREAM = "#fdf8f0";
 const DARK = "#1a1a1a";
 
+function addMinutesToTime(timeStr, minutes) {
+  const [h, m] = timeStr.split(":").map(Number);
+  const total = h * 60 + m + minutes;
+  return String(Math.floor(total / 60)).padStart(2, "0") + ":" + String(total % 60).padStart(2, "0");
+}
+
 function formatDate(d) {
   return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
 }
@@ -66,6 +72,9 @@ function AppInner() {
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [staffShiftDates, setStaffShiftDates] = useState({});
   const [bookedSlots, setBookedSlots] = useState([]);
+  const [showAddEsthe, setShowAddEsthe] = useState(false);
+  const [course2, setCourse2] = useState(null);
+  const [courseVisitType2, setCourseVisitType2] = useState(null);
   const headers = {
     "apikey": SUPABASE_KEY,
     "Authorization": "Bearer " + SUPABASE_KEY,
@@ -502,7 +511,7 @@ function AppInner() {
           if (!customerId) { alert("顧客登録に失敗しました。もう一度お試しください。"); setLoading(false); return; }
         }
       }
-      await fetch(SUPABASE_URL + "/rest/v1/bookings", {
+      const booking1Res = await fetch(SUPABASE_URL + "/rest/v1/bookings", {
         method: "POST", headers,
         body: JSON.stringify({
           customer_id: customerId, store_id: store.id,
@@ -512,6 +521,32 @@ function AppInner() {
           status: "confirmed", notes: profile.notes, booking_number: num,
         }),
       });
+      const booking1Data = await booking1Res.json();
+      const booking1Id = booking1Data[0]?.id;
+      if (course2 && booking1Id) {
+        const dur1Min = parseInt((course.duration || "30分").replace(/[^0-9]/g, "")) || 30;
+        const time2 = addMinutesToTime(time, dur1Min);
+        const num2 = "YR-" + (Date.now() + 1).toString().slice(-6);
+        const booking2Res = await fetch(SUPABASE_URL + "/rest/v1/bookings", {
+          method: "POST", headers,
+          body: JSON.stringify({
+            customer_id: customerId, store_id: store.id,
+            course_id: course2.id, course_name: course2.name, course_duration: course2.duration || "30分",
+            staff_id: staff.id, staff_name: staff.name,
+            booking_date: formatDate(date), booking_time: time2,
+            status: "confirmed", notes: profile.notes, booking_number: num2,
+            connected_booking_id: booking1Id,
+          }),
+        });
+        const booking2Data = await booking2Res.json();
+        const booking2Id = booking2Data[0]?.id;
+        if (booking2Id) {
+          await fetch(SUPABASE_URL + "/rest/v1/bookings?id=eq." + booking1Id, {
+            method: "PATCH", headers,
+            body: JSON.stringify({ connected_booking_id: booking2Id }),
+          });
+        }
+      }
       if (changeBookingId) {
         await fetch(SUPABASE_URL + "/rest/v1/bookings?id=eq." + changeBookingId, {
           method: "PATCH", headers,
@@ -581,6 +616,7 @@ function AppInner() {
     window.history.replaceState({}, '', '/src');
     setScreen("top"); setNotificationMethod(null); setStep(0);
     setStore(null); setCourse(null); setCourseCategory(null); setCourseVisitType(null);
+    setShowAddEsthe(false); setCourse2(null); setCourseVisitType2(null);
     setStaff(null); setDate(null); setTime(null);
     setProfile({ name: "", kana: "", zipcode: "", address: "", tel: "", birthYear: "", birthMonth: "", birthDay: "", birthday: "", email: "", firstVisit: "初めて", notes: "" });
     setBookingNum(""); setError(""); setExistingCustomer(null);
@@ -991,6 +1027,53 @@ function AppInner() {
                     )}
                   </div>
                 )}
+                {/* エステ追加ボタン（整体選択時のみ） */}
+                {course && courseCategory === "整体" && !showAddEsthe && (
+                  <button onClick={() => setShowAddEsthe(true)} style={{ marginTop: 16, width: "100%", padding: "14px", borderRadius: 14, border: "2px dashed " + LIGHT_GREEN, background: "#f0faf5", color: GREEN, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+                    ＋ エステも追加する（連続予約）
+                  </button>
+                )}
+                {showAddEsthe && (
+                  <div style={{ marginTop: 16, background: "#f0faf5", borderRadius: 16, padding: 16, border: "2px solid " + LIGHT_GREEN }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: GREEN }}>連続予約 ― エステ</div>
+                      <button onClick={() => { setShowAddEsthe(false); setCourse2(null); setCourseVisitType2(null); }}
+                        style={{ padding: "4px 10px", borderRadius: 8, border: "none", background: "#e0e0e0", color: "#888", fontSize: 12, cursor: "pointer" }}>✕ 取消</button>
+                    </div>
+                    {!courseVisitType2 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {["初回の方", "2回目以降の方"].map(vt => (
+                          <div key={vt} onClick={() => setCourseVisitType2(vt)} style={{ background: "white", border: "2px solid #e8ddd0", borderRadius: 12, padding: "16px", cursor: "pointer", textAlign: "center" }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: GREEN }}>{vt}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div>
+                        <button onClick={() => { setCourseVisitType2(null); setCourse2(null); }} style={{ marginBottom: 10, padding: "4px 12px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, cursor: "pointer" }}>← 戻る</button>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          {courses.filter(c => (c.category || "整体") === "エステ" && (courseVisitType2 === "初回の方" ? c.is_first_only === true : c.is_first_only !== true)).map(c => (
+                            <div key={c.id} onClick={() => setCourse2(c)} style={{ background: course2?.id === c.id ? GREEN + "15" : "white", border: "2px solid " + (course2?.id === c.id ? GREEN : "#e8ddd0"), borderRadius: 12, padding: "14px 16px", cursor: "pointer" }}>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontSize: 14, fontWeight: 700, color: GREEN }}>{c.name}</div>
+                                  <div style={{ fontSize: 12, color: "#888" }}>{c.description}</div>
+                                </div>
+                                <div style={{ textAlign: "right", marginLeft: 12 }}>
+                                  <div style={{ fontSize: 16, fontWeight: 700, color: ORANGE }}>{"¥" + (c.price ? c.price.toLocaleString() : "0")}</div>
+                                  <div style={{ fontSize: 11, color: "#aaa" }}>{c.duration}</div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          {courses.filter(c => (c.category || "整体") === "エステ" && (courseVisitType2 === "初回の方" ? c.is_first_only === true : c.is_first_only !== true)).length === 0 && (
+                            <div style={{ textAlign: "center", padding: 20, color: "#aaa", background: "white", borderRadius: 12 }}>エステのコースがありません</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1114,9 +1197,10 @@ function AppInner() {
             <div style={{ background: "white", borderRadius: 16, padding: "20px 24px", border: "2px solid " + GREEN + "20", marginBottom: 20, boxShadow: "0 4px 20px rgba(0,0,0,0.06)" }}>
               {[
                 { label: "店舗", value: "癒楽里 " + (store ? store.name : "") },
-                { label: "コース", value: course ? course.name + "（" + course.duration + " / ¥" + (course.price ? course.price.toLocaleString() : "0") + "）" : "" },
+                { label: "コース①", value: course ? course.name + "（" + course.duration + " / ¥" + (course.price ? course.price.toLocaleString() : "0") + "）" : "" },
+                ...(course2 ? [{ label: "コース②", value: course2.name + "（" + course2.duration + " / ¥" + (course2.price ? course2.price.toLocaleString() : "0") + "）" }] : []),
                 { label: "担当", value: staff ? staff.name : "" },
-                { label: "日時", value: date && time ? date.getFullYear() + "年" + (date.getMonth()+1) + "月" + date.getDate() + "日（" + DAYS_JP[date.getDay()] + "） " + time + "〜" : "" },
+                { label: "日時", value: date && time ? date.getFullYear() + "年" + (date.getMonth()+1) + "月" + date.getDate() + "日（" + DAYS_JP[date.getDay()] + "） " + time + "〜" + (course2 && course ? " → " + addMinutesToTime(time, parseInt((course.duration||"30分").replace(/[^0-9]/g,""))||30) + "〜（連続）" : "") : "" },
                 { label: "お名前", value: profile.name },
                 { label: "電話番号", value: profile.tel },
                 { label: "通知方法", value: notificationMethod === "line" ? "LINE" : notificationMethod === "email" ? "メール" : "SMS" },

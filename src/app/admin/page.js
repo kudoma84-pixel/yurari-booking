@@ -162,6 +162,8 @@ export default function AdminPage() {
   const [notifyCustomerSearch, setNotifyCustomerSearch] = useState("");
   const [notifyCustomerResult, setNotifyCustomerResult] = useState(null);
   const [editingCustomer, setEditingCustomer] = useState(null);
+  const [connectedBooking, setConnectedBooking] = useState(null);
+  const [includeConnectedBooking, setIncludeConnectedBooking] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState(null);
 const [visitPayment, setVisitPayment] = useState(null);
 const [visitPaymentItems, setVisitPaymentItems] = useState([]);
@@ -1209,10 +1211,10 @@ const handleAdminQrInput = async (value) => {
         method: "POST", headers,
         body: JSON.stringify(validProducts.map(p => ({
           payment_id: paymentId,
-          name: p.name,
-          unit_price: Number(p.price),
+          item_name: p.name,
+          item_type: "product",
+          price: Number(p.price),
           quantity: Number(p.quantity || 1),
-          subtotal: Number(p.price) * Number(p.quantity || 1),
         }))),
       });
       if (!itemsRes.ok) {
@@ -1667,7 +1669,18 @@ const handleAdminQrInput = async (value) => {
     setCheckoutResult(null);
     setSelectedTicket(null);
     setCustomerTickets([]);
+    setConnectedBooking(null);
+    setIncludeConnectedBooking(false);
     if (booking.customer_id) fetchCustomerTicketCount(booking.customer_id);
+    if (booking.connected_booking_id && booking.status !== "completed") {
+      fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${booking.connected_booking_id}&select=*,customers(name)`, {
+        headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
+      }).then(r => r.json()).then(data => {
+        if (data && data[0] && data[0].status !== "completed") {
+          setConnectedBooking(data[0]);
+        }
+      });
+    }
   };
 
   const addProduct = (product) => {
@@ -1718,6 +1731,9 @@ const handleAdminQrInput = async (value) => {
     }
     if (checkoutBooking) {
       await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${checkoutBooking.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "completed", completed_at: new Date().toISOString() }) });
+      if (includeConnectedBooking && connectedBooking) {
+        await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${connectedBooking.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "completed", completed_at: new Date().toISOString() }) });
+      }
       // ポイント加算
       if (checkoutBooking.customer_id) {
         const ptRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${checkoutBooking.customer_id}&select=points`, { headers });
@@ -3437,6 +3453,29 @@ const handleAdminQrInput = async (value) => {
                 <div style={{ flex: 1, minWidth: 300 }}>
                   <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
                     <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a", marginBottom: 16 }}>{checkoutBooking.customers?.name || "お客様"} 様の会計</div>
+                    {connectedBooking && (
+                      <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 12, background: includeConnectedBooking ? "#e8f5ee" : "#f9f6f2", border: "2px solid " + (includeConnectedBooking ? "#52b788" : "#e8ddd0") }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <div>
+                            <div style={{ fontSize: 11, color: "#888", marginBottom: 2 }}>連続予約あり</div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a" }}>{connectedBooking.course_name} も合算する</div>
+                            <div style={{ fontSize: 11, color: "#aaa" }}>{connectedBooking.booking_time}〜 / {connectedBooking.course_duration}</div>
+                          </div>
+                          <button onClick={() => {
+                            const newVal = !includeConnectedBooking;
+                            setIncludeConnectedBooking(newVal);
+                            if (newVal) {
+                              const connCourse = courseMenus.find(c => c.id === connectedBooking.course_id) || { name: connectedBooking.course_name, price: 0 };
+                              setCheckoutItems(prev => prev.find(i => i.connectedBookingId === connectedBooking.id) ? prev : [...prev, { type: "course", name: connCourse.name, price: connCourse.price || 0, quantity: 1, connectedBookingId: connectedBooking.id }]);
+                            } else {
+                              setCheckoutItems(prev => prev.filter(i => i.connectedBookingId !== connectedBooking.id));
+                            }
+                          }} style={{ padding: "8px 14px", borderRadius: 10, border: "none", background: includeConnectedBooking ? "#52b788" : "#e8ddd0", color: includeConnectedBooking ? "white" : "#888", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+                            {includeConnectedBooking ? "✓ 合算中" : "合算する"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
                       {checkoutItems.map((item, i) => (
                         <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: "#f9f6f2", borderRadius: 10 }}>
