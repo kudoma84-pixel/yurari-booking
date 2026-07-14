@@ -546,28 +546,38 @@ const handleAdminQrInput = async (value) => {
     const totalSales = validPayments.reduce((s, p) => s + (p.total || 0), 0);
     const totalDiscount = validPayments.reduce((s, p) => s + (p.discount || 0), 0);
 
-    // 金種別集計（method を常に ID に正規化）
+    // 金種別集計（method を常に ID に正規化 + 金種合計を p.total に揃える）
     const normalizeMethod = (raw) => {
       if (!raw) return "cash";
-      // すでに ID ならそのまま（例: "cash", "card"）
       if (PAYMENT_METHODS.find(m => m.id === raw)) return raw;
-      // 日本語名で保存されていた場合は ID に変換
       const found = PAYMENT_METHODS.find(m => m.name === raw);
       if (found) return found.id;
       return raw;
     };
     const methodTotals = {};
     validPayments.forEach(p => {
+      const paymentTotal = p.total || 0;
       if (p.payment_methods && p.payment_methods.length > 0) {
-        p.payment_methods.forEach(pm => {
-          const mid = normalizeMethod(pm.method);
-          methodTotals[mid] = (methodTotals[mid] || 0) + pm.amount;
-        });
+        const pmSum = p.payment_methods.reduce((s, pm) => s + (pm.amount || 0), 0);
+        if (pmSum === 0) {
+          // 金額未入力の場合は payment_method 文字列を使う
+          const mid = normalizeMethod(p.payment_method);
+          methodTotals[mid] = (methodTotals[mid] || 0) + paymentTotal;
+        } else {
+          // 金種別金額を p.total 比率で按分し、端数は最後の金種に集約
+          let remaining = paymentTotal;
+          p.payment_methods.forEach((pm, idx) => {
+            const mid = normalizeMethod(pm.method);
+            const amount = idx < p.payment_methods.length - 1
+              ? Math.round(pm.amount * paymentTotal / pmSum)
+              : remaining;
+            methodTotals[mid] = (methodTotals[mid] || 0) + amount;
+            remaining -= amount;
+          });
+        }
       } else {
-        // payment_method は "cash,card" のようなカンマ区切りの場合もあるが
-        // 物販のみ登録は単一メソッドなのでそのまま正規化
         const mid = normalizeMethod(p.payment_method);
-        methodTotals[mid] = (methodTotals[mid] || 0) + p.total;
+        methodTotals[mid] = (methodTotals[mid] || 0) + paymentTotal;
       }
     });
 
