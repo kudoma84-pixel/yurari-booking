@@ -274,8 +274,8 @@ function AppInner() {
 
   const fetchBookedSlots = async (staffId, storeId, dateStr) => {
     const query = staffId === "any"
-      ? `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${storeId}&booking_date=eq.${dateStr}&status=in.(confirmed,received,treatment_done)&select=booking_time,course_id`
-      : `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${storeId}&staff_id=eq.${staffId}&booking_date=eq.${dateStr}&status=in.(confirmed,received,treatment_done)&select=booking_time,course_id`;
+      ? `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${storeId}&booking_date=eq.${dateStr}&status=in.(confirmed,received,treatment_done)&select=booking_time,course_id,course_duration`
+      : `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${storeId}&staff_id=eq.${staffId}&booking_date=eq.${dateStr}&status=in.(confirmed,received,treatment_done)&select=booking_time,course_id,course_duration`;
     const res = await fetch(query, {
       headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
     });
@@ -302,7 +302,7 @@ function AppInner() {
     // 予約済みスロットをブロック（所要時間分）
     for (const b of data) {
       const courseInfo = courses.find(c => c.id === b.course_id);
-      const durationStr = courseInfo?.duration || "30分";
+      const durationStr = b.course_duration || courseInfo?.duration || "30分";
       const durationMin = parseInt(durationStr.replace(/[^0-9]/g, "")) || 30;
       const slots = durationMin / 30;
       const startIdx = TIME_SLOTS.indexOf(b.booking_time);
