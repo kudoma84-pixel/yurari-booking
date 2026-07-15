@@ -488,6 +488,7 @@ function MyPageInner() {
                     </div>
                     <div style={{ fontSize: 18, fontWeight: 700, color: GREEN, marginBottom: 4 }}>{b.course_name}</div>
                     <div style={{ fontSize: 14, color: DARK, marginBottom: 2 }}>📅 {formatDate(b.booking_date)} {b.booking_time}〜</div>
+                    <div style={{ fontSize: 13, color: "#888", marginBottom: 2 }}>🏥 {b.store_id === "toda" ? "戸田院" : "南浦和本院"}</div>
                     <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>👤 {b.staff_name}</div>
                     {b.status !== "cancelled" && b.status !== "completed" && (
                       <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
