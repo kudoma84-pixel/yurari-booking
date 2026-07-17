@@ -4311,10 +4311,10 @@ const handleAdminQrInput = async (value) => {
                 return `${m}/${day}`;
               };
 
-              // purchase_group_idでグループ化（nullの場合はidをキーにして1枚扱い）
+              // purchase_group_idでグループ化（nullの場合は顧客ID+発行日+種別でグループ化）
               const groups = {};
               giftHistory.forEach(g => {
-                const key = g.purchase_group_id || g.id;
+                const key = g.purchase_group_id || `${g.customer_id}_${g.issued_at}_${g.ticket_type}`;
                 if (!groups[key]) {
                   groups[key] = {
                     key,
