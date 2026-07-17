@@ -4321,7 +4321,11 @@ const handleAdminQrInput = async (value) => {
                   byCustomer[cid].tickets.push(g);
                 });
 
-                const customerList = Object.values(byCustomer);
+                const customerList = Object.values(byCustomer).sort((a, b) => {
+                  const aKey = a.customer?.kana || a.customer?.name || "";
+                  const bKey = b.customer?.kana || b.customer?.name || "";
+                  return aKey.localeCompare(bKey, "ja");
+                });
                 if (customerList.length === 0) {
                   return <div style={{ textAlign: "center", padding: 40, color: "#aaa", fontSize: 13 }}>金券履歴がありません</div>;
                 }
