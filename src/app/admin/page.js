@@ -4306,6 +4306,12 @@ const handleAdminQrInput = async (value) => {
             <div style={{ background: "white", borderRadius: 16, overflow: "auto", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
               {(() => {
                 const today = new Date().toISOString().slice(0, 10);
+                const fmtDate = d => {
+                  if (!d || d === "-") return "-";
+                  const m = d.slice(5, 7).replace(/^0/, "");
+                  const day = d.slice(8, 10).replace(/^0/, "");
+                  return `${m}/${day}`;
+                };
 
                 // purchase_group_idでグループ化（nullの場合はidをキーにして1枚扱い）
                 const groups = {};
@@ -4348,15 +4354,68 @@ const handleAdminQrInput = async (value) => {
                   return <div style={{ textAlign: "center", padding: 40, color: "#aaa", fontSize: 13 }}>金券履歴がありません</div>;
                 }
 
-                // 各顧客内は購入日昇順で行ソート
-                const allRows = [];
-                customerList.forEach(({ customer, rows }) => {
+                // 各顧客内は購入日降順（最新が先頭）
+                customerList.forEach(({ rows }) => {
                   rows.sort((a, b) => {
-                    const aDate = a.issued_dates.length > 0 ? [...a.issued_dates].sort()[0] : "";
-                    const bDate = b.issued_dates.length > 0 ? [...b.issued_dates].sort()[0] : "";
-                    return aDate.localeCompare(bDate);
+                    const aDate = a.issued_dates.length > 0 ? [...a.issued_dates].sort().pop() : "";
+                    const bDate = b.issued_dates.length > 0 ? [...b.issued_dates].sort().pop() : "";
+                    return bDate.localeCompare(aDate);
                   });
-                  rows.forEach(row => allRows.push({ customer, ...row }));
+                });
+
+                const renderRow = (row, i, nameCell) => {
+                  const issuedAt = row.issued_dates.length > 0 ? [...row.issued_dates].sort()[0] : "-";
+                  const expiresAt = row.expires_dates.length > 0 ? [...row.expires_dates].sort()[0] : "-";
+                  const isExpired = expiresAt !== "-" && expiresAt < today;
+                  const usedDates = [...row.used_dates].sort().slice(0, 10);
+
+                  return (
+                    <tr key={row.key} style={{ borderTop: "1px solid #f0ebe4", background: i % 2 === 0 ? "white" : "#fafafa" }}>
+                      <td style={{ padding: "9px 14px", fontSize: 12, color: "#3a5a3a", whiteSpace: "nowrap" }}>{row.customer?.customer_number || "-"}</td>
+                      {nameCell}
+                      <td style={{ padding: "9px 14px", whiteSpace: "nowrap" }}>
+                        <span style={{ fontSize: 11, background: row.ticket_type === "purchase" ? "#eaf5ec" : "#fff5ee", color: row.ticket_type === "purchase" ? "#3a7a5a" : "#c06020", borderRadius: 20, padding: "2px 8px", fontWeight: 600 }}>
+                          {row.ticket_type === "purchase" ? "A購入" : "B贈与"}
+                        </span>
+                      </td>
+                      <td style={{ padding: "9px 14px", fontSize: 12, color: "#3a5a3a", whiteSpace: "nowrap" }}>{fmtDate(issuedAt)}</td>
+                      <td style={{ padding: "9px 14px", fontSize: 12, color: isExpired ? "#e07070" : "#3a5a3a", fontWeight: isExpired ? 700 : 400, whiteSpace: "nowrap" }}>{fmtDate(expiresAt)}{isExpired ? " ⚠" : ""}</td>
+                      {[0,1,2,3,4,5,6,7,8,9].map(idx => (
+                        <td key={idx} style={{ padding: "9px 14px", fontSize: 12, color: "#3a5a3a", whiteSpace: "nowrap" }}>{usedDates[idx] ? fmtDate(usedDates[idx]) : "-"}</td>
+                      ))}
+                      <td style={{ padding: "9px 14px", whiteSpace: "nowrap" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, background: row.active > 0 ? "#eaf5ec" : "#f5f5f5", color: row.active > 0 ? "#3a7a5a" : "#aaa", borderRadius: 20, padding: "2px 10px" }}>{row.active}枚</span>
+                      </td>
+                    </tr>
+                  );
+                };
+
+                const tableRows = [];
+                customerList.forEach(({ customer, rows }, ci) => {
+                  const cid = rows[0]?.customer_id || "unknown";
+                  const isExpanded = expandedGiftCustomer === cid;
+                  const displayRows = isExpanded ? rows : [rows[0]];
+
+                  displayRows.forEach((row, ri) => {
+                    const isFirst = ri === 0;
+                    const nameCell = isFirst ? (
+                      <td
+                        rowSpan={displayRows.length}
+                        onClick={() => setExpandedGiftCustomer(isExpanded ? null : cid)}
+                        style={{ padding: "9px 14px", fontSize: 13, fontWeight: 600, color: "#3a7a5a", whiteSpace: "nowrap", cursor: "pointer", verticalAlign: "top", userSelect: "none" }}
+                      >
+                        {customer?.name || "-"}
+                        {rows.length > 1 && (
+                          <span style={{ fontSize: 10, color: "#aaa", marginLeft: 4 }}>{isExpanded ? "▾" : `▸${rows.length}`}</span>
+                        )}
+                      </td>
+                    ) : null;
+                    if (!isFirst) {
+                      tableRows.push(renderRow(row, ci + ri, <></>));
+                    } else {
+                      tableRows.push(renderRow(row, ci, nameCell));
+                    }
+                  });
                 });
 
                 return (
@@ -4374,34 +4433,7 @@ const handleAdminQrInput = async (value) => {
                         <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", whiteSpace: "nowrap" }}>残枚数</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {allRows.map((row, i) => {
-                        const issuedAt = row.issued_dates.length > 0 ? [...row.issued_dates].sort()[0] : "-";
-                        const expiresAt = row.expires_dates.length > 0 ? [...row.expires_dates].sort()[0] : "-";
-                        const isExpired = expiresAt !== "-" && expiresAt < today;
-                        const usedDates = [...row.used_dates].sort().slice(0, 10);
-
-                        return (
-                          <tr key={row.key} style={{ borderTop: "1px solid #f0ebe4", background: i % 2 === 0 ? "white" : "#fafafa" }}>
-                            <td style={{ padding: "9px 14px", fontSize: 12, color: "#3a5a3a", whiteSpace: "nowrap" }}>{row.customer?.customer_number || "-"}</td>
-                            <td style={{ padding: "9px 14px", fontSize: 13, fontWeight: 600, color: "#3a7a5a", whiteSpace: "nowrap" }}>{row.customer?.name || "-"}</td>
-                            <td style={{ padding: "9px 14px", whiteSpace: "nowrap" }}>
-                              <span style={{ fontSize: 11, background: row.ticket_type === "purchase" ? "#eaf5ec" : "#fff5ee", color: row.ticket_type === "purchase" ? "#3a7a5a" : "#c06020", borderRadius: 20, padding: "2px 8px", fontWeight: 600 }}>
-                                {row.ticket_type === "purchase" ? "A購入" : "B贈与"}
-                              </span>
-                            </td>
-                            <td style={{ padding: "9px 14px", fontSize: 12, color: "#3a5a3a", whiteSpace: "nowrap" }}>{issuedAt}</td>
-                            <td style={{ padding: "9px 14px", fontSize: 12, color: isExpired ? "#e07070" : "#3a5a3a", fontWeight: isExpired ? 700 : 400, whiteSpace: "nowrap" }}>{expiresAt}{isExpired ? " ⚠" : ""}</td>
-                            {[0,1,2,3,4,5,6,7,8,9].map(idx => (
-                              <td key={idx} style={{ padding: "9px 14px", fontSize: 12, color: "#3a5a3a", whiteSpace: "nowrap" }}>{usedDates[idx] || "-"}</td>
-                            ))}
-                            <td style={{ padding: "9px 14px", whiteSpace: "nowrap" }}>
-                              <span style={{ fontSize: 12, fontWeight: 700, background: row.active > 0 ? "#eaf5ec" : "#f5f5f5", color: row.active > 0 ? "#3a7a5a" : "#aaa", borderRadius: 20, padding: "2px 10px" }}>{row.active}枚</span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
+                    <tbody>{tableRows}</tbody>
                   </table>
                 );
               })()}
