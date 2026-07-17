@@ -1437,7 +1437,7 @@ const handleAdminQrInput = async (value) => {
   };
 
   const fetchGiftHistory = async () => {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?store_id=eq.${currentStore.id}&order=issued_at.desc&select=*,customers(name,customer_number)`, { headers });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?store_id=eq.${currentStore.id}&order=issued_at.desc&select=*,customers(name,kana,customer_number)`, { headers });
     const data = await res.json();
     setGiftHistory(Array.isArray(data) ? data : []);
   };
@@ -4302,23 +4302,40 @@ const handleAdminQrInput = async (value) => {
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 24 }}>🎫 金券管理</h2>
 
-            {/* 顧客別金券サマリ */}
-            <div style={{ background: "white", borderRadius: 16, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
-              {/* ヘッダー行 */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 130px 130px 160px", background: "#f5f5f5", padding: "10px 16px", borderBottom: "1px solid #e8ddd0" }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#7a9a7a" }}>顧客名</div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#7a9a7a" }}>最新発行日</div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#7a9a7a" }}>最短期限</div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#7a9a7a" }}>保有枚数</div>
-              </div>
-
+            {/* 横スクロール対応テーブル */}
+            <div style={{ background: "white", borderRadius: 16, overflow: "auto", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
               {(() => {
-                // 顧客ごとにまとめる
-                const byCustomer = {};
+                const today = new Date().toISOString().slice(0, 10);
+
+                // purchase_group_idでグループ化（nullの場合はidをキーにして1枚扱い）
+                const groups = {};
                 giftHistory.forEach(g => {
-                  const cid = g.customer_id || (g.customers?.id) || "unknown";
-                  if (!byCustomer[cid]) byCustomer[cid] = { cid, customer: g.customers, tickets: [] };
-                  byCustomer[cid].tickets.push(g);
+                  const key = g.purchase_group_id || g.id;
+                  if (!groups[key]) {
+                    groups[key] = {
+                      key,
+                      customer: g.customers,
+                      customer_id: g.customer_id,
+                      ticket_type: g.ticket_type,
+                      issued_dates: [],
+                      expires_dates: [],
+                      used_dates: [],
+                      active: 0,
+                    };
+                  }
+                  const grp = groups[key];
+                  if (g.issued_at) grp.issued_dates.push(g.issued_at);
+                  if (g.expires_at) grp.expires_dates.push(g.expires_at);
+                  if (g.status === "used" && g.used_at) grp.used_dates.push(g.used_at);
+                  if (g.status === "active") grp.active++;
+                });
+
+                // 顧客ごとにグループをまとめて50音順ソート
+                const byCustomer = {};
+                Object.values(groups).forEach(grp => {
+                  const cid = grp.customer_id || "unknown";
+                  if (!byCustomer[cid]) byCustomer[cid] = { customer: grp.customer, rows: [] };
+                  byCustomer[cid].rows.push(grp);
                 });
 
                 const customerList = Object.values(byCustomer).sort((a, b) => {
@@ -4326,91 +4343,67 @@ const handleAdminQrInput = async (value) => {
                   const bKey = b.customer?.kana || b.customer?.name || "";
                   return aKey.localeCompare(bKey, "ja");
                 });
+
                 if (customerList.length === 0) {
                   return <div style={{ textAlign: "center", padding: 40, color: "#aaa", fontSize: 13 }}>金券履歴がありません</div>;
                 }
 
-                return customerList.map(({ cid, customer, tickets }) => {
-                  const isExpanded = expandedGiftCustomer === cid;
-
-                  // サマリ計算
-                  const activeTickets = tickets.filter(t => t.status === "active");
-                  const purchaseActive = activeTickets.filter(t => t.ticket_type === "purchase").length;
-                  const presentActive = activeTickets.filter(t => t.ticket_type === "present").length;
-
-                  const allDates = tickets.map(t => t.issued_at).filter(Boolean).sort();
-                  const latestIssuedAt = allDates.length > 0 ? allDates[allDates.length - 1] : "-";
-
-                  const activeExpiries = activeTickets.map(t => t.expires_at).filter(Boolean).sort();
-                  const earliestExpiresAt = activeExpiries.length > 0 ? activeExpiries[0] : "-";
-
-                  // グループ別詳細（purchase_group_idでまとめ）
-                  const groups = {};
-                  tickets.forEach(t => {
-                    const key = t.purchase_group_id || t.id;
-                    if (!groups[key]) groups[key] = { ...t, total: 0, used: 0, active: 0 };
-                    groups[key].total++;
-                    if (t.status === "used") groups[key].used++;
-                    if (t.status === "active") groups[key].active++;
+                // 各顧客内は購入日昇順で行ソート
+                const allRows = [];
+                customerList.forEach(({ customer, rows }) => {
+                  rows.sort((a, b) => {
+                    const aDate = a.issued_dates.length > 0 ? [...a.issued_dates].sort()[0] : "";
+                    const bDate = b.issued_dates.length > 0 ? [...b.issued_dates].sort()[0] : "";
+                    return aDate.localeCompare(bDate);
                   });
-                  const groupList = Object.values(groups).sort((a, b) => (b.issued_at || "").localeCompare(a.issued_at || ""));
-
-                  return (
-                    <div key={cid} style={{ borderBottom: "1px solid #f0ebe4" }}>
-                      {/* サマリ行 */}
-                      <div
-                        onClick={() => setExpandedGiftCustomer(isExpanded ? null : cid)}
-                        style={{ display: "grid", gridTemplateColumns: "1fr 130px 130px 160px", padding: "12px 16px", cursor: "pointer", background: isExpanded ? "#f8fdf8" : "white", transition: "background 0.15s" }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 11, color: "#aaa" }}>{isExpanded ? "▾" : "▸"}</span>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: "#3a7a5a" }}>{customer?.name || "-"}</span>
-                          <span style={{ fontSize: 11, color: "#aaa" }}>No.{customer?.customer_number || "-"}</span>
-                        </div>
-                        <div style={{ fontSize: 13, color: "#3a5a3a" }}>{latestIssuedAt || "-"}</div>
-                        <div style={{ fontSize: 13, color: earliestExpiresAt && earliestExpiresAt < new Date().toISOString().slice(0,10) ? "#e07070" : "#3a5a3a" }}>{earliestExpiresAt || "-"}</div>
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <span style={{ fontSize: 12, background: purchaseActive > 0 ? "#eaf5ec" : "#f5f5f5", color: purchaseActive > 0 ? "#3a7a5a" : "#aaa", borderRadius: 20, padding: "2px 10px", fontWeight: 600 }}>A購入:{purchaseActive}</span>
-                          <span style={{ fontSize: 12, background: presentActive > 0 ? "#fff5ee" : "#f5f5f5", color: presentActive > 0 ? "#c06020" : "#aaa", borderRadius: 20, padding: "2px 10px", fontWeight: 600 }}>B贈与:{presentActive}</span>
-                        </div>
-                      </div>
-
-                      {/* 展開詳細 */}
-                      {isExpanded && (
-                        <div style={{ background: "#f8fdf8", borderTop: "1px solid #e8f0e8", padding: "12px 24px 16px" }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#7a9a7a", marginBottom: 8 }}>発行履歴</div>
-                          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                            <thead>
-                              <tr style={{ background: "#eaf5ec" }}>
-                                {["発行日","種別","発行枚数","使用済","残枚数","有効期限"].map(h => (
-                                  <th key={h} style={{ padding: "6px 12px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "#7a9a7a" }}>{h}</th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {groupList.map(g => (
-                                <tr key={g.purchase_group_id || g.id} style={{ borderTop: "1px solid #e8f0e8" }}>
-                                  <td style={{ padding: "6px 12px", fontSize: 12, color: "#3a5a3a" }}>{g.issued_at || "-"}</td>
-                                  <td style={{ padding: "6px 12px" }}>
-                                    <span style={{ fontSize: 11, background: g.ticket_type === "purchase" ? "#eaf5ec" : "#fff5ee", color: g.ticket_type === "purchase" ? "#3a7a5a" : "#c06020", borderRadius: 20, padding: "2px 8px", fontWeight: 600 }}>
-                                      {g.ticket_type === "purchase" ? "A購入" : "B贈与"}
-                                    </span>
-                                  </td>
-                                  <td style={{ padding: "6px 12px", fontSize: 12, color: "#3a5a3a" }}>{g.total}枚</td>
-                                  <td style={{ padding: "6px 12px", fontSize: 12, color: "#e07070" }}>{g.used}枚</td>
-                                  <td style={{ padding: "6px 12px" }}>
-                                    <span style={{ fontSize: 12, fontWeight: 700, color: g.active > 0 ? "#3a7a5a" : "#aaa" }}>{g.active}枚</span>
-                                  </td>
-                                  <td style={{ padding: "6px 12px", fontSize: 12, color: g.expires_at && g.expires_at < new Date().toISOString().slice(0,10) ? "#e07070" : "#3a5a3a" }}>{g.expires_at || "-"}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                  );
+                  rows.forEach(row => allRows.push({ customer, ...row }));
                 });
+
+                return (
+                  <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+                    <thead>
+                      <tr style={{ background: "#f5f5f5" }}>
+                        <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", whiteSpace: "nowrap" }}>顧客番号</th>
+                        <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", whiteSpace: "nowrap" }}>氏名</th>
+                        <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", whiteSpace: "nowrap" }}>種別</th>
+                        <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", whiteSpace: "nowrap" }}>購入日</th>
+                        <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", whiteSpace: "nowrap" }}>有効期限</th>
+                        {[1,2,3,4,5,6,7,8,9,10].map(n => (
+                          <th key={n} style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", whiteSpace: "nowrap" }}>使用{n}</th>
+                        ))}
+                        <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", whiteSpace: "nowrap" }}>残枚数</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allRows.map((row, i) => {
+                        const issuedAt = row.issued_dates.length > 0 ? [...row.issued_dates].sort()[0] : "-";
+                        const expiresAt = row.expires_dates.length > 0 ? [...row.expires_dates].sort()[0] : "-";
+                        const isExpired = expiresAt !== "-" && expiresAt < today;
+                        const usedDates = [...row.used_dates].sort().slice(0, 10);
+
+                        return (
+                          <tr key={row.key} style={{ borderTop: "1px solid #f0ebe4", background: i % 2 === 0 ? "white" : "#fafafa" }}>
+                            <td style={{ padding: "9px 14px", fontSize: 12, color: "#3a5a3a", whiteSpace: "nowrap" }}>{row.customer?.customer_number || "-"}</td>
+                            <td style={{ padding: "9px 14px", fontSize: 13, fontWeight: 600, color: "#3a7a5a", whiteSpace: "nowrap" }}>{row.customer?.name || "-"}</td>
+                            <td style={{ padding: "9px 14px", whiteSpace: "nowrap" }}>
+                              <span style={{ fontSize: 11, background: row.ticket_type === "purchase" ? "#eaf5ec" : "#fff5ee", color: row.ticket_type === "purchase" ? "#3a7a5a" : "#c06020", borderRadius: 20, padding: "2px 8px", fontWeight: 600 }}>
+                                {row.ticket_type === "purchase" ? "A購入" : "B贈与"}
+                              </span>
+                            </td>
+                            <td style={{ padding: "9px 14px", fontSize: 12, color: "#3a5a3a", whiteSpace: "nowrap" }}>{issuedAt}</td>
+                            <td style={{ padding: "9px 14px", fontSize: 12, color: isExpired ? "#e07070" : "#3a5a3a", fontWeight: isExpired ? 700 : 400, whiteSpace: "nowrap" }}>{expiresAt}{isExpired ? " ⚠" : ""}</td>
+                            {[0,1,2,3,4,5,6,7,8,9].map(idx => (
+                              <td key={idx} style={{ padding: "9px 14px", fontSize: 12, color: "#3a5a3a", whiteSpace: "nowrap" }}>{usedDates[idx] || "-"}</td>
+                            ))}
+                            <td style={{ padding: "9px 14px", whiteSpace: "nowrap" }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, background: row.active > 0 ? "#eaf5ec" : "#f5f5f5", color: row.active > 0 ? "#3a7a5a" : "#aaa", borderRadius: 20, padding: "2px 10px" }}>{row.active}枚</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                );
               })()}
             </div>
           </div>
