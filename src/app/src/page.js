@@ -360,6 +360,10 @@ function AppInner() {
       shifts.filter(s => s.staff_id === staffId).forEach(s => {
         dateMap[s.work_date] = "on";
       });
+      // 休院日（closed）は強制的にOFFにする
+      shifts.filter(s => s.staff_id === "closed").forEach(s => {
+        dateMap[s.work_date] = "off";
+      });
     }
     setStaffShiftDates(dateMap);
   };
