@@ -2442,34 +2442,34 @@ const handleAdminQrInput = async (value) => {
                 </div>
               )}
             </div>
-            {editGiftGroupModal.ticketEdits && editGiftGroupModal.allTickets.filter(t => t.status !== "cancelled").length > 0 && (
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 8 }}>使用日（used_at）</label>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {[...editGiftGroupModal.allTickets]
-                    .filter(t => t.status !== "cancelled")
-                    .sort((a, b) => (a.expires_at || "").localeCompare(b.expires_at || ""))
-                    .map((t, idx) => (
-                      <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 12, color: "#aaa", minWidth: 18, textAlign: "right" }}>{idx + 1}</span>
-                        <span style={{ fontSize: 11, background: (editGiftGroupModal.ticketEdits[t.id] || t.status === "used") ? "#fdeee4" : "#eaf5ec", color: (editGiftGroupModal.ticketEdits[t.id] || t.status === "used") ? "#c06020" : "#3a7a5a", borderRadius: 4, padding: "1px 6px", minWidth: 40, textAlign: "center" }}>
-                          {editGiftGroupModal.ticketEdits[t.id] ? "使用済" : "未使用"}
-                        </span>
+            {editGiftGroupModal.ticketEdits && (() => {
+              const sortedTickets = [...editGiftGroupModal.allTickets]
+                .filter(t => t.status !== "cancelled")
+                .sort((a, b) => (a.expires_at || "").localeCompare(b.expires_at || ""));
+              if (sortedTickets.length === 0) return null;
+              return (
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 8 }}>使用日（used_at）</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 10px", alignItems: "center" }}>
+                    {sortedTickets.map((t, idx) => (
+                      <>
+                        <span key={`lbl-${t.id}`} style={{ fontSize: 12, color: "#888", whiteSpace: "nowrap" }}>使用{idx + 1}</span>
                         <input
+                          key={`inp-${t.id}`}
                           type="date"
                           value={editGiftGroupModal.ticketEdits[t.id] ?? ""}
                           onChange={e => setEditGiftGroupModal({
                             ...editGiftGroupModal,
                             ticketEdits: { ...editGiftGroupModal.ticketEdits, [t.id]: e.target.value },
                           })}
-                          style={{ flex: 1, padding: "5px 10px", borderRadius: 8, border: "1px solid #c0d8c0", fontSize: 13, boxSizing: "border-box" }}
+                          style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #c0d8c0", fontSize: 13, boxSizing: "border-box", width: "100%" }}
                         />
-                      </div>
-                    ))
-                  }
+                      </>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
             <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
               <button onClick={() => setEditGiftGroupModal(null)} style={{ flex: 1, padding: "12px", borderRadius: 12, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>キャンセル</button>
               <button onClick={saveGiftGroupEdit} style={{ flex: 2, padding: "12px", borderRadius: 12, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>保存</button>
