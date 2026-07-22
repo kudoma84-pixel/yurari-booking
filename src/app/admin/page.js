@@ -1078,7 +1078,7 @@ const handleAdminQrInput = async (value) => {
     for (const t of allTickets) {
       await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, {
         method: "PATCH", headers,
-        body: JSON.stringify({ issued_at: newIssuedAt, expires_at: newExpiresAt, ticket_type: newTicketType }),
+        body: JSON.stringify({ issued_at: newIssuedAt || null, expires_at: newExpiresAt || null, ticket_type: newTicketType }),
       });
     }
     const diff = newCount - activeCount;
@@ -1092,8 +1092,8 @@ const handleAdminQrInput = async (value) => {
             ticket_type: newTicketType,
             ticket_name: newTicketType === "purchase" ? "購入金券" : "プレゼント金券",
             face_value: 1000,
-            issued_at: newIssuedAt,
-            expires_at: newExpiresAt,
+            issued_at: newIssuedAt || null,
+            expires_at: newExpiresAt || null,
             status: "active",
             purchase_group_id: purchaseGroupId || null,
           }),
@@ -1110,6 +1110,13 @@ const handleAdminQrInput = async (value) => {
       }
     }
     setEditGiftGroupModal(null);
+    await fetchGiftHistory();
+  };
+
+  const deleteGiftTickets = async (ticketIds, customerName) => {
+    if (!window.confirm(`${customerName || "この顧客"}の金券グループ（${ticketIds.length}件）を削除しますか？`)) return;
+    const ids = ticketIds.join(",");
+    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=in.(${ids})`, { method: "DELETE", headers });
     await fetchGiftHistory();
   };
 
@@ -2378,7 +2385,7 @@ const handleAdminQrInput = async (value) => {
               <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>購入日 / 支給日（issued_at）</label>
               <input
                 type="date"
-                value={editGiftGroupModal.newIssuedAt}
+                value={editGiftGroupModal.newIssuedAt ?? ""}
                 onChange={e => setEditGiftGroupModal({ ...editGiftGroupModal, newIssuedAt: e.target.value })}
                 style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "2px solid #b0d8b8", fontSize: 14, boxSizing: "border-box" }}
               />
@@ -2387,7 +2394,7 @@ const handleAdminQrInput = async (value) => {
               <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>有効期限（expires_at）</label>
               <input
                 type="date"
-                value={editGiftGroupModal.newExpiresAt}
+                value={editGiftGroupModal.newExpiresAt ?? ""}
                 onChange={e => setEditGiftGroupModal({ ...editGiftGroupModal, newExpiresAt: e.target.value })}
                 style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "2px solid #b0d8b8", fontSize: 14, boxSizing: "border-box" }}
               />
@@ -4525,7 +4532,7 @@ const handleAdminQrInput = async (value) => {
                       <td style={{ padding: "9px 14px", whiteSpace: "nowrap" }}>
                         <span style={{ fontSize: 12, fontWeight: 700, background: row.active > 0 ? "#eaf5ec" : "#f5f5f5", color: row.active > 0 ? "#3a7a5a" : "#aaa", borderRadius: 20, padding: "2px 10px" }}>{row.active}枚</span>
                       </td>
-                      <td style={{ padding: "9px 10px", whiteSpace: "nowrap" }}>
+                      <td style={{ padding: "9px 10px", whiteSpace: "nowrap", display: "flex", gap: 4 }}>
                         <button
                           onClick={() => setEditGiftGroupModal({
                             key: row.key,
@@ -4535,13 +4542,17 @@ const handleAdminQrInput = async (value) => {
                             activeCount: row.active,
                             ticketType: "purchase",
                             allTickets: row.tickets,
-                            newIssuedAt: row.issuedAt,
+                            newIssuedAt: row.issuedAt || "",
                             newExpiresAt: expiresAt !== "-" ? expiresAt : "",
                             newCount: row.active,
                             newTicketType: "purchase",
                           })}
                           style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #b0d8b8", background: "#eaf5ec", color: "#3a7a5a", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
                         >編集</button>
+                        <button
+                          onClick={() => deleteGiftTickets(row.tickets.map(t => t.id), row.customer?.name)}
+                          style={{ padding: "4px 8px", borderRadius: 8, border: "1px solid #f0b0b0", background: "#fff0f0", color: "#c06060", fontSize: 12, cursor: "pointer" }}
+                        >🗑</button>
                       </td>
                     </tr>
                   );
@@ -4576,7 +4587,7 @@ const handleAdminQrInput = async (value) => {
                     <td style={{ padding: "9px 14px", whiteSpace: "nowrap" }}>
                       <span style={{ fontSize: 12, fontWeight: 700, background: c.active > 0 ? "#fff5ee" : "#f5f5f5", color: c.active > 0 ? "#c06020" : "#aaa", borderRadius: 20, padding: "2px 10px" }}>{c.active}枚</span>
                     </td>
-                    <td style={{ padding: "9px 10px", whiteSpace: "nowrap" }}>
+                    <td style={{ padding: "9px 10px", whiteSpace: "nowrap", display: "flex", gap: 4 }}>
                       <button
                         onClick={() => setEditGiftGroupModal({
                           key: `${c.customerId}_present`,
@@ -4586,13 +4597,17 @@ const handleAdminQrInput = async (value) => {
                           activeCount: c.active,
                           ticketType: "present",
                           allTickets: c.tickets,
-                          newIssuedAt: latestIssuedAt,
-                          newExpiresAt: latestExpiresAt,
+                          newIssuedAt: latestIssuedAt || "",
+                          newExpiresAt: latestExpiresAt || "",
                           newCount: c.active,
                           newTicketType: "present",
                         })}
                         style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #f0c8a0", background: "#fff5ee", color: "#c06020", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
                       >編集</button>
+                      <button
+                        onClick={() => deleteGiftTickets(c.tickets.map(t => t.id), c.customer?.name)}
+                        style={{ padding: "4px 8px", borderRadius: 8, border: "1px solid #f0b0b0", background: "#fff0f0", color: "#c06060", fontSize: 12, cursor: "pointer" }}
+                      >🗑</button>
                     </td>
                   </tr>
                 );
