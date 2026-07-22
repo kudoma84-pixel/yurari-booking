@@ -4427,6 +4427,13 @@ const handleAdminQrInput = async (value) => {
                 const day = d.slice(8, 10).replace(/^0/, "");
                 return `${m}/${day}`;
               };
+              const fmtDateY = d => {
+                if (!d || d === "-") return "-";
+                const yy = d.slice(2, 4);
+                const m = d.slice(5, 7).replace(/^0/, "");
+                const day = d.slice(8, 10).replace(/^0/, "");
+                return `${yy}/${m}/${day}`;
+              };
 
               // ── 購入金券：purchase_group_id（nullなら顧客+発行日）でグループ化 ──
               const purchaseGroups = {};
@@ -4491,10 +4498,10 @@ const handleAdminQrInput = async (value) => {
                 displayRows.forEach((row, ri) => {
                   const expiresAt = row.tickets.length > 0 ? [...row.tickets].sort((a,b)=>a.expires_at.localeCompare(b.expires_at))[0].expires_at : "-";
                   const isExpired = expiresAt && expiresAt < today;
-                  // 使用済チケットをexpires_at昇順で並べてused_atを取得
+                  // 使用済チケットをused_at昇順で並べて表示
                   const usedSlots = [...row.tickets]
-                    .sort((a, b) => a.expires_at.localeCompare(b.expires_at))
                     .filter(t => t.status === "used")
+                    .sort((a, b) => a.used_at.localeCompare(b.used_at))
                     .slice(0, 10);
                   const nameCell = ri === 0 ? (
                     <td
@@ -4510,8 +4517,8 @@ const handleAdminQrInput = async (value) => {
                     <tr key={row.key} style={{ borderTop: "1px solid #f0ebe4", background: (ci + ri) % 2 === 0 ? "white" : "#fafafa" }}>
                       <td style={{ padding: "9px 14px", fontSize: 12, color: "#3a5a3a", whiteSpace: "nowrap" }}>{row.customer?.customer_number || "-"}</td>
                       {nameCell}
-                      <td style={{ padding: "9px 14px", fontSize: 12, color: "#3a5a3a", whiteSpace: "nowrap" }}>{fmtDate(row.issuedAt)}</td>
-                      <td style={{ padding: "9px 14px", fontSize: 12, color: isExpired ? "#e07070" : "#3a5a3a", fontWeight: isExpired ? 700 : 400, whiteSpace: "nowrap" }}>{fmtDate(expiresAt)}{isExpired ? " ⚠" : ""}</td>
+                      <td style={{ padding: "9px 14px", fontSize: 12, color: "#3a5a3a", whiteSpace: "nowrap" }}>{fmtDateY(row.issuedAt)}</td>
+                      <td style={{ padding: "9px 14px", fontSize: 12, color: isExpired ? "#e07070" : "#3a5a3a", fontWeight: isExpired ? 700 : 400, whiteSpace: "nowrap" }}>{fmtDateY(expiresAt)}{isExpired ? " ⚠" : ""}</td>
                       {[0,1,2,3,4,5,6,7,8,9].map(idx => (
                         <td key={idx} style={{ padding: "9px 14px", fontSize: 12, color: "#3a5a3a", whiteSpace: "nowrap" }}>{usedSlots[idx] ? fmtDate(usedSlots[idx].used_at) : "-"}</td>
                       ))}
