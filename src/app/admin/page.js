@@ -119,6 +119,7 @@ export default function AdminPage() {
   const [customerTickets, setCustomerTickets] = useState([]);
   const [allCustomerTickets, setAllCustomerTickets] = useState({});
   const [editTicketModal, setEditTicketModal] = useState(null); // { customer, type: "purchase"|"present", count, date }
+  const [editGiftGroupModal, setEditGiftGroupModal] = useState(null);
   const [editingTicketTemplate, setEditingTicketTemplate] = useState(null);
   const [lineMessages, setLineMessages] = useState([]);
   const [adminNotifications, setAdminNotifications] = useState([]);
@@ -1069,6 +1070,47 @@ const handleAdminQrInput = async (value) => {
     }
     setEditTicketModal(null);
     await fetchAllCustomerTickets();
+  };
+
+  const saveGiftGroupEdit = async () => {
+    if (!editGiftGroupModal) return;
+    const { allTickets, customerId, purchaseGroupId, activeCount, newCount, newIssuedAt, newExpiresAt, newTicketType } = editGiftGroupModal;
+    for (const t of allTickets) {
+      await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, {
+        method: "PATCH", headers,
+        body: JSON.stringify({ issued_at: newIssuedAt, expires_at: newExpiresAt, ticket_type: newTicketType }),
+      });
+    }
+    const diff = newCount - activeCount;
+    if (diff > 0) {
+      for (let i = 0; i < diff; i++) {
+        await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
+          method: "POST", headers,
+          body: JSON.stringify({
+            customer_id: customerId,
+            store_id: currentStore.id,
+            ticket_type: newTicketType,
+            ticket_name: newTicketType === "purchase" ? "購入金券" : "プレゼント金券",
+            face_value: 1000,
+            issued_at: newIssuedAt,
+            expires_at: newExpiresAt,
+            status: "active",
+            purchase_group_id: purchaseGroupId || null,
+          }),
+        });
+      }
+    } else if (diff < 0) {
+      const activeTickets = allTickets.filter(t => t.status === "active");
+      const toCancel = activeTickets.slice(0, Math.abs(diff));
+      for (const t of toCancel) {
+        await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, {
+          method: "PATCH", headers,
+          body: JSON.stringify({ status: "cancelled" }),
+        });
+      }
+    }
+    setEditGiftGroupModal(null);
+    await fetchGiftHistory();
   };
 
   const issueGiftTicket = async (template) => {
@@ -2306,6 +2348,81 @@ const handleAdminQrInput = async (value) => {
             <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
               <button onClick={() => setEditTicketModal(null)} style={{ flex: 1, padding: "12px", borderRadius: 12, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>キャンセル</button>
               <button onClick={saveTicketEdit} style={{ flex: 2, padding: "12px", borderRadius: 12, border: "none", background: editTicketModal.type === "purchase" ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "linear-gradient(135deg, #e07b39, #c05020)", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>保存</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {editGiftGroupModal && (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setEditGiftGroupModal(null)}>
+        <div style={{ background: "white", borderRadius: 20, padding: 28, width: "100%", maxWidth: 380, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>金券グループ編集</div>
+            <button onClick={() => setEditGiftGroupModal(null)} style={{ border: "none", background: "none", fontSize: 22, cursor: "pointer", color: "#aaa" }}>×</button>
+          </div>
+          <div style={{ fontSize: 12, color: "#888", marginBottom: 20 }}>{editGiftGroupModal.customer?.name || "-"} 様</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>種別</label>
+              <select
+                value={editGiftGroupModal.newTicketType}
+                onChange={e => setEditGiftGroupModal({ ...editGiftGroupModal, newTicketType: e.target.value })}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "2px solid #b0d8b8", fontSize: 14, boxSizing: "border-box" }}
+              >
+                <option value="purchase">購入金券</option>
+                <option value="present">プレゼント金券</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>購入日 / 支給日（issued_at）</label>
+              <input
+                type="date"
+                value={editGiftGroupModal.newIssuedAt}
+                onChange={e => setEditGiftGroupModal({ ...editGiftGroupModal, newIssuedAt: e.target.value })}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "2px solid #b0d8b8", fontSize: 14, boxSizing: "border-box" }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>有効期限（expires_at）</label>
+              <input
+                type="date"
+                value={editGiftGroupModal.newExpiresAt}
+                onChange={e => setEditGiftGroupModal({ ...editGiftGroupModal, newExpiresAt: e.target.value })}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "2px solid #b0d8b8", fontSize: 14, boxSizing: "border-box" }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>
+                枚数（現在: {editGiftGroupModal.activeCount}枚）
+              </label>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button
+                  onClick={() => setEditGiftGroupModal({ ...editGiftGroupModal, newCount: Math.max(0, editGiftGroupModal.newCount - 1) })}
+                  style={{ width: 36, height: 36, borderRadius: 8, border: "2px solid #b0d8b8", background: "white", fontSize: 18, fontWeight: 700, cursor: "pointer", color: "#5a9e7a" }}
+                >−</button>
+                <input
+                  type="number" min="0" max="99"
+                  value={editGiftGroupModal.newCount}
+                  onChange={e => setEditGiftGroupModal({ ...editGiftGroupModal, newCount: Math.max(0, parseInt(e.target.value) || 0) })}
+                  style={{ flex: 1, padding: "8px", borderRadius: 10, border: "2px solid #b0d8b8", fontSize: 20, fontWeight: 700, textAlign: "center", boxSizing: "border-box" }}
+                />
+                <button
+                  onClick={() => setEditGiftGroupModal({ ...editGiftGroupModal, newCount: editGiftGroupModal.newCount + 1 })}
+                  style={{ width: 36, height: 36, borderRadius: 8, border: "2px solid #b0d8b8", background: "white", fontSize: 18, fontWeight: 700, cursor: "pointer", color: "#5a9e7a" }}
+                >＋</button>
+              </div>
+              {editGiftGroupModal.newCount !== editGiftGroupModal.activeCount && (
+                <div style={{ fontSize: 11, color: editGiftGroupModal.newCount > editGiftGroupModal.activeCount ? "#3a7a5a" : "#e07070", marginTop: 6 }}>
+                  {editGiftGroupModal.newCount > editGiftGroupModal.activeCount
+                    ? `→ ${editGiftGroupModal.newCount - editGiftGroupModal.activeCount}枚 INSERT します`
+                    : `→ ${editGiftGroupModal.activeCount - editGiftGroupModal.newCount}枚 cancelled にします`}
+                </div>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+              <button onClick={() => setEditGiftGroupModal(null)} style={{ flex: 1, padding: "12px", borderRadius: 12, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>キャンセル</button>
+              <button onClick={saveGiftGroupEdit} style={{ flex: 2, padding: "12px", borderRadius: 12, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>保存</button>
             </div>
           </div>
         </div>
@@ -4321,12 +4438,13 @@ const handleAdminQrInput = async (value) => {
                     customer: g.customers,
                     customer_id: g.customer_id,
                     issuedAt: g.issued_at || "",
+                    purchaseGroupId: g.purchase_group_id || null,
                     tickets: [],
                     active: 0,
                   };
                 }
                 const grp = purchaseGroups[key];
-                grp.tickets.push({ expires_at: g.expires_at || "", used_at: g.used_at || "", status: g.status });
+                grp.tickets.push({ id: g.id, expires_at: g.expires_at || "", used_at: g.used_at || "", status: g.status });
                 if (g.status === "active") grp.active++;
               });
 
@@ -4348,10 +4466,11 @@ const handleAdminQrInput = async (value) => {
               const presentByCustomer = {};
               giftHistory.filter(g => g.ticket_type === "present").forEach(g => {
                 const cid = g.customer_id || "unknown";
-                if (!presentByCustomer[cid]) presentByCustomer[cid] = { customer: g.customers, tickets: [], active: 0 };
+                if (!presentByCustomer[cid]) presentByCustomer[cid] = { customer: g.customers, customerId: g.customer_id, tickets: [], active: 0 };
                 presentByCustomer[cid].tickets.push({
                   id: g.id,
                   issued_at: g.issued_at || "",
+                  expires_at: g.expires_at || "",
                   used_at: g.used_at || "",
                   status: g.status,
                 });
@@ -4399,6 +4518,24 @@ const handleAdminQrInput = async (value) => {
                       <td style={{ padding: "9px 14px", whiteSpace: "nowrap" }}>
                         <span style={{ fontSize: 12, fontWeight: 700, background: row.active > 0 ? "#eaf5ec" : "#f5f5f5", color: row.active > 0 ? "#3a7a5a" : "#aaa", borderRadius: 20, padding: "2px 10px" }}>{row.active}枚</span>
                       </td>
+                      <td style={{ padding: "9px 10px", whiteSpace: "nowrap" }}>
+                        <button
+                          onClick={() => setEditGiftGroupModal({
+                            key: row.key,
+                            purchaseGroupId: row.purchaseGroupId,
+                            customerId: row.customer_id,
+                            customer: row.customer,
+                            activeCount: row.active,
+                            ticketType: "purchase",
+                            allTickets: row.tickets,
+                            newIssuedAt: row.issuedAt,
+                            newExpiresAt: expiresAt !== "-" ? expiresAt : "",
+                            newCount: row.active,
+                            newTicketType: "purchase",
+                          })}
+                          style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #b0d8b8", background: "#eaf5ec", color: "#3a7a5a", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                        >編集</button>
+                      </td>
                     </tr>
                   );
                 });
@@ -4407,6 +4544,8 @@ const handleAdminQrInput = async (value) => {
               // ── プレゼントテーブル描画 ──
               const presentTableRows = presentCustomerList.map((c, ci) => {
                 const slots = c.tickets.slice(0, 10);
+                const latestIssuedAt = c.tickets.reduce((max, t) => t.issued_at > max ? t.issued_at : max, "");
+                const latestExpiresAt = c.tickets.reduce((max, t) => t.expires_at > max ? t.expires_at : max, "");
                 return (
                   <tr key={c.customer?.customer_number || ci} style={{ borderTop: "1px solid #f0ebe4", background: ci % 2 === 0 ? "white" : "#fafafa" }}>
                     <td style={{ padding: "9px 14px", fontSize: 12, color: "#3a5a3a", whiteSpace: "nowrap" }}>{c.customer?.customer_number || "-"}</td>
@@ -4429,6 +4568,24 @@ const handleAdminQrInput = async (value) => {
                     })}
                     <td style={{ padding: "9px 14px", whiteSpace: "nowrap" }}>
                       <span style={{ fontSize: 12, fontWeight: 700, background: c.active > 0 ? "#fff5ee" : "#f5f5f5", color: c.active > 0 ? "#c06020" : "#aaa", borderRadius: 20, padding: "2px 10px" }}>{c.active}枚</span>
+                    </td>
+                    <td style={{ padding: "9px 10px", whiteSpace: "nowrap" }}>
+                      <button
+                        onClick={() => setEditGiftGroupModal({
+                          key: `${c.customerId}_present`,
+                          purchaseGroupId: null,
+                          customerId: c.customerId,
+                          customer: c.customer,
+                          activeCount: c.active,
+                          ticketType: "present",
+                          allTickets: c.tickets,
+                          newIssuedAt: latestIssuedAt,
+                          newExpiresAt: latestExpiresAt,
+                          newCount: c.active,
+                          newTicketType: "present",
+                        })}
+                        style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #f0c8a0", background: "#fff5ee", color: "#c06020", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                      >編集</button>
                     </td>
                   </tr>
                 );
@@ -4453,6 +4610,7 @@ const handleAdminQrInput = async (value) => {
                                 <th key={n} style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", whiteSpace: "nowrap" }}>使用{n}</th>
                               ))}
                               <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", whiteSpace: "nowrap" }}>残枚数</th>
+                              <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#7a9a7a", whiteSpace: "nowrap" }}>操作</th>
                             </tr>
                           </thead>
                           <tbody>{purchaseTableRows}</tbody>
@@ -4478,6 +4636,7 @@ const handleAdminQrInput = async (value) => {
                                 <th key={n} style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#c0a070", whiteSpace: "nowrap" }}>支給{n}</th>
                               ))}
                               <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#c0a070", whiteSpace: "nowrap" }}>残枚数</th>
+                              <th style={{ padding: "10px 14px", textAlign: "left", fontSize: 12, fontWeight: 700, color: "#c0a070", whiteSpace: "nowrap" }}>操作</th>
                             </tr>
                           </thead>
                           <tbody>{presentTableRows}</tbody>
