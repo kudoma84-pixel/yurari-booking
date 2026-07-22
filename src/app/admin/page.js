@@ -1074,12 +1074,27 @@ const handleAdminQrInput = async (value) => {
 
   const saveGiftGroupEdit = async () => {
     if (!editGiftGroupModal) return;
-    const { allTickets, customerId, purchaseGroupId, activeCount, newCount, newIssuedAt, newExpiresAt, newTicketType } = editGiftGroupModal;
+    const { allTickets, customerId, purchaseGroupId, activeCount, newCount, newIssuedAt, newExpiresAt, newTicketType, ticketEdits } = editGiftGroupModal;
     for (const t of allTickets) {
       await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, {
         method: "PATCH", headers,
         body: JSON.stringify({ issued_at: newIssuedAt || null, expires_at: newExpiresAt || null, ticket_type: newTicketType }),
       });
+    }
+    if (ticketEdits) {
+      for (const t of allTickets) {
+        const edited = ticketEdits[t.id] ?? "";
+        const original = t.used_at || "";
+        if (edited !== original) {
+          await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, {
+            method: "PATCH", headers,
+            body: JSON.stringify(edited
+              ? { used_at: edited, status: "used" }
+              : { used_at: null, status: "active" }
+            ),
+          });
+        }
+      }
     }
     const diff = newCount - activeCount;
     if (diff > 0) {
@@ -2427,6 +2442,34 @@ const handleAdminQrInput = async (value) => {
                 </div>
               )}
             </div>
+            {editGiftGroupModal.ticketEdits && editGiftGroupModal.allTickets.filter(t => t.status !== "cancelled").length > 0 && (
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 8 }}>使用日（used_at）</label>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {[...editGiftGroupModal.allTickets]
+                    .filter(t => t.status !== "cancelled")
+                    .sort((a, b) => (a.expires_at || "").localeCompare(b.expires_at || ""))
+                    .map((t, idx) => (
+                      <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 12, color: "#aaa", minWidth: 18, textAlign: "right" }}>{idx + 1}</span>
+                        <span style={{ fontSize: 11, background: (editGiftGroupModal.ticketEdits[t.id] || t.status === "used") ? "#fdeee4" : "#eaf5ec", color: (editGiftGroupModal.ticketEdits[t.id] || t.status === "used") ? "#c06020" : "#3a7a5a", borderRadius: 4, padding: "1px 6px", minWidth: 40, textAlign: "center" }}>
+                          {editGiftGroupModal.ticketEdits[t.id] ? "使用済" : "未使用"}
+                        </span>
+                        <input
+                          type="date"
+                          value={editGiftGroupModal.ticketEdits[t.id] ?? ""}
+                          onChange={e => setEditGiftGroupModal({
+                            ...editGiftGroupModal,
+                            ticketEdits: { ...editGiftGroupModal.ticketEdits, [t.id]: e.target.value },
+                          })}
+                          style={{ flex: 1, padding: "5px 10px", borderRadius: 8, border: "1px solid #c0d8c0", fontSize: 13, boxSizing: "border-box" }}
+                        />
+                      </div>
+                    ))
+                  }
+                </div>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
               <button onClick={() => setEditGiftGroupModal(null)} style={{ flex: 1, padding: "12px", borderRadius: 12, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>キャンセル</button>
               <button onClick={saveGiftGroupEdit} style={{ flex: 2, padding: "12px", borderRadius: 12, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>保存</button>
@@ -4546,6 +4589,7 @@ const handleAdminQrInput = async (value) => {
                             newExpiresAt: expiresAt !== "-" ? expiresAt : "",
                             newCount: row.active,
                             newTicketType: "purchase",
+                            ticketEdits: Object.fromEntries(row.tickets.map(t => [t.id, t.used_at || ""])),
                           })}
                           style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #b0d8b8", background: "#eaf5ec", color: "#3a7a5a", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
                         >編集</button>
@@ -4601,6 +4645,7 @@ const handleAdminQrInput = async (value) => {
                           newExpiresAt: latestExpiresAt || "",
                           newCount: c.active,
                           newTicketType: "present",
+                          ticketEdits: Object.fromEntries(c.tickets.map(t => [t.id, t.used_at || ""])),
                         })}
                         style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #f0c8a0", background: "#fff5ee", color: "#c06020", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
                       >編集</button>
