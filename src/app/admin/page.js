@@ -918,6 +918,20 @@ const handleAdminQrInput = async (value) => {
     setChangeBookingModal(null);
     setChangeBookingForm({});
     setSelectedBooking(null);
+    // 予約変更通知
+    await fetch(`${SUPABASE_URL}/rest/v1/admin_notifications`, {
+      method: "POST", headers,
+      body: JSON.stringify({
+        store_id: currentStore.id,
+        type: "booking_change",
+        title: "予約変更",
+        body: `${changeBookingModal.customers?.name || "顧客"} ${f.booking_date} ${f.booking_time} ${course?.name || ""}`,
+        customer_id: changeBookingModal.customer_id,
+        booking_id: changeBookingModal.id,
+        is_read: false,
+      }),
+    });
+    fetchAdminNotifications();
     fetchAll(selectedDate);
   };
 
@@ -2922,7 +2936,7 @@ const handleAdminQrInput = async (value) => {
                         <span style={{ fontSize: 12, fontWeight: 700, color: n.type === "cancel" ? "#e07070" : "#5a9e7a" }}>{n.type === "cancel" ? "❌ キャンセル" : "✅ 新規予約"}</span>
                         <span style={{ fontSize: 11, color: "#aaa" }}>{new Date(n.created_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
                       </div>
-                      <div style={{ fontSize: 12, color: "#555" }}>{n.body}</div>
+                      <div onClick={n.customer_id ? () => { setTab("customers"); fetchCustomerDetail(n.customer_id); fetchCustomerTickets(n.customer_id); } : undefined} style={{ fontSize: 12, color: n.customer_id ? "#5a9e7a" : "#555", cursor: n.customer_id ? "pointer" : "default", textDecoration: n.customer_id ? "underline" : "none" }}>{n.body}</div>
                     </div>
                   ))}
                 </div>
@@ -4450,10 +4464,10 @@ const handleAdminQrInput = async (value) => {
                       {notifications.map(n => (
                         <div key={n.id} style={{ padding: "12px 16px", background: "#f9f6f2", borderRadius: 12 }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a" }}>{n.title}</div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a" }}>{n.type === "booking_change" ? "🔄 予約変更" : n.type === "new_booking" ? "🆕 新規予約" : n.title}</div>
                             <div style={{ fontSize: 10, color: "#aaa" }}>{new Date(n.created_at).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })}</div>
                           </div>
-                          <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>{n.body?.slice(0, 50)}{n.body?.length > 50 ? "..." : ""}</div>
+                          <div onClick={n.customer_id ? () => { setShowNotifications(false); setTab("customers"); fetchCustomerDetail(n.customer_id); fetchCustomerTickets(n.customer_id); } : undefined} style={{ fontSize: 12, color: n.customer_id ? "#5a9e7a" : "#888", cursor: n.customer_id ? "pointer" : "default", textDecoration: n.customer_id ? "underline" : "none", marginBottom: 4 }}>{n.body?.slice(0, 50)}{n.body?.length > 50 ? "..." : ""}</div>
                           <div style={{ fontSize: 11, color: "#aaa" }}>送信方法: {n.sent_via || "-"}</div>
                         </div>
                       ))}
