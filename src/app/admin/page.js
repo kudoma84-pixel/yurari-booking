@@ -2933,7 +2933,7 @@ const handleAdminQrInput = async (value) => {
                   {adminNotifications.map(n => (
                     <div key={n.id} style={{ padding: "12px 16px", borderBottom: "1px solid #f9f6f2", background: n.is_read ? "white" : "#f0f8f4" }}>
                       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 2 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: n.type === "cancel" ? "#e07070" : "#5a9e7a" }}>{n.type === "cancel" ? "❌ キャンセル" : "✅ 新規予約"}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: n.type === "cancel" ? "#e07070" : n.type === "booking_change" ? "#e0a040" : "#5a9e7a" }}>{n.type === "cancel" ? "❌ キャンセル" : n.type === "booking_change" ? "🔄 予約変更" : "✅ 新規予約"}</span>
                         <span style={{ fontSize: 11, color: "#aaa" }}>{new Date(n.created_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
                       </div>
                       <div onClick={n.customer_id ? () => { setTab("customers"); fetchCustomerDetail(n.customer_id); fetchCustomerTickets(n.customer_id); } : undefined} style={{ fontSize: 12, color: n.customer_id ? "#5a9e7a" : "#555", cursor: n.customer_id ? "pointer" : "default", textDecoration: n.customer_id ? "underline" : "none" }}>{n.body}</div>
