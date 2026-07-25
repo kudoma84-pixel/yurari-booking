@@ -915,26 +915,26 @@ const handleAdminQrInput = async (value) => {
         }),
       });
     }
-    setChangeBookingModal(null);
-    setChangeBookingForm({});
-    setSelectedBooking(null);
-    // 予約変更通知
+    // 予約変更通知（モーダルをクリアする前に参照を保存）
+    const bookingForNotif = changeBookingModal;
     await fetch(`${SUPABASE_URL}/rest/v1/admin_notifications`, {
       method: "POST", headers,
       body: JSON.stringify({
         store_id: currentStore.id,
         type: "booking_change",
         title: "予約変更",
-        body: `${changeBookingModal.customers?.name || "顧客"} ${f.booking_date} ${f.booking_time} ${course?.name || ""}`,
-        customer_id: changeBookingModal.customer_id,
-        booking_id: changeBookingModal.id,
+        body: `${bookingForNotif.customers?.name || "顧客"} ${f.booking_date} ${f.booking_time} ${course?.name || ""}`,
+        customer_id: bookingForNotif.customer_id,
+        booking_id: bookingForNotif.id,
         is_read: false,
       }),
     });
     fetchAdminNotifications();
+    setChangeBookingModal(null);
+    setChangeBookingForm({});
+    setSelectedBooking(null);
     fetchAll(selectedDate);
   };
-
   const addBlock = async () => {
     if (!blockModal) return;
     const d = formatDate(selectedDate);
