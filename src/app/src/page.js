@@ -600,8 +600,8 @@ function AppInner() {
         method: "POST", headers,
         body: JSON.stringify({
           store_id: store.id,
-          type: "new_booking",
-          title: "新規予約",
+          type: changeBookingId ? "booking_change" : "new_booking",
+          title: changeBookingId ? "予約変更" : "新規予約",
           body: (profile.name || "") + "様 " + formatDate(date) + " " + time + " " + course.name,
           customer_id: customerId,
         }),
