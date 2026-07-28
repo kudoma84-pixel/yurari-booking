@@ -125,6 +125,7 @@ export default function AdminPage() {
   const [adminNotifications, setAdminNotifications] = useState([]);
   const [unreadAdminCount, setUnreadAdminCount] = useState(0);
   const [showAdminNotif, setShowAdminNotif] = useState(false);
+  const [isSavingPayment, setIsSavingPayment] = useState(false);
   const [lineReplyText, setLineReplyText] = useState("");
   const [selectedLineUser, setSelectedLineUser] = useState(null);
   const [unreadLineCount, setUnreadLineCount] = useState(0);
@@ -1849,6 +1850,9 @@ const handleAdminQrInput = async (value) => {
   const total = Math.max(0, subtotal - checkoutDiscount);
 
   const savePayment = async () => {
+    if (isSavingPayment) return;
+    setIsSavingPayment(true);
+    try {
     const paymentRes = await fetch(`${SUPABASE_URL}/rest/v1/payments`, {
       method: "POST", headers,
       body: JSON.stringify({ store_id: currentStore.id, customer_id: checkoutBooking?.customer_id || null, booking_id: checkoutBooking?.id || null, subtotal, discount: checkoutDiscount, discount_reason: checkoutDiscountReason, total, payment_method: checkoutPaymentMethods.map(p => p.method).join(","), payment_status: "paid", notes: checkoutNote }),
@@ -1898,6 +1902,9 @@ const handleAdminQrInput = async (value) => {
     setCheckoutComplete(true);
     fetchTodayBookings();
     fetchCompletedBookings();
+    } finally {
+      setIsSavingPayment(false);
+    }
   };
 
   const saveShift = async (staffId, date, startTime, endTime, type) => {
@@ -3788,7 +3795,7 @@ const handleAdminQrInput = async (value) => {
                   </div>
                   <div style={{ display: "flex", gap: 12 }}>
                     <button onClick={() => setCheckoutBooking(null)} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>戻る</button>
-                    <button onClick={savePayment} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>✓ 会計を確定する</button>
+                    <button onClick={savePayment} disabled={isSavingPayment} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: isSavingPayment ? "#aaa" : "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: isSavingPayment ? "not-allowed" : "pointer" }}>{isSavingPayment ? "処理中..." : "✓ 会計を確定する"}</button>
                   </div>
                 </div>
                 <div style={{ width: 280, display: "flex", flexDirection: "column", gap: 16 }}>
