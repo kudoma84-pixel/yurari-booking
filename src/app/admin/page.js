@@ -486,6 +486,8 @@ const handleAdminQrInput = async (value) => {
     await fetch(`${SUPABASE_URL}/rest/v1/notifications?customer_id=eq.${sourceId}`, { method: "PATCH", headers, body: JSON.stringify({ customer_id: targetId }) });
     await fetch(`${SUPABASE_URL}/rest/v1/payments?customer_id=eq.${sourceId}`, { method: "PATCH", headers, body: JSON.stringify({ customer_id: targetId }) });
     await fetch(`${SUPABASE_URL}/rest/v1/line_messages?customer_id=eq.${sourceId}`, { method: "PATCH", headers, body: JSON.stringify({ customer_id: targetId }) });
+    await fetch(`${SUPABASE_URL}/rest/v1/admin_notifications?customer_id=eq.${sourceId}`, { method: "PATCH", headers, body: JSON.stringify({ customer_id: targetId }) });
+    await fetch(`${SUPABASE_URL}/rest/v1/push_subscriptions?customer_id=eq.${sourceId}`, { method: "PATCH", headers, body: JSON.stringify({ customer_id: targetId }) });
     const srcRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${sourceId}&select=points,line_user_id`, { headers });
     const srcData = await srcRes.json();
     const tgtRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${targetId}&select=points,line_user_id`, { headers });
