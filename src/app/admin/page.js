@@ -2931,7 +2931,7 @@ const handleAdminQrInput = async (value) => {
           <button onClick={() => { window.location.reload(); }} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 13, cursor: "pointer" }}>🔄 更新</button>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <div style={{ position: "relative" }}>
-              <button onClick={() => { setShowAdminNotif(!showAdminNotif); if (!showAdminNotif) markAdminNotifRead(); }}
+              <button onClick={() => { setShowAdminNotif(!showAdminNotif); }}
                 style={{ padding: "8px 14px", borderRadius: 10, border: "2px solid #e8ddd0", background: "white", color: "#3a5a3a", fontSize: 18, cursor: "pointer", position: "relative" }}>
                 🔔
                 {unreadAdminCount > 0 && <span style={{ position: "absolute", top: -6, right: -6, background: "#e07070", color: "white", borderRadius: "50%", width: 18, height: 18, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{unreadAdminCount}</span>}
@@ -2941,10 +2941,11 @@ const handleAdminQrInput = async (value) => {
                   <div style={{ padding: "12px 16px", borderBottom: "1px solid #f0e8d8", fontSize: 13, fontWeight: 700, color: "#3a5a3a" }}>通知</div>
                   {adminNotifications.length === 0 && <div style={{ padding: 20, color: "#aaa", fontSize: 13, textAlign: "center" }}>通知なし</div>}
                   {adminNotifications.map(n => (
-                    <div key={n.id} style={{ padding: "12px 16px", borderBottom: "1px solid #f9f6f2", background: n.is_read ? "white" : "#f0f8f4" }}>
+                    <div key={n.id} onClick={async () => { if (!n.is_read) { await fetch(`${SUPABASE_URL}/rest/v1/admin_notifications?id=eq.${n.id}`, { method: "PATCH", headers, body: JSON.stringify({ is_read: true }) }); fetchAdminNotifications(); } }} style={{ padding: "12px 16px", borderBottom: "1px solid #f9f6f2", background: n.is_read ? "white" : "#f0f8f4", cursor: "pointer" }}>
                       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 2 }}>
                         <span style={{ fontSize: 12, fontWeight: 700, color: n.type === "cancel" ? "#e07070" : n.type === "booking_change" ? "#e0a040" : "#5a9e7a" }}>{n.type === "cancel" ? "❌ キャンセル" : n.type === "booking_change" ? "🔄 予約変更" : "✅ 新規予約"}</span>
                         <span style={{ fontSize: 11, color: "#aaa" }}>{new Date(n.created_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                        {!n.is_read && <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#3b82f6", display: "inline-block", marginLeft: "auto", flexShrink: 0 }} />}
                       </div>
                       <div onClick={n.customer_id ? () => { setTab("customers"); fetchCustomerDetail(n.customer_id); fetchCustomerTickets(n.customer_id); fetchCustomerHistory(n.customer_id); } : undefined} style={{ fontSize: 12, color: n.customer_id ? "#5a9e7a" : "#555", cursor: n.customer_id ? "pointer" : "default", textDecoration: n.customer_id ? "underline" : "none" }}>{n.body}</div>
                     </div>
