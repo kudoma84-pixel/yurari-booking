@@ -464,9 +464,17 @@ const handleAdminQrInput = async (value) => {
     const data = await res.json();
     if (!Array.isArray(data)) return;
     const groups = {};
+    const normalizeName = (name) => name
+      .replace(/[\s　]+/g, "")
+      .replace(/ヶ/g, "ケ")
+      .replace(/ヵ/g, "カ");
+
     data.forEach(c => {
-      if (c.tel) { const key = `tel:${c.tel}`; if (!groups[key]) groups[key] = []; groups[key].push(c); }
-      if (c.name) { const key = `name:${c.name}`; if (!groups[key]) groups[key] = []; groups[key].push(c); }
+      if (c.name) {
+        const key = `name:${normalizeName(c.name)}`;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(c);
+      }
     });
     const seen = new Set();
     const uniqueDupes = Object.values(groups).filter(g => g.length > 1).filter(g => {
