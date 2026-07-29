@@ -1100,30 +1100,6 @@ const handleAdminQrInput = async (value) => {
   const saveGiftGroupEdit = async () => {
     if (!editGiftGroupModal) return;
     const { allTickets, customerId, purchaseGroupId, activeCount, newCount, newIssuedAt, newExpiresAt, newTicketType, ticketEdits } = editGiftGroupModal;
-
-    // 変更前の状態
-    const beforeUsed = allTickets.filter(t => t.status === "used").length;
-    const beforeActive = allTickets.filter(t => t.status === "active").length;
-
-    // 変更後の状態を計算
-    const afterUsed = ticketEdits ? Object.values(ticketEdits).filter(v => v).length : beforeUsed;
-    const afterActive = allTickets.filter(t => t.status !== "cancelled").length - afterUsed;
-
-    // 確認ダイアログ
-    const msg = `【変更確認】\n変更前：使用済み${beforeUsed}枚　残${beforeActive}枚\n変更後：使用済み${afterUsed}枚　残${afterActive}枚\n\nこの内容で保存しますか？`;
-    if (!window.confirm(msg)) return;
-
-    // 操作ログを記録
-    await fetch(`${SUPABASE_URL}/rest/v1/gift_ticket_logs`, {
-      method: "POST", headers,
-      body: JSON.stringify({
-        customer_id: customerId,
-        store_id: currentStore.id,
-        action: "edit",
-        before_state: { used: beforeUsed, active: beforeActive, tickets: allTickets.map(t => ({ id: t.id, status: t.status, used_at: t.used_at })) },
-        after_state: { used: afterUsed, active: afterActive },
-      }),
-    });
     for (const t of allTickets) {
       await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, {
         method: "PATCH", headers,
