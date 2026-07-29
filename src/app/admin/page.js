@@ -2489,7 +2489,11 @@ const handleAdminQrInput = async (value) => {
             {editGiftGroupModal.ticketEdits && (() => {
               const sortedTickets = [...editGiftGroupModal.allTickets]
                 .filter(t => t.status !== "cancelled")
-                .sort((a, b) => (a.expires_at || "").localeCompare(b.expires_at || ""));
+                .sort((a, b) => {
+                  const exp = (a.expires_at || "").localeCompare(b.expires_at || "");
+                  if (exp !== 0) return exp;
+                  return a.id.localeCompare(b.id);
+                });
               if (sortedTickets.length === 0) return null;
               return (
                 <div>
