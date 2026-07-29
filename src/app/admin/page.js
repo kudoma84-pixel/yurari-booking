@@ -2473,6 +2473,18 @@ const handleAdminQrInput = async (value) => {
                 </div>
               )}
             </div>
+            {/* 現在の状態 */}
+            <div style={{ background: "#f9f6f2", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#888", marginBottom: 8 }}>現在の状態</div>
+              <div style={{ fontSize: 13, color: "#555" }}>
+                使用済み：{editGiftGroupModal.allTickets.filter(t => t.status === "used").length}枚　
+                残：{editGiftGroupModal.allTickets.filter(t => t.status === "active").length}枚
+              </div>
+              <div style={{ fontSize: 12, color: "#aaa", marginTop: 4 }}>
+                {editGiftGroupModal.allTickets.filter(t => t.status === "used").sort((a,b) => (a.used_at||"").localeCompare(b.used_at||"")).map(t => t.used_at?.slice(5).replace("-","/")).join("　")}
+              </div>
+            </div>
+
             {editGiftGroupModal.ticketEdits && (() => {
               const sortedTickets = [...editGiftGroupModal.allTickets]
                 .filter(t => t.status !== "cancelled")
