@@ -1100,6 +1100,11 @@ const handleAdminQrInput = async (value) => {
   const saveGiftGroupEdit = async () => {
     if (!editGiftGroupModal) return;
     const { allTickets, customerId, purchaseGroupId, activeCount, newCount, newIssuedAt, newExpiresAt, newTicketType, ticketEdits } = editGiftGroupModal;
+    const beforeUsed = allTickets.filter(t => t.status === "used").length;
+    const beforeActive = allTickets.filter(t => t.status === "active").length;
+    const afterUsed = ticketEdits ? Object.values(ticketEdits).filter(v => v).length : beforeUsed;
+    const afterActive = allTickets.filter(t => t.status !== "cancelled").length - afterUsed;
+    if (!window.confirm(`金券を変更します。\n\n変更前：使用済み${beforeUsed}枚 / 残${beforeActive}枚\n変更後：使用済み${afterUsed}枚 / 残${afterActive}枚\n\nよいですか？`)) return;
     for (const t of allTickets) {
       await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, {
         method: "PATCH", headers,
