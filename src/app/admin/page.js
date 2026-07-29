@@ -1529,7 +1529,7 @@ const handleAdminQrInput = async (value) => {
   };
 
   const fetchGiftHistory = async () => {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?store_id=eq.${currentStore.id}&order=issued_at.desc&select=*,customers(name,kana,customer_number)`, { headers });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?order=issued_at.desc&select=*,customers(name,kana,customer_number)`, { headers });
     const data = await res.json();
     setGiftHistory(Array.isArray(data) ? data : []);
   };
