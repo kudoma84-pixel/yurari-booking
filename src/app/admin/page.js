@@ -2410,7 +2410,7 @@ const handleAdminQrInput = async (value) => {
 
     {editGiftGroupModal && (
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setEditGiftGroupModal(null)}>
-        <div style={{ background: "white", borderRadius: 20, padding: 28, width: "100%", maxWidth: 380, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+        <div style={{ background: "white", borderRadius: 20, padding: 28, width: "100%", maxWidth: 380, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>金券グループ編集</div>
             <button onClick={() => setEditGiftGroupModal(null)} style={{ border: "none", background: "none", fontSize: 22, cursor: "pointer", color: "#aaa" }}>×</button>
@@ -2499,7 +2499,6 @@ const handleAdminQrInput = async (value) => {
                       <React.Fragment key={t.id}>
                         <span style={{ fontSize: 12, color: "#888", whiteSpace: "nowrap" }}>使用{idx + 1}</span>
                         <input
-                          key={`inp-${t.id}`}
                           type="date"
                           value={editGiftGroupModal.ticketEdits[t.id] ?? ""}
                           onChange={e => setEditGiftGroupModal({
