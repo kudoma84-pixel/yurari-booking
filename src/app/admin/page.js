@@ -4640,7 +4640,7 @@ const handleAdminQrInput = async (value) => {
                             ticketEdits: Object.fromEntries(row.tickets.map(t => [t.id, t.used_at || ""])),
                             sortedTickets: [...row.tickets].filter(t => t.status !== "cancelled").sort((a, b) => a.id.localeCompare(b.id)),
                             ticketDates: [...row.tickets].filter(t => t.status !== "cancelled").sort((a, b) => a.id.localeCompare(b.id)).map(t => t.used_at ? t.used_at.slice(0,10) : ""),
-                          })}\
+                          })}
                           style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #b0d8b8", background: "#eaf5ec", color: "#3a7a5a", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
                         >編集</button>
                         <button
