@@ -2501,10 +2501,13 @@ const handleAdminQrInput = async (value) => {
                         <input
                           type="date"
                           value={editGiftGroupModal.ticketEdits[t.id] ?? ""}
-                          onChange={e => setEditGiftGroupModal({
-                            ...editGiftGroupModal,
-                            ticketEdits: { ...editGiftGroupModal.ticketEdits, [t.id]: e.target.value },
-                          })}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setEditGiftGroupModal(prev => ({
+                              ...prev,
+                              ticketEdits: { ...prev.ticketEdits, [t.id]: val },
+                            }));
+                          }}
                           style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #c0d8c0", fontSize: 13, boxSizing: "border-box", width: "100%" }}
                         />
                       </React.Fragment>
