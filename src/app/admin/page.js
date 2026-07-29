@@ -1118,7 +1118,7 @@ const handleAdminQrInput = async (value) => {
             method: "PATCH", headers,
             body: JSON.stringify({
               used_at: edited || null,
-              status: edited ? "used" : "active",
+              status: edited ? "used" : (t.status === "cancelled" ? "cancelled" : "active"),
             }),
           });
         }
