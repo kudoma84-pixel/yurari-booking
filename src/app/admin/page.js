@@ -2483,8 +2483,8 @@ const handleAdminQrInput = async (value) => {
                   <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 8 }}>使用日（used_at）</label>
                   <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 10px", alignItems: "center" }}>
                     {sortedTickets.map((t, idx) => (
-                      <>
-                        <span key={`lbl-${t.id}`} style={{ fontSize: 12, color: "#888", whiteSpace: "nowrap" }}>使用{idx + 1}</span>
+                      <React.Fragment key={t.id}>
+                        <span style={{ fontSize: 12, color: "#888", whiteSpace: "nowrap" }}>使用{idx + 1}</span>
                         <input
                           key={`inp-${t.id}`}
                           type="date"
@@ -2495,7 +2495,7 @@ const handleAdminQrInput = async (value) => {
                           })}
                           style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #c0d8c0", fontSize: 13, boxSizing: "border-box", width: "100%" }}
                         />
-                      </>
+                      </React.Fragment>
                     ))}
                   </div>
                 </div>
