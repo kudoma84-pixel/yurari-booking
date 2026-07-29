@@ -1099,6 +1099,7 @@ const handleAdminQrInput = async (value) => {
 
   const saveGiftGroupEdit = async () => {
     if (!editGiftGroupModal) return;
+    if (!window.confirm("金券を変更します。よいですか？")) return;
     const { allTickets, customerId, purchaseGroupId, activeCount, newCount, newIssuedAt, newExpiresAt, newTicketType, ticketEdits } = editGiftGroupModal;
     for (const t of allTickets) {
       await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, {
