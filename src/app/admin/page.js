@@ -199,6 +199,13 @@ const [monthShiftOffDates, setMonthShiftOffDates] = useState(new Set());
     }
   }, []);
   const popoverRef = useRef(null);
+  // ドラッグ操作の安定化：ドラッグ中・移動先スタッフ選択中は自動更新による再レンダリングを止める
+  const dragActiveRef = useRef(false);
+  useEffect(() => { dragActiveRef.current = !!draggedBooking || !!crossStoreDropModal; }, [draggedBooking, crossStoreDropModal]);
+  // 生年月日3分割入力用
+  const yearRef = useRef(null);
+  const monthRef = useRef(null);
+  const dayRef = useRef(null);
 
   const headers = {
     "apikey": SUPABASE_KEY,
@@ -1758,7 +1765,7 @@ const handleAdminQrInput = async (value) => {
   useEffect(() => {
     if (!loggedIn || !currentStore) return;
     const interval = setInterval(() => {
-      if (tab === "calendar" && selectedDate) { fetchAll(selectedDate); fetchSubAll(selectedDate); }
+      if (tab === "calendar" && selectedDate && !dragActiveRef.current) { fetchAll(selectedDate); fetchSubAll(selectedDate); }
       if (tab === "checkin") fetchTodayReceived();
       if (tab === "bookings") fetchBookings(selectedDate || new Date());
       fetchAdminNotifications();
@@ -2705,23 +2712,42 @@ const handleAdminQrInput = async (value) => {
           ))}
           <div>
             <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 4 }}>生年月日</label>
-            <input
-              inputMode="numeric" maxLength={10} placeholder="19650401"
-              value={(() => {
-                const digits = (editingCustomer.birthday || "").replace(/\D/g, "").slice(0, 8);
-                if (digits.length >= 7) return digits.slice(0,4) + "/" + digits.slice(4,6) + "/" + digits.slice(6);
-                if (digits.length >= 5) return digits.slice(0,4) + "/" + digits.slice(4);
-                return digits;
-              })()}
-              onChange={e => {
-                const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
-                const dbValue = digits.length === 8
-                  ? digits.slice(0,4) + "-" + digits.slice(4,6) + "-" + digits.slice(6,8)
-                  : digits;
-                setEditingCustomer({ ...editingCustomer, birthday: dbValue });
-              }}
-              style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box" }}
-            />
+            {(() => {
+              // 編集中の年月日（未編集時はbirthday（YYYY-MM-DD）から導出）
+              const [dy, dm, dd] = (editingCustomer.birthday || "").split("-");
+              const year = editingCustomer.birthYear !== undefined ? editingCustomer.birthYear : (dy || "");
+              const month = editingCustomer.birthMonth !== undefined ? editingCustomer.birthMonth : (dm || "");
+              const day = editingCustomer.birthDay !== undefined ? editingCustomer.birthDay : (dd || "");
+              const combine = (y, m, d) => (y && y.length === 4 && m && d) ? `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}` : "";
+              const inputStyle = { padding: "8px 4px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box", textAlign: "center", width: "100%" };
+              return (
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input ref={yearRef} inputMode="numeric" maxLength={4} placeholder="1965" value={year}
+                    onChange={e => {
+                      const y = e.target.value.replace(/\D/g, "").slice(0, 4);
+                      setEditingCustomer({ ...editingCustomer, birthYear: y, birthMonth: month, birthDay: day, birthday: combine(y, month, day) });
+                      if (y.length === 4) monthRef.current?.focus();
+                    }}
+                    style={{ ...inputStyle, flex: 2 }} />
+                  <span style={{ fontSize: 12, color: "#aaa", flexShrink: 0 }}>年</span>
+                  <input ref={monthRef} inputMode="numeric" maxLength={2} placeholder="04" value={month}
+                    onChange={e => {
+                      const m = e.target.value.replace(/\D/g, "").slice(0, 2);
+                      setEditingCustomer({ ...editingCustomer, birthYear: year, birthMonth: m, birthDay: day, birthday: combine(year, m, day) });
+                      if (m.length === 2) dayRef.current?.focus();
+                    }}
+                    style={{ ...inputStyle, flex: 1 }} />
+                  <span style={{ fontSize: 12, color: "#aaa", flexShrink: 0 }}>月</span>
+                  <input ref={dayRef} inputMode="numeric" maxLength={2} placeholder="01" value={day}
+                    onChange={e => {
+                      const d = e.target.value.replace(/\D/g, "").slice(0, 2);
+                      setEditingCustomer({ ...editingCustomer, birthYear: year, birthMonth: month, birthDay: d, birthday: combine(year, month, d) });
+                    }}
+                    style={{ ...inputStyle, flex: 1 }} />
+                  <span style={{ fontSize: 12, color: "#aaa", flexShrink: 0 }}>日</span>
+                </div>
+              );
+            })()}
           </div>
           {[
             { label: "郵便番号", key: "zipcode" },
@@ -4293,10 +4319,9 @@ const handleAdminQrInput = async (value) => {
               onDrop={draggedBooking && !draggedBooking.isStaged ? (e => { e.preventDefault(); dropToStaging(); }) : undefined}
               style={{ marginBottom: 8 }}
             >
-              {(stagedBookings.length > 0 || draggedBooking) && (
-                <div style={{ background: dragOverStaging ? "#d4f0dc" : stagedBookings.length > 0 ? "#f0f8f4" : "#f9f9f9", border: `2px dashed ${dragOverStaging ? "#5a9e7a" : stagedBookings.length > 0 ? "#a0d4b8" : "#e0e0e0"}`, borderRadius: 12, padding: "10px 16px", transition: "all 0.15s" }}>
+              <div style={{ background: dragOverStaging ? "#d4f0dc" : stagedBookings.length > 0 ? "#f0f8f4" : "#f9f9f9", border: `2px dashed ${dragOverStaging ? "#5a9e7a" : stagedBookings.length > 0 ? "#a0d4b8" : "#e0e0e0"}`, borderRadius: 12, padding: "10px 16px", transition: "all 0.15s" }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: "#7a9a7a", marginBottom: stagedBookings.length > 0 ? 8 : 0 }}>
-                    📌 仮置きエリア{stagedBookings.length > 0 ? `（${stagedBookings.length}件）` : "　← ここにドロップで仮置き"}
+                    📌 仮置きエリア{stagedBookings.length > 0 ? `（${stagedBookings.length}件）` : "　← 予約をここにドロップで仮置き"}
                   </div>
                   {stagedBookings.length > 0 && (
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -4317,8 +4342,7 @@ const handleAdminQrInput = async (value) => {
                       ))}
                     </div>
                   )}
-                </div>
-              )}
+              </div>
             </div>
             <div style={{ display: "flex", gap: 16, flexWrap: "nowrap", alignItems: "flex-start" }}>
               <div style={{ background: "white", borderRadius: 16, padding: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", minWidth: 240 }}>

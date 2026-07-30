@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { signIn, useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 
@@ -60,6 +60,10 @@ function AppInner() {
     email: "", firstVisit: "初めて", notes: ""
   });
   const [bookingNum, setBookingNum] = useState("");
+  // 生年月日3分割入力の自動フォーカス移動用
+  const yearRef = useRef(null);
+  const monthRef = useRef(null);
+  const dayRef = useRef(null);
   const [pushGranted, setPushGranted] = useState(false);
   const [pushStatus, setPushStatus] = useState("idle"); // "idle" | "loading" | "done"
   const [isStandalone, setIsStandalone] = useState(true); // デフォルトtrue=iOS警告非表示（SSR安全）
@@ -815,22 +819,30 @@ function AppInner() {
             </div>
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>生年月日 <span style={{ color: ORANGE }}>*</span></label>
-              <div style={{ display: "flex", gap: 8 }}>
-                <select value={profile.birthYear} onChange={e => { const y = e.target.value; setProfile({ ...profile, birthYear: y, birthday: updateBirthday(y, profile.birthMonth, profile.birthDay) }); }}
-                  style={{ flex: 2, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
-                  <option value="">年</option>
-                  {Array.from({ length: 80 }, (_, i) => new Date().getFullYear() - i).map(y => <option key={y} value={y}>{y}年</option>)}
-                </select>
-                <select value={profile.birthMonth} onChange={e => { const m = e.target.value; setProfile({ ...profile, birthMonth: m, birthday: updateBirthday(profile.birthYear, m, profile.birthDay) }); }}
-                  style={{ flex: 1, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
-                  <option value="">月</option>
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map(m => <option key={m} value={m}>{m}月</option>)}
-                </select>
-                <select value={profile.birthDay} onChange={e => { const d = e.target.value; setProfile({ ...profile, birthDay: d, birthday: updateBirthday(profile.birthYear, profile.birthMonth, d) }); }}
-                  style={{ flex: 1, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white" }}>
-                  <option value="">日</option>
-                  {Array.from({ length: 31 }, (_, i) => i + 1).map(d => <option key={d} value={d}>{d}日</option>)}
-                </select>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input ref={yearRef} inputMode="numeric" maxLength={4} placeholder="1990" value={profile.birthYear}
+                  onChange={e => {
+                    const y = e.target.value.replace(/\D/g, "").slice(0, 4);
+                    setProfile({ ...profile, birthYear: y, birthday: updateBirthday(y, profile.birthMonth, profile.birthDay) });
+                    if (y.length === 4) monthRef.current?.focus();
+                  }}
+                  style={{ flex: 2, minWidth: 0, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white", textAlign: "center", boxSizing: "border-box", outline: "none" }} />
+                <span style={{ fontSize: 13, color: "#888", flexShrink: 0 }}>年</span>
+                <input ref={monthRef} inputMode="numeric" maxLength={2} placeholder="04" value={profile.birthMonth}
+                  onChange={e => {
+                    const m = e.target.value.replace(/\D/g, "").slice(0, 2);
+                    setProfile({ ...profile, birthMonth: m, birthday: updateBirthday(profile.birthYear, m, profile.birthDay) });
+                    if (m.length === 2) dayRef.current?.focus();
+                  }}
+                  style={{ flex: 1, minWidth: 0, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white", textAlign: "center", boxSizing: "border-box", outline: "none" }} />
+                <span style={{ fontSize: 13, color: "#888", flexShrink: 0 }}>月</span>
+                <input ref={dayRef} inputMode="numeric" maxLength={2} placeholder="01" value={profile.birthDay}
+                  onChange={e => {
+                    const d = e.target.value.replace(/\D/g, "").slice(0, 2);
+                    setProfile({ ...profile, birthDay: d, birthday: updateBirthday(profile.birthYear, profile.birthMonth, d) });
+                  }}
+                  style={{ flex: 1, minWidth: 0, padding: "12px 8px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white", textAlign: "center", boxSizing: "border-box", outline: "none" }} />
+                <span style={{ fontSize: 13, color: "#888", flexShrink: 0 }}>日</span>
               </div>
             </div>
             <div>
