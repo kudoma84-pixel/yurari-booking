@@ -376,7 +376,9 @@ const handleAdminQrInput = async (value) => {
     fetchAllSilent(selectedDate);
   };
 
-  // 院をまたいだ予約移動：ドロップ時のエントリポイント（同名スタッフを自動マッチ、なければ選択モーダル）
+  // 院をまたいだ予約移動：ドロップ時のエントリポイント
+  // 同名スタッフが「その日出勤していて同時刻に予約がない」場合のみ自動マッチ。
+  // それ以外（同名不在・シフトなし・同時刻に予約あり）はスタッフ選択モーダルを表示する。
   const dropBookingCrossStore = (targetStoreId, targetTime) => {
     if (!draggedBooking) return;
     const booking = draggedBooking;
@@ -384,8 +386,13 @@ const handleAdminQrInput = async (value) => {
     setDragOverCell(null);
     setDragOverStaging(false);
     const targetStaffList = (targetStoreId === subStoreId ? subStaffMembers : staffMembers).filter(s => s.is_active);
+    const targetShifts = targetStoreId === subStoreId ? subShifts : shifts;
+    const targetBookings = targetStoreId === subStoreId ? subBookings : bookings;
     const matched = targetStaffList.find(s => s.name === booking.staff_name);
-    if (matched) {
+    const matchedAvailable = matched
+      && targetShifts.some(sh => sh.staff_id === matched.id)
+      && !targetBookings.some(b => b.id !== booking.id && b.staff_id === matched.id && b.booking_time === targetTime && b.status !== "cancelled");
+    if (matchedAvailable) {
       executeCrossStoreMove(booking, targetStoreId, matched, targetTime);
     } else {
       setCrossStoreDropModal({ booking, targetStore: targetStoreId, targetTime, targetStaffList, selectedStaffId: "" });
@@ -2428,7 +2435,7 @@ const handleAdminQrInput = async (value) => {
               <button onClick={() => setCrossStoreDropModal(null)} style={{ border: "none", background: "none", fontSize: 22, cursor: "pointer", color: "#aaa" }}>×</button>
             </div>
             <div style={{ fontSize: 13, color: "#888", marginBottom: 16, lineHeight: 1.6 }}>
-              {STORES.find(st => st.id === crossStoreDropModal.targetStore)?.name}に「{crossStoreDropModal.booking.staff_name || "担当なし"}」と同名のスタッフが見つかりません。移動先の担当スタッフを選択してください。
+              {STORES.find(st => st.id === crossStoreDropModal.targetStore)?.name}で「{crossStoreDropModal.booking.staff_name || "担当なし"}」さんを自動で割り当てられませんでした（同名スタッフの未登録・シフトなし・同時刻の予約のいずれか）。移動先の担当スタッフを選択してください。
             </div>
             <div style={{ background: "#f9f6f2", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#3a5a3a" }}>
               👤 {crossStoreDropModal.booking.customers?.name || "予約"}様　📅 {selectedDate ? `${selectedDate.getMonth()+1}月${selectedDate.getDate()}日` : ""}　⏰ {crossStoreDropModal.targetTime}
