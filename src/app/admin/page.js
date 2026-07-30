@@ -110,6 +110,7 @@ export default function AdminPage() {
   const [subShifts, setSubShifts] = useState([]);
   const [subBlocks, setSubBlocks] = useState([]);
   const [directBookingStore, setDirectBookingStore] = useState(null);
+  const [crossStoreDropModal, setCrossStoreDropModal] = useState(null); // { booking, targetStore, targetTime, targetStaffList, selectedStaffId }
   const [courseMenus, setCourseMenus] = useState([]);
   const [subMenus, setSubMenus] = useState([]);
   const [editingSubMenu, setEditingSubMenu] = useState(null);
@@ -372,6 +373,51 @@ const handleAdminQrInput = async (value) => {
       body: JSON.stringify(patch),
     });
     if (isStaged) setStagedBookings(prev => prev.filter(b => b.id !== booking.id));
+    fetchAllSilent(selectedDate);
+  };
+
+  // 院をまたいだ予約移動：ドロップ時のエントリポイント（同名スタッフを自動マッチ、なければ選択モーダル）
+  const dropBookingCrossStore = (targetStoreId, targetTime) => {
+    if (!draggedBooking) return;
+    const booking = draggedBooking;
+    setDraggedBooking(null);
+    setDragOverCell(null);
+    setDragOverStaging(false);
+    const targetStaffList = (targetStoreId === subStoreId ? subStaffMembers : staffMembers).filter(s => s.is_active);
+    const matched = targetStaffList.find(s => s.name === booking.staff_name);
+    if (matched) {
+      executeCrossStoreMove(booking, targetStoreId, matched, targetTime);
+    } else {
+      setCrossStoreDropModal({ booking, targetStore: targetStoreId, targetTime, targetStaffList, selectedStaffId: "" });
+    }
+  };
+
+  // 院をまたいだ予約移動：シフト確認 → ダブルブッキング確認 → 確認ダイアログ → 更新
+  const executeCrossStoreMove = async (booking, targetStoreId, targetStaff, targetTime) => {
+    const isTargetSub = targetStoreId === subStoreId;
+    const targetShifts = isTargetSub ? subShifts : shifts;
+    const targetBookings = isTargetSub ? subBookings : bookings;
+    const targetStoreName = STORES.find(s => s.id === targetStoreId)?.name || "";
+    const dateStr = formatDate(selectedDate);
+    if (!targetShifts.some(sh => sh.staff_id === targetStaff.id)) {
+      alert(`${targetStaff.name}さんは${dateStr}に${targetStoreName}へ出勤していないため移動できません`);
+      return;
+    }
+    if (targetBookings.some(b => b.id !== booking.id && b.staff_id === targetStaff.id && b.booking_time === targetTime && b.status !== "cancelled")) {
+      alert(`${targetStoreName}の${targetStaff.name}さんは${targetTime}に既に予約が入っているため移動できません`);
+      return;
+    }
+    const customerName = booking.customers?.name || "予約";
+    const dispDate = `${selectedDate.getFullYear()}/${selectedDate.getMonth() + 1}/${selectedDate.getDate()}`;
+    if (!window.confirm(`${customerName}さんの予約を\n${targetStaff.name} ${dispDate} ${targetTime}（${targetStoreName}）に変更しますか？`)) return;
+    const patch = { store_id: targetStoreId, staff_id: targetStaff.id, staff_name: targetStaff.name, booking_time: targetTime };
+    if (booking.isStaged) patch.booking_date = dateStr;
+    await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${booking.id}`, {
+      method: "PATCH", headers,
+      body: JSON.stringify(patch),
+    });
+    if (booking.isStaged) setStagedBookings(prev => prev.filter(b => b.id !== booking.id));
+    setCrossStoreDropModal(null);
     fetchAllSilent(selectedDate);
   };
 
@@ -2373,6 +2419,31 @@ const handleAdminQrInput = async (value) => {
         </div>
       )}
 
+      {crossStoreDropModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setCrossStoreDropModal(null)}>
+          <div style={{ background: "white", borderRadius: 20, padding: 28, width: "100%", maxWidth: 380, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>🔁 移動先スタッフの選択</div>
+              <button onClick={() => setCrossStoreDropModal(null)} style={{ border: "none", background: "none", fontSize: 22, cursor: "pointer", color: "#aaa" }}>×</button>
+            </div>
+            <div style={{ fontSize: 13, color: "#888", marginBottom: 16, lineHeight: 1.6 }}>
+              {STORES.find(st => st.id === crossStoreDropModal.targetStore)?.name}に「{crossStoreDropModal.booking.staff_name || "担当なし"}」と同名のスタッフが見つかりません。移動先の担当スタッフを選択してください。
+            </div>
+            <div style={{ background: "#f9f6f2", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#3a5a3a" }}>
+              👤 {crossStoreDropModal.booking.customers?.name || "予約"}様　📅 {selectedDate ? `${selectedDate.getMonth()+1}月${selectedDate.getDate()}日` : ""}　⏰ {crossStoreDropModal.targetTime}
+            </div>
+            <select value={crossStoreDropModal.selectedStaffId || ""} onChange={e => setCrossStoreDropModal({ ...crossStoreDropModal, selectedStaffId: e.target.value })} style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", background: "white", marginBottom: 20 }}>
+              <option value="">選択してください</option>
+              {crossStoreDropModal.targetStaffList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setCrossStoreDropModal(null)} style={{ flex: 1, padding: "12px", borderRadius: 12, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>キャンセル</button>
+              <button onClick={() => { const st = crossStoreDropModal.targetStaffList.find(s => s.id === crossStoreDropModal.selectedStaffId); if (st) executeCrossStoreMove(crossStoreDropModal.booking, crossStoreDropModal.targetStore, st, crossStoreDropModal.targetTime); }} disabled={!crossStoreDropModal.selectedStaffId} style={{ flex: 2, padding: "12px", borderRadius: 12, border: "none", background: crossStoreDropModal.selectedStaffId ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: crossStoreDropModal.selectedStaffId ? "white" : "#bbb", fontSize: 14, fontWeight: 700, cursor: crossStoreDropModal.selectedStaffId ? "pointer" : "not-allowed" }}>この担当で移動する</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedBooking && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setSelectedBooking(null)}>
           <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 480, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
@@ -4337,7 +4408,7 @@ const handleAdminQrInput = async (value) => {
                                 const isDragOver = isDroppable && dragOverCell?.staffId === s.id && dragOverCell?.time === time;
                                 const cellBg = isDragOver ? "#d4f0dc" : (BREAK_SLOTS.includes(time) && !isSlotBreakReleased(time)) ? "#fdf5f0" : isExt ? "#f0f8f4" : "white";
                                 cells.push(
-                                  <td key={time} colSpan={colSpan} draggable={!!(booking && booking.status !== "cancelled")} onDragStart={booking && booking.status !== "cancelled" ? (e => { e.dataTransfer.effectAllowed = 'move'; setDraggedBooking(booking); }) : undefined} onDragEnd={booking && booking.status !== "cancelled" ? (() => { setDraggedBooking(null); setDragOverCell(null); }) : undefined} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: cellBg, minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden", cursor: booking && booking.status !== "cancelled" ? "grab" : "default" }} onDragOver={isDroppable ? (e => { e.preventDefault(); setDragOverCell({ staffId: s.id, time }); }) : undefined} onDragLeave={isDroppable ? (() => setDragOverCell(null)) : undefined} onDrop={isDroppable ? (e => { e.preventDefault(); dropBooking(s.id, time); }) : undefined}>                                    {isBreak && !isSlotBreakReleased(time) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
+                                  <td key={time} colSpan={colSpan} draggable={!!(booking && booking.status !== "cancelled")} onDragStart={booking && booking.status !== "cancelled" ? (e => { e.dataTransfer.effectAllowed = 'move'; setDraggedBooking(booking); }) : undefined} onDragEnd={booking && booking.status !== "cancelled" ? (() => { setDraggedBooking(null); setDragOverCell(null); }) : undefined} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: cellBg, minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden", cursor: booking && booking.status !== "cancelled" ? "grab" : "default" }} onDragOver={isDroppable ? (e => { e.preventDefault(); setDragOverCell({ staffId: s.id, time }); }) : undefined} onDragLeave={isDroppable ? (() => setDragOverCell(null)) : undefined} onDrop={isDroppable ? (e => { e.preventDefault(); if (draggedBooking && draggedBooking.store_id && draggedBooking.store_id !== currentStore.id) { dropBookingCrossStore(currentStore.id, time); } else { dropBooking(s.id, time); } }) : undefined}>                                    {isBreak && !isSlotBreakReleased(time) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
                                     : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
                                     : booking && booking.status !== "cancelled" ? <div onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "grab", lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 1 }}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div></div>                                    : blocked ? (() => { const blk = getBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, cursor: "pointer", lineHeight: 1.3 }} onClick={() => { if (window.confirm("ブロックを解除しますか？")) toggleBlock(s.id, time); }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()                                    : <div onClick={() => setBlockModal({ staffId: s.id, time })} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}                                  </td>
                                 );
@@ -4378,8 +4449,11 @@ const handleAdminQrInput = async (value) => {
                                   }
                                 }
 
+                                // メイン院の予約（仮置き含む）をサブ院の空き枠にドロップ可能にする
+                                const isDroppable = !!draggedBooking && draggedBooking.store_id === currentStore.id && onShift && !booking && !blocked && !(isBreak && !isSlotBreakReleased(time));
+                                const isDragOver = isDroppable && dragOverCell?.staffId === s.id && dragOverCell?.time === time;
                                 cells.push(
-                                  <td key={time} colSpan={colSpan} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: "#fafbfd", minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden" }}>
+                                  <td key={time} colSpan={colSpan} draggable={!!booking} onDragStart={booking ? (e => { e.dataTransfer.effectAllowed = 'move'; setDraggedBooking(booking); }) : undefined} onDragEnd={booking ? (() => { setDraggedBooking(null); setDragOverCell(null); }) : undefined} onDragOver={isDroppable ? (e => { e.preventDefault(); setDragOverCell({ staffId: s.id, time }); }) : undefined} onDragLeave={isDroppable ? (() => setDragOverCell(null)) : undefined} onDrop={isDroppable ? (e => { e.preventDefault(); dropBookingCrossStore(subStoreId, time); }) : undefined} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: isDragOver ? "#d4f0dc" : "#fafbfd", minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden", cursor: booking ? "grab" : "default" }}>
                                     {booking ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 0.85 }} title={`${booking.customers?.name || "予約"} ${booking.course_name || ""} ${booking.booking_time}`}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div></div>
                                     : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
                                     : blocked ? (() => { const blk = getSubBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, lineHeight: 1.3 }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()
