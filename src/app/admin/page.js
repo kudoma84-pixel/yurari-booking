@@ -419,6 +419,7 @@ const handleAdminQrInput = async (value) => {
     if (booking.isStaged) setStagedBookings(prev => prev.filter(b => b.id !== booking.id));
     setCrossStoreDropModal(null);
     fetchAllSilent(selectedDate);
+    fetchSubAll(selectedDate);
   };
 
   const fetchTodayBookings = async (dateStr) => {
@@ -4449,8 +4450,8 @@ const handleAdminQrInput = async (value) => {
                                   }
                                 }
 
-                                // メイン院の予約（仮置き含む）をサブ院の空き枠にドロップ可能にする
-                                const isDroppable = !!draggedBooking && draggedBooking.store_id === currentStore.id && onShift && !booking && !blocked && !(isBreak && !isSlotBreakReleased(time));
+                                // メイン院の予約と仮置きエリアの予約（元の院を問わず）をサブ院の空き枠にドロップ可能にする
+                                const isDroppable = !!draggedBooking && (draggedBooking.store_id === currentStore.id || draggedBooking.isStaged) && onShift && !booking && !blocked && !(isBreak && !isSlotBreakReleased(time));
                                 const isDragOver = isDroppable && dragOverCell?.staffId === s.id && dragOverCell?.time === time;
                                 cells.push(
                                   <td key={time} colSpan={colSpan} draggable={!!booking} onDragStart={booking ? (e => { e.dataTransfer.effectAllowed = 'move'; setDraggedBooking(booking); }) : undefined} onDragEnd={booking ? (() => { setDraggedBooking(null); setDragOverCell(null); }) : undefined} onDragOver={isDroppable ? (e => { e.preventDefault(); setDragOverCell({ staffId: s.id, time }); }) : undefined} onDragLeave={isDroppable ? (() => setDragOverCell(null)) : undefined} onDrop={isDroppable ? (e => { e.preventDefault(); dropBookingCrossStore(subStoreId, time); }) : undefined} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: isDragOver ? "#d4f0dc" : "#fafbfd", minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden", cursor: booking ? "grab" : "default" }}>
