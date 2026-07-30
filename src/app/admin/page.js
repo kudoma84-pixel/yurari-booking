@@ -105,6 +105,11 @@ export default function AdminPage() {
   const [checkoutResult, setCheckoutResult] = useState(null);
   const [todayBookings, setTodayBookings] = useState([]);
   const [staffMembers, setStaffMembers] = useState([]);
+  const [subStaffMembers, setSubStaffMembers] = useState([]);
+  const [subBookings, setSubBookings] = useState([]);
+  const [subShifts, setSubShifts] = useState([]);
+  const [subBlocks, setSubBlocks] = useState([]);
+  const [directBookingStore, setDirectBookingStore] = useState(null);
   const [courseMenus, setCourseMenus] = useState([]);
   const [subMenus, setSubMenus] = useState([]);
   const [editingSubMenu, setEditingSubMenu] = useState(null);
@@ -200,6 +205,10 @@ const [monthShiftOffDates, setMonthShiftOffDates] = useState(new Set());
     "Content-Type": "application/json",
     "Prefer": "return=representation",
   };
+
+  // サブ院（ログイン院でない方）のstore_id
+  const subStoreId = currentStore ? (currentStore.id === "minamiurawa" ? "toda" : "minamiurawa") : null;
+  const subStoreName = STORES.find(s => s.id === subStoreId)?.name || "";
 
  const handleLogin = () => {
     const user = ADMIN_USERS.find(u => u.id === selectedStore && u.password === password);
@@ -1249,8 +1258,10 @@ const handleAdminQrInput = async (value) => {
   const saveDirectBooking = async () => {
     if (isSavingDirectBooking) return;
     const f = directBookingForm;
-    if (directBookingMode === "normal" && (!f.customer_name || !f.course_id)) return;
+    if (directBookingMode === "normal" && (!f.customer_name || !f.course_id || !f.staff_id)) return;
     if (directBookingMode === "product" && (!f.customer_name || !directBookingProducts.some(p => p.name && p.price))) return;
+    const targetStoreId = directBookingStore || currentStore.id;
+    const targetStaffPool = targetStoreId === subStoreId ? subStaffMembers : staffMembers;
     setIsSavingDirectBooking(true);
     let customerId = f.customer_id;
     if (!customerId && f.customer_name) {
@@ -1266,7 +1277,7 @@ const handleAdminQrInput = async (value) => {
       }
       customerId = data[0].id;
     }
-    const staff = staffMembers.find(s => s.id === f.staff_id);
+    const staff = targetStaffPool.find(s => s.id === f.staff_id);
     const bookingDate = formatDate(directBookingModal.date);
     const num = `YR-${Date.now().toString().slice(-8)}`;
     const savedDate = directBookingModal.date;
@@ -1277,7 +1288,7 @@ const handleAdminQrInput = async (value) => {
       const bookingRes = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
         method: "POST", headers: { ...headers, Prefer: "return=representation" },
         body: JSON.stringify({
-          store_id: currentStore.id,
+          store_id: targetStoreId,
           customer_id: customerId || null,
           staff_id: f.staff_id || null,
           booking_date: bookingDate,
@@ -1302,7 +1313,7 @@ const handleAdminQrInput = async (value) => {
       const payRes = await fetch(`${SUPABASE_URL}/rest/v1/payments`, {
         method: "POST", headers: { ...headers, Prefer: "return=representation" },
         body: JSON.stringify({
-          store_id: currentStore.id,
+          store_id: targetStoreId,
           booking_id: bookingId,
           customer_id: customerId || null,
           subtotal: total,
@@ -1350,7 +1361,7 @@ const handleAdminQrInput = async (value) => {
       const bookingRes = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
         method: "POST", headers,
         body: JSON.stringify({
-          store_id: currentStore.id,
+          store_id: targetStoreId,
           customer_id: customerId || null,
           staff_id: f.staff_id,
           course_id: f.course_id,
@@ -1376,7 +1387,7 @@ const handleAdminQrInput = async (value) => {
           method: "POST", headers,
           body: JSON.stringify({
             customer_id: customerId,
-            store_id: currentStore.id,
+            store_id: targetStoreId,
             title: "ご予約確定のお知らせ",
             body: bookingDate + " " + directBookingModal.time + " " + (course?.name || "") + "（" + (staff?.name || "") + "）",
             is_read: false,
@@ -1394,6 +1405,7 @@ const handleAdminQrInput = async (value) => {
     setCustomerSearchQuery("");
     const savedDateStr = formatDate(savedDate);
     fetchAll(savedDate);
+    fetchSubAll(savedDate);
     fetchTodayBookings(savedDateStr);
     fetchCompletedBookings(savedDateStr);
   };
@@ -1645,6 +1657,24 @@ const handleAdminQrInput = async (value) => {
   };
   const fetchAllSilent = async (date) => {
     await Promise.all([fetchBookings(date, true), fetchBlocks(date), fetchShifts(date), fetchExtensions(date)]);
+    fetchSubAll(date);
+  };
+
+  // サブ院のスタッフ・予約・シフト・ブロックをまとめて取得
+  const fetchSubAll = async (date) => {
+    if (!date || !subStoreId) return;
+    const d = formatDate(date);
+    const [staffRes, bookRes, shiftRes, blockRes] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/staff_members?store_id=eq.${subStoreId}&order=sort_order.asc`, { headers }),
+      fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${subStoreId}&booking_date=eq.${d}&select=*,customers(name,tel,kana,email,line_user_id)`, { headers }),
+      fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${subStoreId}&work_date=eq.${d}`, { headers }),
+      fetch(`${SUPABASE_URL}/rest/v1/blocks?store_id=eq.${subStoreId}&block_date=eq.${d}`, { headers }),
+    ]);
+    const [staffData, bookData, shiftData, blockData] = await Promise.all([staffRes.json(), bookRes.json(), shiftRes.json(), blockRes.json()]);
+    setSubStaffMembers(Array.isArray(staffData) ? staffData : []);
+    setSubBookings(Array.isArray(bookData) ? bookData : []);
+    setSubShifts(Array.isArray(shiftData) ? shiftData : []);
+    setSubBlocks(Array.isArray(blockData) ? blockData : []);
   };
 
   useEffect(() => {
@@ -1652,7 +1682,7 @@ const handleAdminQrInput = async (value) => {
     if (loggedIn && tab === "shifts") { fetchMonthShifts(); fetchShiftPlans(); fetchStaffMembers(); }
     if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchCompletedBookings(); fetchProducts(); fetchCourseMenus(); fetchSubMenus(); fetchGiftTicketTemplates(); }
     if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); fetchSubMenus(); fetchStoreSettings(); fetchGiftTicketTemplates(); }
-    if (loggedIn && tab === "calendar") { fetchStaffMembers(); if (selectedDate) fetchAll(selectedDate); }
+    if (loggedIn && tab === "calendar") { fetchStaffMembers(); if (selectedDate) { fetchAll(selectedDate); fetchSubAll(selectedDate); } }
     if (loggedIn && tab === "checkin") { fetchTodayReceived(); }
     if (loggedIn && tab === "bookings") { fetchBookings(selectedDate || new Date()); }
     if (loggedIn && tab === "notifications") { fetchNotifications(); fetchCustomers(); }
@@ -1664,7 +1694,7 @@ const handleAdminQrInput = async (value) => {
   }, [loggedIn, tab]);
 
   useEffect(() => {
-    if (loggedIn && selectedDate) fetchAll(selectedDate);
+    if (loggedIn && selectedDate) { fetchAll(selectedDate); fetchSubAll(selectedDate); }
   }, [selectedDate]);
 
   useEffect(() => {
@@ -1674,7 +1704,7 @@ const handleAdminQrInput = async (value) => {
   useEffect(() => {
     if (!loggedIn || !currentStore) return;
     const interval = setInterval(() => {
-      if (tab === "calendar" && selectedDate) fetchAll(selectedDate);
+      if (tab === "calendar" && selectedDate) { fetchAll(selectedDate); fetchSubAll(selectedDate); }
       if (tab === "checkin") fetchTodayReceived();
       if (tab === "bookings") fetchBookings(selectedDate || new Date());
       fetchAdminNotifications();
@@ -2117,6 +2147,13 @@ const handleAdminQrInput = async (value) => {
   const isOnShift = (staffId) => { if (shifts.length === 0) return false; return shifts.some(s => s.staff_id === staffId); };
   const staffList = staffMembers.filter(s => s.is_active);
 
+  // サブ院用のセル判定
+  const getSubBookingForCell = (staffId, time) => subBookings.find(b => b.staff_id === staffId && b.booking_time === time && b.status !== "cancelled");
+  const isSubBlocked = (staffId, time) => subBlocks.some(b => (b.staff_id === staffId || b.staff_id === "all") && (b.block_time === time || b.block_time === time + ":00"));
+  const getSubBlock = (staffId, time) => subBlocks.find(b => (b.staff_id === staffId || b.staff_id === "all") && (b.block_time === time || b.block_time === time + ":00"));
+  const isSubOnShift = (staffId) => { if (subShifts.length === 0) return false; return subShifts.some(s => s.staff_id === staffId); };
+  const subStaffList = subStaffMembers.filter(s => s.is_active);
+
   const ShiftPopover = ({ staffId, staffName, date, shift, closed }) => {
     const [startTime, setStartTime] = useState(shift?.start_time?.slice(0,5) || "10:00");
     const [endTime, setEndTime] = useState(shift?.end_time?.slice(0,5) || "19:30");
@@ -2198,8 +2235,20 @@ const handleAdminQrInput = async (value) => {
                 <button key={tab.key} onClick={() => setDirectBookingMode(tab.key)} style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", background: directBookingMode === tab.key ? "white" : "transparent", color: directBookingMode === tab.key ? "#3a5a3a" : "#999", fontSize: 14, fontWeight: 700, cursor: "pointer", boxShadow: directBookingMode === tab.key ? "0 2px 8px rgba(0,0,0,0.1)" : "none" }}>{tab.label}</button>
               ))}
             </div>
-            <div style={{ background: "#f9f6f2", borderRadius: 12, padding: "10px 16px", marginBottom: 20, fontSize: 13, color: "#7a9a7a" }}>
-              📅 {directBookingModal.date.getMonth()+1}月{directBookingModal.date.getDate()}日　⏰ {directBookingModal.time}　👤 {staffMembers.find(s => s.id === directBookingModal.staffId)?.name}
+            <div style={{ background: "#f9f6f2", borderRadius: 12, padding: "10px 16px", marginBottom: 12, fontSize: 13, color: "#7a9a7a" }}>
+              📅 {directBookingModal.date.getMonth()+1}月{directBookingModal.date.getDate()}日　⏰ {directBookingModal.time}　👤 {(staffMembers.find(s => s.id === directBookingModal.staffId) || subStaffMembers.find(s => s.id === directBookingModal.staffId))?.name}
+            </div>
+            {/* 予約を入れる院の選択 */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>予約を入れる院</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {STORES.map(st => (
+                  <button key={st.id} onClick={() => { setDirectBookingStore(st.id); setDirectBookingForm(f => ({ ...f, staff_id: st.id === directBookingModal.storeId ? directBookingModal.staffId : "" })); }}
+                    style={{ flex: 1, padding: "10px", borderRadius: 10, border: `2px solid ${directBookingStore === st.id ? "#5a9e7a" : "#e8ddd0"}`, background: directBookingStore === st.id ? "#eaf5ec" : "white", color: directBookingStore === st.id ? "#3a5a3a" : "#888", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                    {st.name}に入れる{st.id === currentStore.id ? "" : "（サブ院）"}
+                  </button>
+                ))}
+              </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {/* 共通：顧客検索 */}
@@ -2234,6 +2283,16 @@ const handleAdminQrInput = async (value) => {
                 <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>電話番号</label>
                 <input value={directBookingForm.tel || ""} onChange={e => setDirectBookingForm(f => ({ ...f, tel: e.target.value.replace(/[^0-9-]/g, "") }))} placeholder="090-1234-5678" inputMode="tel" style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
               </div>
+              {/* 通常予約のみ: 担当スタッフ選択（院切替に対応） */}
+              {directBookingMode === "normal" && (
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>担当スタッフ <span style={{ color: "#e07070" }}>*</span></label>
+                  <select value={directBookingForm.staff_id || ""} onChange={e => setDirectBookingForm(f => ({ ...f, staff_id: e.target.value }))} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", background: "white" }}>
+                    <option value="">選択してください</option>
+                    {(directBookingStore === subStoreId ? subStaffMembers : staffMembers).filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+              )}
               {/* 通常予約のみ: コース選択 */}
               {directBookingMode === "normal" && (
                 <div>
@@ -2271,7 +2330,7 @@ const handleAdminQrInput = async (value) => {
                     <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>担当スタッフ</label>
                     <select value={directBookingForm.staff_id || ""} onChange={e => setDirectBookingForm(f => ({ ...f, staff_id: e.target.value }))} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", background: "white" }}>
                       <option value="">選択してください</option>
-                      {staffMembers.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      {(directBookingStore === subStoreId ? subStaffMembers : staffMembers).filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                   </div>
                   <div>
@@ -2305,7 +2364,7 @@ const handleAdminQrInput = async (value) => {
             <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
               <button onClick={() => { setDirectBookingModal(null); setDirectBookingMode("normal"); setDirectBookingProducts([{ name: "", price: "", quantity: 1 }]); }} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>キャンセル</button>
               {directBookingMode === "normal" ? (
-                <button onClick={saveDirectBooking} disabled={isSavingDirectBooking || !directBookingForm.customer_name || !directBookingForm.course_id} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id ? "pointer" : "not-allowed" }}>{isSavingDirectBooking ? "登録中..." : "予約を登録する"}</button>
+                <button onClick={saveDirectBooking} disabled={isSavingDirectBooking || !directBookingForm.customer_name || !directBookingForm.course_id || !directBookingForm.staff_id} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id && directBookingForm.staff_id ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id && directBookingForm.staff_id ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id && directBookingForm.staff_id ? "pointer" : "not-allowed" }}>{isSavingDirectBooking ? "登録中..." : "予約を登録する"}</button>
               ) : (
                 <button onClick={saveDirectBooking} disabled={isSavingDirectBooking || !directBookingForm.customer_name || !directBookingProducts.some(p => p.name && p.price)} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: !isSavingDirectBooking && directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "linear-gradient(135deg, #e07b39, #c05a20)" : "#e8ddd0", color: !isSavingDirectBooking && directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: !isSavingDirectBooking && directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "pointer" : "not-allowed" }}>{isSavingDirectBooking ? "登録中..." : "物販を登録する"}</button>
               )}
@@ -4117,7 +4176,7 @@ const handleAdminQrInput = async (value) => {
               <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a", marginBottom: 4 }}>⏰ {blockModal.time}</div>
               <div style={{ fontSize: 13, color: "#888", marginBottom: 20 }}>{staffList.find(s => s.id === blockModal.staffId)?.name}</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <button onClick={() => { setBlockModal(null); setDirectBookingModal({ date: selectedDate, staffId: blockModal.staffId, time: blockModal.time }); setDirectBookingForm({ staff_id: blockModal.staffId, booking_time: blockModal.time }); setCustomerSearchQuery(""); setCustomerSearchResult(null); fetchCourseMenus(); }}
+                <button onClick={() => { setBlockModal(null); setDirectBookingStore(currentStore.id); setDirectBookingModal({ date: selectedDate, staffId: blockModal.staffId, time: blockModal.time, storeId: currentStore.id }); setDirectBookingForm({ staff_id: blockModal.staffId, booking_time: blockModal.time }); setCustomerSearchQuery(""); setCustomerSearchResult(null); fetchCourseMenus(); }}
                   style={{ padding: "14px", borderRadius: 12, border: "none", background: "#5a9e7a", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
                   📅 予約を入れる
                 </button>
@@ -4242,6 +4301,12 @@ const handleAdminQrInput = async (value) => {
                         </tr>
                       </thead>
                       <tbody>
+                        {/* ── メイン院（ログイン院）ラベル ── */}
+                        <tr style={{ background: "#eaf5ec" }}>
+                          <td colSpan={timeSlots.length + 1} style={{ padding: "6px 16px", borderTop: "1px solid #f0ebe4" }}>
+                            <div style={{ position: "sticky", left: 16, display: "inline-block", fontSize: 12, fontWeight: 700, color: "#3a5a3a" }}>🏥 {currentStore.name}（メイン）</div>
+                          </td>
+                        </tr>
                         {staffList.map(s => (
                           <tr key={s.id} style={{ borderTop: "1px solid #f0ebe4" }}>
                             <td style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, color: isOnShift(s.id) ? "#3a5a3a" : "#ccc", position: "sticky", left: 0, background: "white", zIndex: 1, minWidth: 100 }}>{s.name}{!isOnShift(s.id) && <div style={{ fontSize: 10, color: "#ccc" }}>休み</div>}</td>
@@ -4275,6 +4340,52 @@ const handleAdminQrInput = async (value) => {
                                   <td key={time} colSpan={colSpan} draggable={!!(booking && booking.status !== "cancelled")} onDragStart={booking && booking.status !== "cancelled" ? (e => { e.dataTransfer.effectAllowed = 'move'; setDraggedBooking(booking); }) : undefined} onDragEnd={booking && booking.status !== "cancelled" ? (() => { setDraggedBooking(null); setDragOverCell(null); }) : undefined} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: cellBg, minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden", cursor: booking && booking.status !== "cancelled" ? "grab" : "default" }} onDragOver={isDroppable ? (e => { e.preventDefault(); setDragOverCell({ staffId: s.id, time }); }) : undefined} onDragLeave={isDroppable ? (() => setDragOverCell(null)) : undefined} onDrop={isDroppable ? (e => { e.preventDefault(); dropBooking(s.id, time); }) : undefined}>                                    {isBreak && !isSlotBreakReleased(time) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
                                     : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
                                     : booking && booking.status !== "cancelled" ? <div onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "grab", lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 1 }}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div></div>                                    : blocked ? (() => { const blk = getBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, cursor: "pointer", lineHeight: 1.3 }} onClick={() => { if (window.confirm("ブロックを解除しますか？")) toggleBlock(s.id, time); }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()                                    : <div onClick={() => setBlockModal({ staffId: s.id, time })} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}                                  </td>
+                                );
+                              });
+                              return cells;
+                            })()}
+                          </tr>
+                        ))}
+                        {/* ── サブ院セクション（区切り線＋院名ラベル） ── */}
+                        <tr style={{ background: "#f0f4f8", borderTop: "3px solid #5a9e7a" }}>
+                          <td colSpan={timeSlots.length + 1} style={{ padding: "6px 16px" }}>
+                            <div style={{ position: "sticky", left: 16, display: "inline-block", fontSize: 12, fontWeight: 700, color: "#4a6a8a" }}>🏥 {subStoreName}（サブ院）</div>
+                          </td>
+                        </tr>
+                        {subStaffList.length === 0 && (
+                          <tr><td colSpan={timeSlots.length + 1} style={{ padding: "10px 16px", fontSize: 12, color: "#aaa" }}>サブ院のスタッフが登録されていません</td></tr>
+                        )}
+                        {subStaffList.map(s => (
+                          <tr key={`sub-${s.id}`} style={{ borderTop: "1px solid #f0ebe4" }}>
+                            <td style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, color: isSubOnShift(s.id) ? "#4a6a8a" : "#ccc", position: "sticky", left: 0, background: "#fafbfd", zIndex: 1, minWidth: 100 }}>{s.name}{!isSubOnShift(s.id) && <div style={{ fontSize: 10, color: "#ccc" }}>休み</div>}</td>
+                            {(() => {
+                              const cells = [];
+                              const skipSlots = new Set();
+                              timeSlots.forEach(time => {
+                                if (skipSlots.has(time)) return;
+                                const isBreak = BREAK_SLOTS.includes(time);
+                                const booking = getSubBookingForCell(s.id, time);
+                                const blocked = isSubBlocked(s.id, time);
+                                const onShift = isSubOnShift(s.id);
+
+                                let colSpan = 1;
+                                if (booking) {
+                                  const durationMin = parseInt((booking.course_duration || booking.course_name?.match(/(\d+)分/)?.[1] || "30")) || 30;
+                                  colSpan = Math.max(1, Math.round(durationMin / 30));
+                                  const startIdx = timeSlots.indexOf(time);
+                                  for (let i = 1; i < colSpan; i++) {
+                                    if (timeSlots[startIdx + i]) skipSlots.add(timeSlots[startIdx + i]);
+                                  }
+                                }
+
+                                cells.push(
+                                  <td key={time} colSpan={colSpan} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: "#fafbfd", minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden" }}>
+                                    {booking ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 0.85 }} title={`${booking.customers?.name || "予約"} ${booking.course_name || ""} ${booking.booking_time}`}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div></div>
+                                    : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
+                                    : blocked ? (() => { const blk = getSubBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, lineHeight: 1.3 }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()
+                                    : (isBreak && !isSlotBreakReleased(time)) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
+                                    : <div onClick={() => { setDirectBookingStore(subStoreId); setDirectBookingModal({ date: selectedDate, staffId: s.id, time, storeId: subStoreId }); setDirectBookingForm({ staff_id: s.id, booking_time: time }); setCustomerSearchQuery(""); setCustomerSearchResult(null); fetchCourseMenus(); }} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}
+                                  </td>
                                 );
                               });
                               return cells;
