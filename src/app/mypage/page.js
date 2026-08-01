@@ -14,6 +14,10 @@ const LOGO_URL = "https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp
 
 const DAYS_JP = ["日","月","火","水","木","金","土"];
 
+// 日本時間の「今日」をYYYY-MM-DDで返す。
+// toISOString() はUTC基準のため 0:00〜8:59 に前日を返してしまう。日付判定は必ずこれを使う。
+const jstToday = () => new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
 function MyPageInner() {
   const searchParams = useSearchParams();
   const isCheckin = searchParams?.get('checkin') === 'true';
@@ -191,6 +195,28 @@ function MyPageInner() {
     }
   };
 
+  // 送信ボタンとEnterキーの両方から呼ぶ（以前はEnter側が未定義の関数を呼んでエラーになっていた）
+  const sendMyMessage = async () => {
+    if (!myMessageText || messageSending || !customer?.line_user_id) return;
+    setMessageSending(true);
+    try {
+      const res = await fetch(SUPABASE_URL + "/rest/v1/line_messages", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ line_user_id: customer.line_user_id, customer_id: customer.id, direction: "inbound", message: myMessageText, is_read: false }),
+      });
+      if (!res.ok) { alert("メッセージの送信に失敗しました"); return; }
+      setMyMessageText("");
+      const listRes = await fetch(SUPABASE_URL + "/rest/v1/line_messages?line_user_id=eq." + encodeURIComponent(customer.line_user_id) + "&order=created_at.asc&limit=100", { headers });
+      const data = await listRes.json();
+      if (Array.isArray(data)) setMyMessages(data);
+    } catch (e) {
+      alert("メッセージの送信に失敗しました");
+    } finally {
+      setMessageSending(false);
+    }
+  };
+
   const markAllRead = async () => {
     await fetch(SUPABASE_URL + "/rest/v1/notifications?customer_id=eq." + customer.id + "&is_read=eq.false", {
       method: "PATCH", headers, body: JSON.stringify({ is_read: true })
@@ -207,7 +233,7 @@ function MyPageInner() {
   };
 
   const fetchTickets = async (customerId) => {
-    const today = new Date().toISOString().split("T")[0];
+    const today = jstToday();
     const res = await fetch(SUPABASE_URL + "/rest/v1/gift_tickets?customer_id=eq." + customerId + "&status=eq.active&expires_at=gte." + today + "&order=expires_at.asc", { headers });
     const data = await res.json();
     setTickets(Array.isArray(data) ? data : []);
@@ -280,7 +306,7 @@ function MyPageInner() {
     if (!customer) return;
     setCheckinLoading(true);
     try {
-      const today = new Date().toISOString().split("T")[0];
+      const today = jstToday();
       const res = await fetch(
         SUPABASE_URL + "/rest/v1/bookings?customer_id=eq." + customer.id + "&booking_date=eq." + today + "&status=eq.confirmed&order=booking_time.asc&limit=1",
         { headers }
@@ -310,7 +336,7 @@ function MyPageInner() {
   const statusLabel = (s) => ({ confirmed: "確認済", received: "受付中", treatment_done: "施術終了", cancelled: "キャンセル", completed: "会計済", pending: "未確認" }[s] || s);
   const statusColor = (s) => ({ confirmed: GREEN, received: "#7090e0", treatment_done: ORANGE, cancelled: "#e07070", completed: "#aaa", pending: "#ccc" }[s] || "#aaa");
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = jstToday();
   const upcomingBookings = bookings.filter(b => b.booking_date >= today && b.status !== "cancelled" && b.status !== "completed");
   const pastBookings = bookings.filter(b => b.booking_date < today || b.status === "completed" || b.status === "cancelled");
 
@@ -690,21 +716,8 @@ function MyPageInner() {
               ))}
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <input value={myMessageText} onChange={e => setMyMessageText(e.target.value)} onKeyDown={async e => { if (e.key === "Enter" && !messageSending) await sendMyMessage(); }} placeholder="メッセージを入力..." style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13 }} />
-              <button onClick={async () => {
-                if (!myMessageText || messageSending || !customer?.line_user_id) return;
-                setMessageSending(true);
-                await fetch(SUPABASE_URL + "/rest/v1/line_messages", {
-                  method: "POST",
-                  headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY, "Content-Type": "application/json", Prefer: "return=representation" },
-                  body: JSON.stringify({ line_user_id: customer.line_user_id, customer_id: customer.id, direction: "inbound", message: myMessageText, is_read: false }),
-                });
-                                setMyMessageText("");
-                const res = await fetch(SUPABASE_URL + "/rest/v1/line_messages?line_user_id=eq." + customer.line_user_id + "&order=created_at.asc&limit=100", { headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY } });
-                const data = await res.json();
-                if (Array.isArray(data)) setMyMessages(data);
-                setMessageSending(false);
-              }} disabled={messageSending} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: GREEN, color: "white", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: messageSending ? 0.6 : 1 }}>送信</button>
+              <input value={myMessageText} onChange={e => setMyMessageText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") sendMyMessage(); }} placeholder="メッセージを入力..." style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13 }} />
+              <button onClick={sendMyMessage} disabled={messageSending} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: GREEN, color: "white", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: messageSending ? 0.6 : 1 }}>送信</button>
             </div>
           </div>
         )}

@@ -43,6 +43,10 @@ const DAYS_JP = ["日","月","火","水","木","金","土"];
 const DAYS_FULL = ["日曜","月曜","火曜","水曜","木曜","金曜","土曜"];
 const NOMINEE_STAFFS = ["工藤昌彦", "久保田誠", "工藤浩哉", "工藤都"];
 
+// 日本時間の「今日」をYYYY-MM-DDで返す。
+// toISOString() はUTC基準のため 0:00〜8:59 に前日を返してしまう。日付判定は必ずこれを使う。
+const jstToday = () => new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
 export default function AdminPage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [currentStore, setCurrentStore] = useState(null);
@@ -71,7 +75,7 @@ export default function AdminPage() {
   const [importResult, setImportResult] = useState(null);
   const [importLoading, setImportLoading] = useState(false);
   const [dailyReport, setDailyReport] = useState(null);
-  const [reportDate, setReportDate] = useState(new Date().toISOString().split("T")[0]);
+  const [reportDate, setReportDate] = useState(jstToday());
   const [blockModal, setBlockModal] = useState(null);
   const [changeBookingModal, setChangeBookingModal] = useState(null);
   const [changeBookingForm, setChangeBookingForm] = useState({});
@@ -90,8 +94,8 @@ export default function AdminPage() {
   const [editingPlan, setEditingPlan] = useState(null);
   const [newPlanName, setNewPlanName] = useState("");
   const [applyPlanModal, setApplyPlanModal] = useState(null);
-  const [applyWeekStart, setApplyWeekStart] = useState(new Date().toISOString().split("T")[0]);
-  const [applyWeekEnd, setApplyWeekEnd] = useState(new Date().toISOString().split("T")[0]);
+  const [applyWeekStart, setApplyWeekStart] = useState(jstToday());
+  const [applyWeekEnd, setApplyWeekEnd] = useState(jstToday());
   const [products, setProducts] = useState([]);
   const [checkoutBooking, setCheckoutBooking] = useState(null);
   const [checkoutItems, setCheckoutItems] = useState([]);
@@ -229,6 +233,8 @@ const [monthShiftOffDates, setMonthShiftOffDates] = useState(new Set());
   };
 
   const formatDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  // PostgRESTのフィルタ式を壊す記号を除去してから encodeURIComponent する
+  const sanitizeSearch = (s) => String(s ?? "").replace(/[(),.*"\\]/g, " ").trim();
   const fetchTodayReceived = async () => {
   const today = formatDate(new Date());
   const res = await fetch(
@@ -265,7 +271,7 @@ const handleAdminQrInput = async (value) => {
   }
   const today = formatDate(new Date());
   const resBooking = await fetch(
-    `${SUPABASE_URL}/rest/v1/bookings?customer_id=eq.${customer.id}&booking_date=eq.${today}&status=eq.confirmed&order=booking_time.asc&limit=1`,
+    `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&customer_id=eq.${customer.id}&booking_date=eq.${today}&status=eq.confirmed&order=booking_time.asc&limit=1`,
     { headers }
   );
   const bookingData = await resBooking.json();
@@ -1298,9 +1304,10 @@ const handleAdminQrInput = async (value) => {
   const searchCustomerByNumber = async (query) => {
     if (!query) { setCustomerSearchResult(null); return; }
     const isNumber = query.split("").every(c => c >= "0" && c <= "9");
+    const kw = encodeURIComponent(sanitizeSearch(query));
     const url = isNumber
-      ? `${SUPABASE_URL}/rest/v1/customers?customer_number=eq.${query}`
-      : `${SUPABASE_URL}/rest/v1/customers?name=ilike.*${query}*&limit=50`;
+      ? `${SUPABASE_URL}/rest/v1/customers?customer_number=eq.${encodeURIComponent(query)}`
+      : `${SUPABASE_URL}/rest/v1/customers?name=ilike.*${kw}*&limit=50`;
     const res = await fetch(url, { headers });
     const data = await res.json();
     if (Array.isArray(data) && data.length > 0) {
@@ -1473,7 +1480,10 @@ const handleAdminQrInput = async (value) => {
 
   const searchGiftCustomer = async (query) => {
     if (!query) { setGiftCustomerResult(null); return; }
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?or=(name.ilike.*${query}*,tel.ilike.*${query}*)&select=id,name,tel,email,notification_method,line_user_id&limit=5`, { headers });    setGiftCustomerResult(Array.isArray(data) ? data : []);
+    const kw = encodeURIComponent(sanitizeSearch(query));
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?or=(name.ilike.*${kw}*,tel.ilike.*${kw}*)&select=id,name,tel,email,notification_method,line_user_id&limit=5`, { headers });
+    const data = await res.json();
+    setGiftCustomerResult(Array.isArray(data) ? data : []);
   };
 
   const issueGiftTickets = async () => {
@@ -1686,7 +1696,8 @@ const handleAdminQrInput = async (value) => {
 
   const searchNotifyCustomer = async (query) => {
     if (!query) { setNotifyCustomerResult(null); return; }
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?or=(name.ilike.*${query}*,tel.ilike.*${query}*)&select=id,name,tel,email&limit=5`, { headers });
+    const kw = encodeURIComponent(sanitizeSearch(query));
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?or=(name.ilike.*${kw}*,tel.ilike.*${kw}*)&select=id,name,tel,email&limit=5`, { headers });
     const data = await res.json();
     setNotifyCustomerResult(Array.isArray(data) ? data : []);
   };
@@ -3140,7 +3151,7 @@ const handleAdminQrInput = async (value) => {
                 </div>
               )}
             </div>
-            <button onClick={() => { setLoggedIn(false); setPassword(""); }} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 13, cursor: "pointer" }}>ログアウト</button>
+            <button onClick={() => { localStorage.removeItem('yurari_admin_store'); localStorage.removeItem('yurari_admin_expire'); setLoggedIn(false); setCurrentStore(null); setPassword(""); }} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 13, cursor: "pointer" }}>ログアウト</button>
           </div>        </div>
       </div>
 
@@ -4718,7 +4729,7 @@ const handleAdminQrInput = async (value) => {
                             <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a" }}>{n.type === "booking_change" ? "🔄 予約変更" : n.type === "new_booking" ? "🆕 新規予約" : n.title}</div>
                             <div style={{ fontSize: 10, color: "#aaa" }}>{new Date(n.created_at).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })}</div>
                           </div>
-                          <div onClick={n.customer_id ? () => { setShowNotifications(false); setTab("customers"); fetchCustomerDetail(n.customer_id); fetchCustomerTickets(n.customer_id); fetchCustomerHistory(n.customer_id); } : undefined} style={{ fontSize: 12, color: n.customer_id ? "#5a9e7a" : "#888", cursor: n.customer_id ? "pointer" : "default", textDecoration: n.customer_id ? "underline" : "none", marginBottom: 4 }}>{n.body?.slice(0, 50)}{n.body?.length > 50 ? "..." : ""}</div>
+                          <div onClick={n.customer_id ? () => { setTab("customers"); fetchCustomerDetail(n.customer_id); fetchCustomerTickets(n.customer_id); fetchCustomerHistory(n.customer_id); } : undefined} style={{ fontSize: 12, color: n.customer_id ? "#5a9e7a" : "#888", cursor: n.customer_id ? "pointer" : "default", textDecoration: n.customer_id ? "underline" : "none", marginBottom: 4 }}>{n.body?.slice(0, 50)}{n.body?.length > 50 ? "..." : ""}</div>
                           <div style={{ fontSize: 11, color: "#aaa" }}>送信方法: {n.sent_via || "-"}</div>
                         </div>
                       ))}
@@ -4735,7 +4746,7 @@ const handleAdminQrInput = async (value) => {
             <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 24 }}>🎫 金券管理</h2>
 
             {(() => {
-              const today = new Date().toISOString().slice(0, 10);
+              const today = jstToday();
               const fmtDate = d => {
                 if (!d || d === "-") return "-";
                 const m = d.slice(5, 7).replace(/^0/, "");

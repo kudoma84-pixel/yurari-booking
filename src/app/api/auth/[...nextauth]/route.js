@@ -1,7 +1,12 @@
 import NextAuth from "next-auth";
 import LineProvider from "next-auth/providers/line";
 
+if (!process.env.NEXTAUTH_SECRET) {
+  console.error("[auth] NEXTAUTH_SECRET が未設定です。Vercelの環境変数に設定してください。");
+}
+
 const handler = NextAuth({
+  secret: process.env.NEXTAUTH_SECRET,
   providers: [
     LineProvider({
       clientId: process.env.LINE_CLIENT_ID,

@@ -143,26 +143,16 @@ function AppInner() {
       // URLからnotify=lineを除去してからエラー表示する
       if (typeof window !== "undefined") window.history.replaceState({}, "", "/src");
       setScreen("auth");
-      alert(
-        "【LINEログイン失敗 - セッション未確立】\n\n" +
-        "Vercelの環境変数を確認してください：\n" +
-        "・NEXTAUTH_SECRET が設定されているか\n" +
-        "・NEXTAUTH_URL = https://yurari-booking.vercel.app\n" +
-        "・LINE_CLIENT_ID / LINE_CLIENT_SECRET\n\n" +
-        "LINE Developersのコールバック URL:\n" +
-        "https://yurari-booking.vercel.app/api/auth/callback/line"
-      );
+      console.error("[LINEログイン] セッションが確立できませんでした。NEXTAUTH_SECRET / NEXTAUTH_URL / LINE_CLIENT_ID / LINE_CLIENT_SECRET の設定とコールバックURLを確認してください。");
+      alert("LINEログインに失敗しました。お手数ですが、もう一度お試しください。");
       return;
     }
 
     if (!session?.lineUserId) {
       if (typeof window !== "undefined") window.history.replaceState({}, "", "/src");
       setScreen("auth");
-      alert(
-        "【LINEログイン失敗 - lineUserIdが取得できません】\n" +
-        "セッション内容: " + JSON.stringify(session) + "\n\n" +
-        "ブラウザのコンソールに [NextAuth診断] ログが出ています。"
-      );
+      console.error("[LINEログイン] lineUserIdが取得できません。セッション:", session);
+      alert("LINEログインに失敗しました。お手数ですが、もう一度お試しください。");
       return;
     }
 
@@ -419,8 +409,16 @@ function AppInner() {
   };
 
   const handleRegisterSubmit = async () => {
-    if (!profile.name || !profile.kana || !profile.tel || !profile.email || !profile.address || !profile.zipcode || !profile.birthday) {
+    if (!profile.name || !profile.kana || !profile.tel || !profile.email || !profile.address || !profile.zipcode) {
       setError("全ての項目を入力してください");
+      return;
+    }
+    if (!profile.birthday) {
+      setError(
+        (profile.birthYear || profile.birthMonth || profile.birthDay)
+          ? "生年月日が正しくありません。実在する日付を入力してください。"
+          : "生年月日を入力してください"
+      );
       return;
     }
     setError("");
@@ -472,13 +470,17 @@ function AppInner() {
         }),
       });
       const newCustomer = await newRes.json();
-      if (newCustomer[0]) {
-        setExistingCustomer(newCustomer[0]);
-        localStorage.removeItem('yurari_customer_id');
-          localStorage.removeItem('yurari_login_expire');
-          localStorage.setItem('yurari_customer_id', newCustomer[0].id);
-          localStorage.setItem('yurari_login_expire', Date.now() + 24 * 60 * 60 * 1000);
+      // 登録に失敗したまま予約画面へ進むと、予約が顧客に紐づかなくなる
+      if (!newRes.ok || !newCustomer[0]?.id) {
+        console.error("顧客登録に失敗:", newRes.status, newCustomer);
+        setError("お客様情報の登録に失敗しました。入力内容をご確認のうえ、もう一度お試しください。");
+        return;
       }
+      setExistingCustomer(newCustomer[0]);
+      localStorage.removeItem('yurari_customer_id');
+      localStorage.removeItem('yurari_login_expire');
+      localStorage.setItem('yurari_customer_id', newCustomer[0].id);
+      localStorage.setItem('yurari_login_expire', Date.now() + 24 * 60 * 60 * 1000);
     }
     setScreen("booking");
   };
@@ -497,7 +499,7 @@ function AppInner() {
     try {
       let customerId = existingCustomer?.id;
       if (!customerId) {
-        const searchRes = await fetch(SUPABASE_URL + "/rest/v1/customers?tel=eq." + profile.tel + "&select=id", { headers });
+        const searchRes = await fetch(SUPABASE_URL + "/rest/v1/customers?tel=eq." + encodeURIComponent(profile.tel) + "&select=id", { headers });
         const customers = await searchRes.json();
         if (customers && customers.length > 0) {
           customerId = customers[0].id;
@@ -531,6 +533,13 @@ function AppInner() {
       });
       const booking1Data = await booking1Res.json();
       const booking1Id = booking1Data[0]?.id;
+      // 予約が保存できていないのに「完了」と表示しないよう、ここで必ず検証する
+      if (!booking1Res.ok || !booking1Id) {
+        console.error("予約の登録に失敗:", booking1Res.status, booking1Data);
+        setError("予約の登録に失敗しました。通信状態をご確認のうえ、もう一度お試しください。");
+        setLoading(false);
+        return;
+      }
       if (course2 && booking1Id) {
         const dur1Min = parseInt((course.duration || "30分").replace(/[^0-9]/g, "")) || 30;
         const time2 = addMinutesToTime(time, dur1Min);
@@ -555,11 +564,14 @@ function AppInner() {
           });
         }
       }
-      if (changeBookingId) {
-        await fetch(SUPABASE_URL + "/rest/v1/bookings?id=eq." + changeBookingId, {
+      // 新しい予約の作成に成功したことを確認した後でのみ、元の予約をキャンセルする
+      // （順序を逆にすると、新規作成が失敗したときに予約が消えてしまう）
+      if (changeBookingId && booking1Id) {
+        const cancelRes = await fetch(SUPABASE_URL + "/rest/v1/bookings?id=eq." + encodeURIComponent(changeBookingId), {
           method: "PATCH", headers,
-          body: JSON.stringify({ status: "cancelled" }),
+          body: JSON.stringify({ status: "cancelled", cancelled_at: new Date().toISOString() }),
         });
+        if (!cancelRes.ok) console.error("元の予約のキャンセルに失敗:", cancelRes.status);
       }
       if (profile.email && notificationMethod === "email") {
         try {
@@ -613,8 +625,9 @@ function AppInner() {
       setBookingNum(num);
       setScreen("complete");
     } catch (e) {
-      setBookingNum(num);
-      setScreen("complete");
+      // 予約が保存できたか不明な状態で「完了」と表示しない
+      console.error("予約処理エラー:", e);
+      setError("予約の登録に失敗しました。通信状態をご確認のうえ、もう一度お試しください。");
     } finally {
       setLoading(false);
     }
@@ -631,8 +644,18 @@ function AppInner() {
     setStaffShiftDates({});
   };
 
+  // 実在する日付かを検証する（「13月40日」のような値をDBに送らない）
+  const isValidBirthday = (year, month, day) => {
+    const y = parseInt(year, 10), m = parseInt(month, 10), d = parseInt(day, 10);
+    if (!y || !m || !d) return false;
+    if (String(year).length !== 4 || y < 1900 || y > new Date().getFullYear()) return false;
+    if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+    const dt = new Date(y, m - 1, d);
+    return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+  };
+
   const updateBirthday = (year, month, day) => {
-    if (year && month && day) {
+    if (year && month && day && isValidBirthday(year, month, day)) {
       return year + "-" + String(month).padStart(2,"0") + "-" + String(day).padStart(2,"0");
     }
     return "";

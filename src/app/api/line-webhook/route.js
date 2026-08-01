@@ -1,34 +1,37 @@
 import { NextResponse } from "next/server";
-
-const SUPABASE_URL = "https://pbjekdzmvjqhqbbrzbfk.supabase.co";
-const SUPABASE_KEY = "sb_publishable_I_98PawL-eNS__SZa0DlPA_80VwFUZc";
+import { SUPABASE_URL, sbHeaders, sbSelect, q, verifyLineSignature } from "../_lib/server";
 
 export async function POST(request) {
   try {
-    const body = await request.json();
+    // 署名検証のため生ボディを取得する（JSONパースより先）
+    const rawBody = await request.text();
+    if (!verifyLineSignature(rawBody, request.headers.get("x-line-signature"))) {
+      return NextResponse.json({ error: "signature verification failed" }, { status: 401 });
+    }
+
+    let body;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
+    }
     const events = body.events || [];
 
     for (const event of events) {
-      if (event.type !== "message" || event.message.type !== "text") continue;
+      if (event.type !== "message" || event.message?.type !== "text") continue;
 
-      const lineUserId = event.source.userId;
+      const lineUserId = event.source?.userId;
+      if (!lineUserId) continue;
       const message = event.message.text;
 
-      const resCustomer = await fetch(
-        `${SUPABASE_URL}/rest/v1/customers?line_user_id=eq.${lineUserId}&select=id&limit=1`,
-        { headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY } }
+      const customers = await sbSelect(
+        `customers?line_user_id=eq.${q(lineUserId)}&select=id&limit=1`
       );
-      const customers = await resCustomer.json();
-      const customerId = customers && customers.length > 0 ? customers[0].id : null;
+      const customerId = customers.length > 0 ? customers[0].id : null;
 
-      await fetch(`${SUPABASE_URL}/rest/v1/line_messages`, {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/line_messages`, {
         method: "POST",
-        headers: {
-          apikey: SUPABASE_KEY,
-          Authorization: "Bearer " + SUPABASE_KEY,
-          "Content-Type": "application/json",
-          Prefer: "return=representation",
-        },
+        headers: { ...sbHeaders, Prefer: "return=representation" },
         body: JSON.stringify({
           line_user_id: lineUserId,
           customer_id: customerId,
@@ -37,10 +40,12 @@ export async function POST(request) {
           is_read: false,
         }),
       });
+      if (!res.ok) console.error("[line-webhook] 保存失敗", res.status, await res.text());
     }
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    console.error("[line-webhook] エラー", e);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
   }
 }

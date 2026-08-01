@@ -1,43 +1,26 @@
 import { NextResponse } from "next/server";
-import webpush from "web-push";
+import { checkInternalSecret, sendPushToCustomer } from "../_lib/server";
 
-const SUPABASE_URL = "https://pbjekdzmvjqhqbbrzbfk.supabase.co";
-const SUPABASE_KEY = "sb_publishable_I_98PawL-eNS__SZa0DlPA_80VwFUZc";
-
-webpush.setVapidDetails(
-  "mailto:info@seitai-yurari.com",
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY
-);
-
+// このAPIはサーバー内部からのみ呼ばれる想定（リマインド配信は関数を直接呼ぶ形に変更済み）。
+// 外部から任意の顧客へ偽の通知を送れないよう、内部シークレット必須の fail-closed にしている。
 export async function POST(request) {
+  const auth = checkInternalSecret(request);
+  if (!auth.ok) {
+    console.warn("[push-send] 拒否:", auth.reason);
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
   try {
     const { customer_id, title, body, url } = await request.json();
-
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/push_subscriptions?customer_id=eq.${customer_id}`,
-      { headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY } }
-    );
-    const subscriptions = await res.json();
-
-    for (const sub of subscriptions) {
-      try {
-        await webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          JSON.stringify({ title, body, url, badge: 1 })
-        );
-      } catch (e) {
-        if (e.statusCode === 410) {
-          await fetch(`${SUPABASE_URL}/rest/v1/push_subscriptions?id=eq.${sub.id}`, {
-            method: "DELETE",
-            headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY },
-          });
-        }
-      }
+    if (!customer_id) {
+      return NextResponse.json({ error: "customer_id は必須です" }, { status: 400 });
     }
-
-    return NextResponse.json({ ok: true });
+    // URLは自サイト内のパスのみ許可（外部フィッシングURLへの誘導を防ぐ）
+    const safeUrl = typeof url === "string" && url.startsWith("/") ? url : "/mypage";
+    const result = await sendPushToCustomer({ customer_id, title, body, url: safeUrl });
+    return NextResponse.json({ ok: true, ...result });
   } catch (e) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    console.error("[push-send] エラー", e);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
   }
 }
