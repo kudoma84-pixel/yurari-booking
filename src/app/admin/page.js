@@ -4081,7 +4081,7 @@ const handleAdminQrInput = async (value) => {
                                 const useCount = checkoutTicketUse.purchase;
                                 return (
                                   <div style={{ background: "#f0f8f4", borderRadius: 12, padding: "10px 14px", marginBottom: 8 }}>
-                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#5a9e7a", marginBottom: 6 }}>A. 購入金券（{purchaseTickets.length}枚）</div>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#5a9e7a", marginBottom: 6 }}>A. 購入金券（{purchaseTickets.length}枚）{purchaseTickets.some(t => t.customer_id !== checkoutBooking.customer_id) && <span style={{ fontSize: 10, color: "#888", fontWeight: 400 }}>　※共有含む</span>}</div>
                                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                         <button onClick={() => setCheckoutTicketUse(u => ({ ...u, purchase: Math.max(0, u.purchase - 1) }))} style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid #b0d8b8", background: "white", cursor: "pointer", fontSize: 15, color: "#3a7a5a" }}>－</button>
@@ -4113,7 +4113,7 @@ const handleAdminQrInput = async (value) => {
                                 const useCount = checkoutTicketUse.present;
                                 return (
                                   <div style={{ background: "#fff8f0", borderRadius: 12, padding: "10px 14px", marginBottom: 8 }}>
-                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#e07b39", marginBottom: 6 }}>B. プレゼント金券（{presentTickets.length}枚）</div>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#e07b39", marginBottom: 6 }}>B. プレゼント金券（{presentTickets.length}枚）{presentTickets.some(t => t.customer_id !== checkoutBooking.customer_id) && <span style={{ fontSize: 10, color: "#888", fontWeight: 400 }}>　※共有含む</span>}</div>
                                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                         <button onClick={() => setCheckoutTicketUse(u => ({ ...u, present: Math.max(0, u.present - 1) }))} style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid #f0c8a0", background: "white", cursor: "pointer", fontSize: 15, color: "#c06020" }}>－</button>
