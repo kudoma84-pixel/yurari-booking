@@ -617,7 +617,10 @@ const handleAdminQrInput = async (value) => {
   const fetchCustomerDetail = async (customerId) => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}&select=*`, { headers });
     const data = await res.json();
-    if (data && data[0]) setSelectedCustomer(data[0]);
+    if (data && data[0]) {
+      setSelectedCustomer(data[0]);
+      fetchShareGroupMembers(data[0]);
+    }
   };
 
   const fetchDailyReport = async (dateStr) => {
