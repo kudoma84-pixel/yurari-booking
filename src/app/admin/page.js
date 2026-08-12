@@ -1119,7 +1119,19 @@ const handleAdminQrInput = async (value) => {
   const fetchCustomerTickets = async (customerId) => {
     if (!customerId) return;
     const today = formatDate(new Date());
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?customer_id=eq.${customerId}&status=eq.active&expires_at=gte.${today}&order=expires_at.asc`, { headers });
+    // 共有グループを確認
+    const custRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}&select=share_group_id`, { headers });
+    const custData = await custRes.json();
+    const shareGroupId = custData?.[0]?.share_group_id;
+    let idList = [customerId];
+    if (shareGroupId) {
+      // 同じグループの全メンバーを取得
+      const groupRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?share_group_id=eq.${shareGroupId}&select=id`, { headers });
+      const groupData = await groupRes.json();
+      if (Array.isArray(groupData)) idList = groupData.map(c => c.id);
+    }
+    const idFilter = idList.length > 1 ? `customer_id=in.(${idList.join(",")})` : `customer_id=eq.${customerId}`;
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${idFilter}&status=eq.active&expires_at=gte.${today}&select=*,customers(name)&order=expires_at.asc`, { headers });
     const data = await res.json();
     setCustomerTickets(Array.isArray(data) ? data : []);
   };
