@@ -1119,6 +1119,45 @@ const handleAdminQrInput = async (value) => {
     setGiftTicketTemplates(Array.isArray(data) ? data : []);
   };
 
+  const fetchShareGroupMembers = async (customer) => {
+    if (!customer?.share_group_id) { setShareGroupMembers([]); return; }
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?share_group_id=eq.${customer.share_group_id}&select=id,name,customer_number`, { headers });
+    const data = await res.json();
+    setShareGroupMembers(Array.isArray(data) ? data : []);
+  };
+
+  const searchShareCustomer = async (query) => {
+    if (!query) { setShareSearchResults([]); return; }
+    const isNum = query.split("").every(c => c >= "0" && c <= "9");
+    const url = isNum
+      ? `${SUPABASE_URL}/rest/v1/customers?customer_number=eq.${query}&select=id,name,customer_number,share_group_id`
+      : `${SUPABASE_URL}/rest/v1/customers?name=ilike.*${query}*&select=id,name,customer_number,share_group_id&limit=10`;
+    const res = await fetch(url, { headers });
+    const data = await res.json();
+    setShareSearchResults(Array.isArray(data) ? data : []);
+  };
+
+  const addToShareGroup = async (targetCustomer) => {
+    if (!selectedCustomer) return;
+    // 既存のグループIDを使うか新規作成
+    let groupId = selectedCustomer.share_group_id || targetCustomer.share_group_id;
+    if (!groupId) groupId = crypto.randomUUID();
+    // 両者にグループIDを設定
+    await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${selectedCustomer.id}`, { method: "PATCH", headers, body: JSON.stringify({ share_group_id: groupId }) });
+    await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${targetCustomer.id}`, { method: "PATCH", headers, body: JSON.stringify({ share_group_id: groupId }) });
+    setSelectedCustomer({ ...selectedCustomer, share_group_id: groupId });
+    setShareSearchQuery("");
+    setShareSearchResults([]);
+    await fetchShareGroupMembers({ ...selectedCustomer, share_group_id: groupId });
+  };
+
+  const removeFromShareGroup = async (memberId) => {
+    if (!window.confirm("共有グループから外しますか？")) return;
+    await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${memberId}`, { method: "PATCH", headers, body: JSON.stringify({ share_group_id: null }) });
+    await fetchShareGroupMembers(selectedCustomer);
+    if (memberId === selectedCustomer.id) setSelectedCustomer({ ...selectedCustomer, share_group_id: null });
+  };
+
   const fetchCustomerTickets = async (customerId) => {
     if (!customerId) return;
     const today = formatDate(new Date());
