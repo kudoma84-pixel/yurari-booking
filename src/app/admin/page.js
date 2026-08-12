@@ -128,7 +128,10 @@ export default function AdminPage() {
   const [giftTicketTemplates, setGiftTicketTemplates] = useState([]);
   const [customerTickets, setCustomerTickets] = useState([]);
   const [allCustomerTickets, setAllCustomerTickets] = useState({});
-  const [editTicketModal, setEditTicketModal] = useState(null); // { customer, type: "purchase"|"present", count, date }
+  const [editTicketModal, setEditTicketModal] = useState(null);
+  const [shareGroupMembers, setShareGroupMembers] = useState([]);
+  const [shareSearchQuery, setShareSearchQuery] = useState("");
+  const [shareSearchResults, setShareSearchResults] = useState([]); // { customer, type: "purchase"|"present", count, date }
   const [editGiftGroupModal, setEditGiftGroupModal] = useState(null);
   const [editingTicketTemplate, setEditingTicketTemplate] = useState(null);
   const [lineMessages, setLineMessages] = useState([]);
