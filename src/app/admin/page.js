@@ -2920,6 +2920,35 @@ const handleAdminQrInput = async (value) => {
         </div>
       </div>
 
+      {/* 金券共有グループ */}
+      <div style={{ marginBottom: 20, padding: "14px 18px", background: "#f9f6f2", borderRadius: 12 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 10 }}>👨‍👩‍👧 金券共有グループ</div>
+        {shareGroupMembers.length > 0 ? (
+          <div style={{ marginBottom: 10 }}>
+            {shareGroupMembers.map(m => (
+              <div key={m.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", background: "white", borderRadius: 8, marginBottom: 4 }}>
+                <span style={{ fontSize: 13, color: "#3a5a3a" }}>{m.name}（No.{m.customer_number}）{m.id === selectedCustomer.id && "★本人"}</span>
+                <button onClick={() => removeFromShareGroup(m.id)} style={{ padding: "2px 8px", borderRadius: 6, border: "1px solid #e07070", background: "white", color: "#e07070", fontSize: 11, cursor: "pointer" }}>外す</button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: "#aaa", marginBottom: 10 }}>共有グループ未設定（金券は本人のみ使用可）</div>
+        )}
+        <div style={{ display: "flex", gap: 6 }}>
+          <input type="text" value={shareSearchQuery} onChange={e => { setShareSearchQuery(e.target.value); searchShareCustomer(e.target.value); }} placeholder="顧客番号または氏名で追加" style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13 }} />
+        </div>
+        {shareSearchResults.length > 0 && (
+          <div style={{ marginTop: 6, background: "white", borderRadius: 8, border: "1px solid #e8ddd0", overflow: "hidden" }}>
+            {shareSearchResults.filter(r => r.id !== selectedCustomer.id).map(r => (
+              <div key={r.id} onClick={() => addToShareGroup(r)} style={{ padding: "8px 12px", borderBottom: "1px solid #f0e8d8", fontSize: 13, color: "#3a5a3a", cursor: "pointer" }}>
+                {r.name}（No.{r.customer_number}）を追加
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>予約履歴（{customerHistory.length}件）</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {customerHistory.length === 0 && <div style={{ color: "#aaa", fontSize: 13 }}>来院履歴がありません</div>}
