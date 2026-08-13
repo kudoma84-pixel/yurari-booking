@@ -332,6 +332,17 @@ const handleAdminQrInput = async (value) => {
       await fetch(`${SUPABASE_URL}/rest/v1/payment_methods?payment_id=eq.${booking.payment.id}`, { method: "DELETE", headers });
       await fetch(`${SUPABASE_URL}/rest/v1/payments?id=eq.${booking.payment.id}`, { method: "DELETE", headers });
     }
+    // 金券の戻し処理（方針）:
+    // この予約（booking_id）に紐付く金券のみを対象とする。booking_idがnullの既存金券には一切触れない。
+    // ①この会計で新規発行された金券（checkout_actionにsold/giftedのマークあり）→ 削除
+    // ②この会計で使用された金券（status=used）→ activeに復元し、used_at/booking_idをクリア
+    // ①を先に実行することで「同じ会計で販売してそのまま使用した金券」も正しく削除される
+    // （その金券はマーク付きかつstatus=usedのため、②で復元される前に①で削除する必要がある）
+    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?booking_id=eq.${booking.id}&checkout_action=in.(sold_at_checkout,gifted_at_checkout)`, { method: "DELETE", headers });
+    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?booking_id=eq.${booking.id}&status=eq.used`, {
+      method: "PATCH", headers,
+      body: JSON.stringify({ status: "active", used_at: null, booking_id: null }),
+    });
     await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${booking.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "treatment_done", completed_at: null }) });
     // ポイントを1点戻す
     const ptRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${booking.customer_id}&select=points`, { headers });
@@ -4168,7 +4179,7 @@ const handleAdminQrInput = async (value) => {
                                         const targets = purchaseTickets.slice(0, useCount);
                                         const usedAt = new Date().toISOString();
                                         for (const t of targets) {
-                                          await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "used", used_at: usedAt }) });
+                                          await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "used", used_at: usedAt, booking_id: checkoutBooking.id }) });
                                         }
                                         setCheckoutTicketUse(u => ({ ...u, purchase: 0 }));
                                         await fetchCustomerTicketCount(checkoutBooking.customer_id);
@@ -4200,7 +4211,7 @@ const handleAdminQrInput = async (value) => {
                                         const targets = presentTickets.slice(0, useCount);
                                         const usedAt = new Date().toISOString();
                                         for (const t of targets) {
-                                          await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "used", used_at: usedAt }) });
+                                          await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "used", used_at: usedAt, booking_id: checkoutBooking.id }) });
                                         }
                                         setCheckoutTicketUse(u => ({ ...u, present: 0 }));
                                         await fetchCustomerTicketCount(checkoutBooking.customer_id);
@@ -4248,6 +4259,8 @@ const handleAdminQrInput = async (value) => {
                                   issued_at: formatDate(today),
                                   expires_at: formatDate(expires),
                                   status: "active",
+                                  booking_id: checkoutBooking.id,
+                                  checkout_action: "sold_at_checkout",
                                 }),
                               });
                             }
@@ -4291,6 +4304,8 @@ const handleAdminQrInput = async (value) => {
                                 issued_at: formatDate(today),
                                 expires_at: formatDate(expires),
                                 status: "active",
+                                booking_id: checkoutBooking.id,
+                                checkout_action: "gifted_at_checkout",
                               }),
                             });
                             await fetchCustomerTicketCount(checkoutBooking.customer_id);
