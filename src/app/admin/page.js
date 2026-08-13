@@ -2063,9 +2063,12 @@ const handleAdminQrInput = async (value) => {
           const tplData = await tplRes.json();
           if (tplData && tplData[0]) {
             const tpl = tplData[0];
+            const ptToday = formatDate(new Date());
+            const ptExpire = new Date();
+            ptExpire.setFullYear(ptExpire.getFullYear() + 1);
             await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
               method: "POST", headers,
-              body: JSON.stringify({ customer_id: checkoutBooking.customer_id, store_id: currentStore.id, template_id: tpl.id, code: "PT" + Date.now(), amount: 1000, remaining: 1000, status: "active", issued_at: new Date().toISOString(), note: "ポイント20P達成特典" }),
+              body: JSON.stringify({ customer_id: checkoutBooking.customer_id, store_id: currentStore.id, ticket_type: "present", ticket_name: "1000円券（ポイント20P達成特典）", face_value: 1000, issued_at: ptToday, expires_at: formatDate(ptExpire), status: "active", notes: "ポイント20P達成特典" }),
             });
           }
         }
