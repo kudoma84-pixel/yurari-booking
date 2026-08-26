@@ -326,7 +326,7 @@ const handleAdminQrInput = async (value) => {
   };
 
   const revertPayment = async (booking) => {
-    if (!window.confirm("会計を取り消して再会計しますか？")) return;
+    if (!window.confirm("この会計を取り消します。\n\nこの会計で行った金券の使用・販売・プレゼントもすべて取り消されます。\n再会計時に金券操作もやり直してください。\n\nよろしいですか？")) return;
     if (booking.payment) {
       await fetch(`${SUPABASE_URL}/rest/v1/payment_items?payment_id=eq.${booking.payment.id}`, { method: "DELETE", headers });
       await fetch(`${SUPABASE_URL}/rest/v1/payment_methods?payment_id=eq.${booking.payment.id}`, { method: "DELETE", headers });
