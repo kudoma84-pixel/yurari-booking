@@ -2087,17 +2087,14 @@ const handleAdminQrInput = async (value) => {
     const existing = monthShifts.find(s => s.staff_id === staffId && s.work_date === date);
     const existingClosed = monthShifts.find(s => s.staff_id === "closed" && s.work_date === date);
     if (type === "休み") {
-      if (existing) await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${existing.id}`, { method: "DELETE", headers });
+      await fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&staff_id=eq.${staffId}&work_date=eq.${date}`, { method: "DELETE", headers });
     } else if (type === "休院") {
       if (!existingClosed) await fetch(`${SUPABASE_URL}/rest/v1/shifts`, { method: "POST", headers, body: JSON.stringify({ store_id: currentStore.id, staff_id: "closed", work_date: date, start_time: "00:00", end_time: "00:00" }) });
     } else if (type === "休院解除") {
       if (existingClosed) await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${existingClosed.id}`, { method: "DELETE", headers });
     } else {
-      if (existing) {
-        await fetch(`${SUPABASE_URL}/rest/v1/shifts?id=eq.${existing.id}`, { method: "PATCH", headers, body: JSON.stringify({ start_time: startTime, end_time: endTime }) });
-      } else {
-        await fetch(`${SUPABASE_URL}/rest/v1/shifts`, { method: "POST", headers, body: JSON.stringify({ store_id: currentStore.id, staff_id: staffId, work_date: date, start_time: startTime, end_time: endTime }) });
-      }
+      await fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&staff_id=eq.${staffId}&work_date=eq.${date}`, { method: "DELETE", headers });
+      await fetch(`${SUPABASE_URL}/rest/v1/shifts`, { method: "POST", headers, body: JSON.stringify({ store_id: currentStore.id, staff_id: staffId, work_date: date, start_time: startTime, end_time: endTime }) });
     }
     await fetchMonthShifts();
   };
