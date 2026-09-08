@@ -1191,7 +1191,7 @@ const handleAdminQrInput = async (value) => {
       // 同じグループの全メンバーを取得
       const groupRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?share_group_id=eq.${shareGroupId}&select=id`, { headers });
       const groupData = await groupRes.json();
-      if (Array.isArray(groupData)) idList = groupData.map(c => c.id);
+      if (Array.isArray(groupData) && groupData.length > 0) idList = groupData.map(c => c.id);
     }
     const idFilter = idList.length > 1 ? `customer_id=in.(${idList.join(",")})` : `customer_id=eq.${customerId}`;
     const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${idFilter}&status=eq.active&expires_at=gte.${today}&select=*,customers(name)&order=expires_at.asc`, { headers });
@@ -1614,28 +1614,6 @@ const handleAdminQrInput = async (value) => {
     return null;
   };
 
-  const fetchCustomerTicketCount = async (customerId) => {
-    if (!customerId) return;
-    const today = formatDate(new Date());
-    // 共有グループを確認
-    const custRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}&select=share_group_id`, { headers });
-    const custData = await custRes.json();
-    const shareGroupId = custData?.[0]?.share_group_id;
-    let idList = [customerId];
-    if (shareGroupId) {
-      const groupRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?share_group_id=eq.${shareGroupId}&select=id`, { headers });
-      const groupData = await groupRes.json();
-      if (Array.isArray(groupData) && groupData.length > 0) idList = groupData.map(c => c.id);
-    }
-    const idFilter = idList.length > 1 ? `customer_id=in.(${idList.join(",")})` : `customer_id=eq.${customerId}`;
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/gift_tickets?${idFilter}&status=eq.active&expires_at=gte.${today}&select=*,customers(name)&order=expires_at.asc`,
-      { headers }
-    );
-    const data = await res.json();
-    setCustomerTickets(Array.isArray(data) ? data : []);
-  };
-
   const fetchAdminNotifications = async () => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/admin_notifications?store_id=eq.${currentStore.id}&order=created_at.desc&limit=50`, { headers });
     const data = await res.json();
@@ -1978,7 +1956,7 @@ const handleAdminQrInput = async (value) => {
     setCustomerTickets([]);
     setConnectedBooking(null);
     setIncludeConnectedBooking(false);
-    if (booking.customer_id) fetchCustomerTicketCount(booking.customer_id);
+    if (booking.customer_id) fetchCustomerTickets(booking.customer_id);
     // 物販のみ予約は既存の payment_items を読み込んで商品名を復元する
     if (!booking.course_id && booking.course_name === "物販") {
       fetch(`${SUPABASE_URL}/rest/v1/payments?booking_id=eq.${booking.id}&order=created_at.desc&limit=1`, {
@@ -4200,7 +4178,7 @@ const handleAdminQrInput = async (value) => {
                                           await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "used", used_at: usedAt, booking_id: checkoutBooking.id }) });
                                         }
                                         setCheckoutTicketUse(u => ({ ...u, purchase: 0 }));
-                                        await fetchCustomerTicketCount(checkoutBooking.customer_id);
+                                        await fetchCustomerTickets(checkoutBooking.customer_id);
                                       }} disabled={useCount === 0} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: useCount > 0 ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: useCount > 0 ? "white" : "#bbb", fontSize: 12, fontWeight: 700, cursor: useCount > 0 ? "pointer" : "not-allowed" }}>
                                         {useCount}枚使用する
                                       </button>
@@ -4232,7 +4210,7 @@ const handleAdminQrInput = async (value) => {
                                           await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "used", used_at: usedAt, booking_id: checkoutBooking.id }) });
                                         }
                                         setCheckoutTicketUse(u => ({ ...u, present: 0 }));
-                                        await fetchCustomerTicketCount(checkoutBooking.customer_id);
+                                        await fetchCustomerTickets(checkoutBooking.customer_id);
                                       }} disabled={useCount === 0} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: useCount > 0 ? "linear-gradient(135deg, #e07b39, #c05020)" : "#e8ddd0", color: useCount > 0 ? "white" : "#bbb", fontSize: 12, fontWeight: 700, cursor: useCount > 0 ? "pointer" : "not-allowed" }}>
                                         {useCount}枚使用する
                                       </button>
@@ -4282,7 +4260,7 @@ const handleAdminQrInput = async (value) => {
                                 }),
                               });
                             }
-                            await fetchCustomerTicketCount(checkoutBooking.customer_id);
+                            await fetchCustomerTickets(checkoutBooking.customer_id);
                             setCheckoutSellTicketId("");
                             // 合計に追加
                             setCheckoutItems(prev => [...prev, { type: "gift", name: `金券販売 ${template.name}`, price: template.sale_price || template.face_value * count, quantity: 1 }]);
@@ -4326,7 +4304,7 @@ const handleAdminQrInput = async (value) => {
                                 checkout_action: "gifted_at_checkout",
                               }),
                             });
-                            await fetchCustomerTicketCount(checkoutBooking.customer_id);
+                            await fetchCustomerTickets(checkoutBooking.customer_id);
                             setCheckoutPresentTicketId("");
                             alert(`${template.name}を1枚プレゼントしました`);
                           }} disabled={!checkoutPresentTicketId}
