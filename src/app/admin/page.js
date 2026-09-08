@@ -151,6 +151,7 @@ export default function AdminPage() {
   const [directBookingCategory, setDirectBookingCategory] = useState("");
   const [directBookingFirstOnly, setDirectBookingFirstOnly] = useState("");
   const [isSavingDirectBooking, setIsSavingDirectBooking] = useState(false);
+  const [isSavingChangeBooking, setIsSavingChangeBooking] = useState(false);
   const [directBookingProducts, setDirectBookingProducts] = useState([{ name: "", price: "", quantity: 1 }]);
   const [customerSearchResult, setCustomerSearchResult] = useState(null);
   const [customerSearchResults, setCustomerSearchResults] = useState([]);
@@ -976,68 +977,74 @@ const handleAdminQrInput = async (value) => {
   };
 
   const saveChangeBooking = async () => {
+    if (isSavingChangeBooking) return;
     const f = changeBookingForm;
     if (!f.booking_date || !f.booking_time || !f.course_id) return;
-    const course = courseMenus.find(c => c.id === f.course_id);
-    const staff = staffMembers.find(s => s.id === f.staff_id);
-    const num = `YR-${Date.now().toString().slice(-8)}`;
-    // 新規予約を作成
-    await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
-      method: "POST", headers,
-      body: JSON.stringify({
-        store_id: currentStore.id,
-        customer_id: changeBookingModal.customer_id,
-        staff_id: f.staff_id,
-        course_id: f.course_id,
-        booking_date: f.booking_date,
-        booking_time: f.booking_time,
-        course_name: course?.name || "",
-        course_duration: f.course_duration || course?.duration || "30分",
-        staff_name: staff?.name || "",
-        status: "confirmed",
-        notes: f.notes || "",
-        booking_number: num,
-        source: "direct",
-      }),
-    });
-    // 元の予約をキャンセル
-    await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${changeBookingModal.id}`, {
-      method: "PATCH", headers,
-      body: JSON.stringify({ status: "cancelled", cancelled_at: new Date().toISOString() }),
-    });
-    // マイページ通知
-    if (changeBookingModal.customer_id) {
-      await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
+    setIsSavingChangeBooking(true);
+    try {
+      const course = courseMenus.find(c => c.id === f.course_id);
+      const staff = staffMembers.find(s => s.id === f.staff_id);
+      const num = `YR-${Date.now().toString().slice(-8)}`;
+      // 新規予約を作成
+      await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
         method: "POST", headers,
         body: JSON.stringify({
-          customer_id: changeBookingModal.customer_id,
           store_id: currentStore.id,
-          title: "予約変更のお知らせ",
-          body: f.booking_date + " " + f.booking_time + " " + (course?.name || "") + "（" + (staff?.name || "") + "）に変更されました。",
-          is_read: false,
-          sent_via: "system",
+          customer_id: changeBookingModal.customer_id,
+          staff_id: f.staff_id,
+          course_id: f.course_id,
+          booking_date: f.booking_date,
+          booking_time: f.booking_time,
+          course_name: course?.name || "",
+          course_duration: f.course_duration || course?.duration || "30分",
+          staff_name: staff?.name || "",
+          status: "confirmed",
+          notes: f.notes || "",
+          booking_number: num,
+          source: "direct",
         }),
       });
+      // 元の予約をキャンセル
+      await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${changeBookingModal.id}`, {
+        method: "PATCH", headers,
+        body: JSON.stringify({ status: "cancelled", cancelled_at: new Date().toISOString() }),
+      });
+      // マイページ通知
+      if (changeBookingModal.customer_id) {
+        await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
+          method: "POST", headers,
+          body: JSON.stringify({
+            customer_id: changeBookingModal.customer_id,
+            store_id: currentStore.id,
+            title: "予約変更のお知らせ",
+            body: f.booking_date + " " + f.booking_time + " " + (course?.name || "") + "（" + (staff?.name || "") + "）に変更されました。",
+            is_read: false,
+            sent_via: "system",
+          }),
+        });
+      }
+      // 予約変更通知（モーダルをクリアする前に参照を保存）
+      const bookingForNotif = changeBookingModal;
+      await fetch(`${SUPABASE_URL}/rest/v1/admin_notifications`, {
+        method: "POST", headers,
+        body: JSON.stringify({
+          store_id: currentStore.id,
+          type: "booking_change",
+          title: "予約変更",
+          body: `${bookingForNotif.customers?.name || "顧客"} ${f.booking_date} ${f.booking_time} ${course?.name || ""}`,
+          customer_id: bookingForNotif.customer_id,
+          booking_id: bookingForNotif.id,
+          is_read: false,
+        }),
+      });
+      fetchAdminNotifications();
+      setChangeBookingModal(null);
+      setChangeBookingForm({});
+      setSelectedBooking(null);
+      fetchAll(selectedDate);
+    } finally {
+      setIsSavingChangeBooking(false);
     }
-    // 予約変更通知（モーダルをクリアする前に参照を保存）
-    const bookingForNotif = changeBookingModal;
-    await fetch(`${SUPABASE_URL}/rest/v1/admin_notifications`, {
-      method: "POST", headers,
-      body: JSON.stringify({
-        store_id: currentStore.id,
-        type: "booking_change",
-        title: "予約変更",
-        body: `${bookingForNotif.customers?.name || "顧客"} ${f.booking_date} ${f.booking_time} ${course?.name || ""}`,
-        customer_id: bookingForNotif.customer_id,
-        booking_id: bookingForNotif.id,
-        is_read: false,
-      }),
-    });
-    fetchAdminNotifications();
-    setChangeBookingModal(null);
-    setChangeBookingForm({});
-    setSelectedBooking(null);
-    fetchAll(selectedDate);
   };
   const addBlock = async () => {
     if (!blockModal) return;
@@ -4374,9 +4381,9 @@ const handleAdminQrInput = async (value) => {
                     {["30分", "60分", "90分", "120分", "150分"].map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
                 </div>
-                <button onClick={saveChangeBooking} disabled={!changeBookingForm.booking_date || !changeBookingForm.booking_time || !changeBookingForm.course_id}
-                  style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: changeBookingForm.booking_date && changeBookingForm.booking_time && changeBookingForm.course_id ? "#5a9e7a" : "#e8ddd0", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-                  変更を確定する
+                <button onClick={saveChangeBooking} disabled={isSavingChangeBooking || !changeBookingForm.booking_date || !changeBookingForm.booking_time || !changeBookingForm.course_id}
+                  style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: !isSavingChangeBooking && changeBookingForm.booking_date && changeBookingForm.booking_time && changeBookingForm.course_id ? "#5a9e7a" : "#e8ddd0", color: "white", fontSize: 14, fontWeight: 700, cursor: !isSavingChangeBooking && changeBookingForm.booking_date && changeBookingForm.booking_time && changeBookingForm.course_id ? "pointer" : "not-allowed" }}>
+                  {isSavingChangeBooking ? "変更中..." : "変更を確定する"}
                 </button>
                 <button onClick={() => { setChangeBookingModal(null); setChangeBookingForm({}); }}
                   style={{ width: "100%", padding: "10px", borderRadius: 12, border: "2px solid #e8ddd0", background: "white", color: "#aaa", fontSize: 13, cursor: "pointer" }}>
