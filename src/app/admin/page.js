@@ -94,6 +94,7 @@ export default function AdminPage() {
   const [editingPlan, setEditingPlan] = useState(null);
   const [newPlanName, setNewPlanName] = useState("");
   const [applyPlanModal, setApplyPlanModal] = useState(null);
+  const [isApplyingPlan, setIsApplyingPlan] = useState(false);
   const [applyWeekStart, setApplyWeekStart] = useState(jstToday());
   const [applyWeekEnd, setApplyWeekEnd] = useState(jstToday());
   const [products, setProducts] = useState([]);
@@ -2114,21 +2115,30 @@ const handleAdminQrInput = async (value) => {
   };
 
   const applyPlan = async (plan, startDate, endDate) => {
-    const start = new Date(startDate + "T00:00:00");
-    const end = new Date(endDate + "T00:00:00");
-    const planData = plan.plan_data || {};
-    const d = new Date(start);
-    while (d <= end) {
-      const dayOfWeek = d.getDay();
-      const dateStr = formatDate(d);
-      for (const staffId of Object.keys(planData)) {
-        const dayData = planData[staffId]?.[dayOfWeek];
-        if (dayData?.enabled) await saveShift(staffId, dateStr, dayData.start || "10:00", dayData.end || "19:30", "出勤");
+    if (isApplyingPlan) return;
+    setIsApplyingPlan(true);
+    try {
+      const start = new Date(startDate + "T00:00:00");
+      const end = new Date(endDate + "T00:00:00");
+      const planData = plan.plan_data || {};
+      const d = new Date(start);
+      while (d <= end) {
+        const dayOfWeek = d.getDay();
+        const dateStr = formatDate(d);
+        for (const staffId of Object.keys(planData)) {
+          const dayData = planData[staffId]?.[dayOfWeek];
+          if (!dayData?.enabled) continue;
+          // 万一二重実行されても重複が残らないよう、既存レコードを削除してからINSERT（saveShiftと同じ方式）
+          await fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&staff_id=eq.${staffId}&work_date=eq.${dateStr}`, { method: "DELETE", headers });
+          await fetch(`${SUPABASE_URL}/rest/v1/shifts`, { method: "POST", headers, body: JSON.stringify({ store_id: currentStore.id, staff_id: staffId, work_date: dateStr, start_time: dayData.start || "10:00", end_time: dayData.end || "19:30" }) });
+        }
+        d.setDate(d.getDate() + 1);
       }
-      d.setDate(d.getDate() + 1);
+      setApplyPlanModal(null);
+      await fetchMonthShifts();
+    } finally {
+      setIsApplyingPlan(false);
     }
-    setApplyPlanModal(null);
-    await fetchMonthShifts();
   };
 
   const updatePlanData = (staffId, dayOfWeek, field, value) => {
@@ -3040,11 +3050,11 @@ const handleAdminQrInput = async (value) => {
       )}
 
       {applyPlanModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setApplyPlanModal(null)}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => { if (!isApplyingPlan) setApplyPlanModal(null); }}>
           <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 400, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>「{applyPlanModal.plan_name}」を適用</div>
-              <button onClick={() => setApplyPlanModal(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+              <button disabled={isApplyingPlan} onClick={() => setApplyPlanModal(null)} style={{ border: "none", background: "none", fontSize: 24, cursor: isApplyingPlan ? "not-allowed" : "pointer", color: "#aaa" }}>×</button>
             </div>
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>開始日</label>
@@ -3055,7 +3065,7 @@ const handleAdminQrInput = async (value) => {
               <input type="date" value={applyWeekEnd} onChange={e => setApplyWeekEnd(e.target.value)} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
             </div>
             <div style={{ fontSize: 12, color: "#aaa", marginBottom: 20 }}>指定した期間にテンプレートを適用します。</div>
-            <button onClick={() => applyWeekStart && applyWeekEnd && applyPlan(applyPlanModal, applyWeekStart, applyWeekEnd)} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: applyWeekStart && applyWeekEnd ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: applyWeekStart && applyWeekEnd ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: applyWeekStart && applyWeekEnd ? "pointer" : "not-allowed" }}>適用する</button>
+            <button disabled={isApplyingPlan || !applyWeekStart || !applyWeekEnd} onClick={() => applyWeekStart && applyWeekEnd && applyPlan(applyPlanModal, applyWeekStart, applyWeekEnd)} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: isApplyingPlan ? "#ccc" : applyWeekStart && applyWeekEnd ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: isApplyingPlan ? "white" : applyWeekStart && applyWeekEnd ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: isApplyingPlan || !applyWeekStart || !applyWeekEnd ? "not-allowed" : "pointer" }}>{isApplyingPlan ? "適用中..." : "適用する"}</button>
           </div>
         </div>
       )}
