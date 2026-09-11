@@ -1840,13 +1840,27 @@ const handleAdminQrInput = async (value) => {
 
   useEffect(() => {
     if (!loggedIn || !currentStore) return;
-    const interval = setInterval(() => {
+    // 現在のタブに応じた再取得（ポーリングと画面復帰の両方から呼ぶ）
+    const refreshCurrentTab = () => {
       if (tab === "calendar" && selectedDate && !dragActiveRef.current) { fetchAll(selectedDate); fetchSubAll(selectedDate); }
       if (tab === "checkin") fetchTodayReceived();
       if (tab === "bookings") fetchBookings(selectedDate || new Date());
       fetchAdminNotifications();
-    }, 5000);
-    return () => clearInterval(interval);
+    };
+    const interval = setInterval(() => {
+      // 画面が非表示の間はSupabaseへの負荷を抑えるためポーリングしない
+      if (document.hidden) return;
+      refreshCurrentTab();
+    }, 20000);
+    // 画面が再表示されたら20秒待たずに即座に最新化する
+    const handleVisibilityChange = () => {
+      if (!document.hidden) refreshCurrentTab();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [loggedIn, currentStore, tab, selectedDate]);
   useEffect(() => {
     if (loggedIn && tab === "shifts") fetchMonthShifts();
