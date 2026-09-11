@@ -139,6 +139,8 @@ export default function AdminPage() {
   const [adminNotifications, setAdminNotifications] = useState([]);
   const [unreadAdminCount, setUnreadAdminCount] = useState(0);
   const [showAdminNotif, setShowAdminNotif] = useState(false);
+  // カレンダーの予約カードに出す金券状況 { customerId: { purchaseActive, purchaseTotal, presentActive, presentTotal } }
+  const [bookingTicketInfo, setBookingTicketInfo] = useState({});
   const [isSavingPayment, setIsSavingPayment] = useState(false);
   const [lineReplyText, setLineReplyText] = useState("");
   const [selectedLineUser, setSelectedLineUser] = useState(null);
@@ -306,8 +308,10 @@ const handleAdminQrInput = async (value) => {
     const d = formatDate(date);
     const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${d}&select=*,customers(name,tel,kana,email,line_user_id)`, { headers });
     const data = await res.json();
-    setBookings(Array.isArray(data) ? data : []);
+    const list = Array.isArray(data) ? data : [];
+    setBookings(list);
     if (!silent) setLoading(false);
+    return list;
   };
 
   const fetchCompletedBookings = async (dateStr) => {
@@ -1789,11 +1793,74 @@ const handleAdminQrInput = async (value) => {
     }
     setMonthShiftOffDates(offDates);
   };
+  // その日の予約の顧客について、金券の保有状況をまとめて取得する。
+  // 予約1件ずつ問い合わせると負荷になるため、共有グループ解決も含めて最大3クエリで済ませる。
+  const fetchBookingTicketInfo = async (customerIds) => {
+    const ids = [...new Set((customerIds || []).filter(Boolean))];
+    if (ids.length === 0) return;
+    const today = formatDate(new Date());
+    // 1) 対象顧客の共有グループを1回で取得
+    const custRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=in.(${ids.join(",")})&select=id,share_group_id`, { headers });
+    const custData = await custRes.json();
+    const customers = Array.isArray(custData) ? custData : [];
+    const groupIds = [...new Set(customers.map(c => c.share_group_id).filter(Boolean))];
+    // 2) 共有グループがあれば、そのメンバー全員を1回で取得
+    const membersByGroup = {};
+    if (groupIds.length > 0) {
+      const groupRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?share_group_id=in.(${groupIds.join(",")})&select=id,share_group_id`, { headers });
+      const groupData = await groupRes.json();
+      if (Array.isArray(groupData)) {
+        groupData.forEach(m => {
+          if (!membersByGroup[m.share_group_id]) membersByGroup[m.share_group_id] = [];
+          membersByGroup[m.share_group_id].push(m.id);
+        });
+      }
+    }
+    // 3) 金券を1回で取得（statusは絞らず、集計はクライアント側で行う）
+    const ticketIds = new Set(ids);
+    Object.values(membersByGroup).forEach(list => list.forEach(id => ticketIds.add(id)));
+    const tRes = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?customer_id=in.(${[...ticketIds].join(",")})&select=customer_id,ticket_type,status,expires_at`, { headers });
+    const tData = await tRes.json();
+    const tickets = Array.isArray(tData) ? tData : [];
+    // 顧客ごとに集計（cancelledは歴にも残枚数にも含めない／期限切れは残枚数に含めない）
+    const perCustomer = {};
+    tickets.forEach(t => {
+      if (t.status === "cancelled") return;
+      if (t.ticket_type !== "purchase" && t.ticket_type !== "present") return;
+      if (!perCustomer[t.customer_id]) perCustomer[t.customer_id] = { purchaseActive: 0, purchaseTotal: 0, presentActive: 0, presentTotal: 0 };
+      const entry = perCustomer[t.customer_id];
+      // 会計画面（fetchCustomerTickets）と同じ条件で「使える金券」を判定する
+      const isActive = t.status === "active" && !!t.expires_at && t.expires_at >= today;
+      if (t.ticket_type === "purchase") { entry.purchaseTotal++; if (isActive) entry.purchaseActive++; }
+      else { entry.presentTotal++; if (isActive) entry.presentActive++; }
+    });
+    // 予約の顧客ごとに、共有グループ全体の合計へまとめ直す
+    const map = {};
+    ids.forEach(cid => {
+      const cust = customers.find(c => c.id === cid);
+      const memberIds = cust?.share_group_id && membersByGroup[cust.share_group_id]?.length ? membersByGroup[cust.share_group_id] : [cid];
+      const agg = { purchaseActive: 0, purchaseTotal: 0, presentActive: 0, presentTotal: 0 };
+      memberIds.forEach(mid => {
+        const entry = perCustomer[mid];
+        if (!entry) return;
+        agg.purchaseActive += entry.purchaseActive;
+        agg.purchaseTotal += entry.purchaseTotal;
+        agg.presentActive += entry.presentActive;
+        agg.presentTotal += entry.presentTotal;
+      });
+      map[cid] = agg;
+    });
+    // 本院・サブ院それぞれから呼ばれるため、置き換えずにマージする
+    setBookingTicketInfo(prev => ({ ...prev, ...map }));
+  };
+
   const fetchAll = async (date) => {
-    await Promise.all([fetchBookings(date), fetchBlocks(date), fetchShifts(date), fetchExtensions(date)]);
+    const [bookData] = await Promise.all([fetchBookings(date), fetchBlocks(date), fetchShifts(date), fetchExtensions(date)]);
+    await fetchBookingTicketInfo((bookData || []).map(b => b.customer_id));
   };
   const fetchAllSilent = async (date) => {
-    await Promise.all([fetchBookings(date, true), fetchBlocks(date), fetchShifts(date), fetchExtensions(date)]);
+    const [bookData] = await Promise.all([fetchBookings(date, true), fetchBlocks(date), fetchShifts(date), fetchExtensions(date)]);
+    fetchBookingTicketInfo((bookData || []).map(b => b.customer_id));
     fetchSubAll(date);
   };
 
@@ -1812,6 +1879,20 @@ const handleAdminQrInput = async (value) => {
     setSubBookings(Array.isArray(bookData) ? bookData : []);
     setSubShifts(Array.isArray(shiftData) ? shiftData : []);
     setSubBlocks(Array.isArray(blockData) ? blockData : []);
+    if (Array.isArray(bookData)) fetchBookingTicketInfo(bookData.map(b => b.customer_id));
+  };
+
+  // 予約カード内に出す金券マーク。購入歴・支給歴がまったくない顧客には何も出さない。
+  const renderTicketMarks = (customerId) => {
+    const t = customerId ? bookingTicketInfo[customerId] : null;
+    if (!t || (t.purchaseTotal === 0 && t.presentTotal === 0)) return null;
+    const chip = (color, active) => ({ background: "white", color, borderRadius: 4, padding: "0 3px", fontSize: 10, fontWeight: 700, lineHeight: 1.3, opacity: active > 0 ? 1 : 0.45 });
+    return (
+      <div style={{ display: "flex", gap: 3, marginTop: 2, lineHeight: 1 }}>
+        {t.purchaseTotal > 0 && <span style={chip("#5a9e7a", t.purchaseActive)}>🎫{t.purchaseActive > 0 ? t.purchaseActive : ""}</span>}
+        {t.presentTotal > 0 && <span style={chip("#e07b39", t.presentActive)}>🎫{t.presentActive > 0 ? t.presentActive : ""}</span>}
+      </div>
+    );
   };
 
   useEffect(() => {
@@ -4581,7 +4662,7 @@ const handleAdminQrInput = async (value) => {
                                 cells.push(
                                   <td key={time} colSpan={colSpan} draggable={!!(booking && booking.status !== "cancelled")} onDragStart={booking && booking.status !== "cancelled" ? (e => { e.dataTransfer.effectAllowed = 'move'; setDraggedBooking(booking); }) : undefined} onDragEnd={booking && booking.status !== "cancelled" ? (() => { setDraggedBooking(null); setDragOverCell(null); }) : undefined} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: cellBg, minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden", cursor: booking && booking.status !== "cancelled" ? "grab" : "default" }} onDragOver={isDroppable ? (e => { e.preventDefault(); setDragOverCell({ staffId: s.id, time }); }) : undefined} onDragLeave={isDroppable ? (() => setDragOverCell(null)) : undefined} onDrop={isDroppable ? (e => { e.preventDefault(); if (draggedBooking && draggedBooking.store_id && draggedBooking.store_id !== currentStore.id) { dropBookingCrossStore(currentStore.id, time); } else { dropBooking(s.id, time); } }) : undefined}>                                    {isBreak && !isSlotBreakReleased(time) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
                                     : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
-                                    : booking && booking.status !== "cancelled" ? <div onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "grab", lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 1 }}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div></div>                                    : blocked ? (() => { const blk = getBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, cursor: "pointer", lineHeight: 1.3 }} onClick={() => { if (window.confirm("ブロックを解除しますか？")) toggleBlock(s.id, time); }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()                                    : <div onClick={() => setBlockModal({ staffId: s.id, time })} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}                                  </td>
+                                    : booking && booking.status !== "cancelled" ? <div onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "grab", lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 1 }}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div>{renderTicketMarks(booking.customer_id)}</div>                                    : blocked ? (() => { const blk = getBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, cursor: "pointer", lineHeight: 1.3 }} onClick={() => { if (window.confirm("ブロックを解除しますか？")) toggleBlock(s.id, time); }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()                                    : <div onClick={() => setBlockModal({ staffId: s.id, time })} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}                                  </td>
                                 );
                               });
                               return cells;
@@ -4625,7 +4706,7 @@ const handleAdminQrInput = async (value) => {
                                 const isDragOver = isDroppable && dragOverCell?.staffId === s.id && dragOverCell?.time === time;
                                 cells.push(
                                   <td key={time} colSpan={colSpan} draggable={!!booking} onDragStart={booking ? (e => { e.dataTransfer.effectAllowed = 'move'; setDraggedBooking(booking); }) : undefined} onDragEnd={booking ? (() => { setDraggedBooking(null); setDragOverCell(null); }) : undefined} onDragOver={isDroppable ? (e => { e.preventDefault(); setDragOverCell({ staffId: s.id, time }); }) : undefined} onDragLeave={isDroppable ? (() => setDragOverCell(null)) : undefined} onDrop={isDroppable ? (e => { e.preventDefault(); dropBookingCrossStore(subStoreId, time); }) : undefined} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: isDragOver ? "#d4f0dc" : "#fafbfd", minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden", cursor: booking ? "grab" : "default" }}>
-                                    {booking ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 0.85 }} title={`${booking.customers?.name || "予約"} ${booking.course_name || ""} ${booking.booking_time}`}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div></div>
+                                    {booking ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 0.85 }} title={`${booking.customers?.name || "予約"} ${booking.course_name || ""} ${booking.booking_time}`}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div>{renderTicketMarks(booking.customer_id)}</div>
                                     : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
                                     : blocked ? (() => { const blk = getSubBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, lineHeight: 1.3 }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()
                                     : (isBreak && !isSlotBreakReleased(time)) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
