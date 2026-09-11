@@ -3234,6 +3234,8 @@ const handleAdminQrInput = async (value) => {
         </div>
       )}
 
+      <style>{`@keyframes adminNotifBlink { 0% { opacity: 1; } 50% { opacity: 0.55; } 100% { opacity: 1; } }`}</style>
+
       <div style={{ background: "white", borderBottom: "1px solid #e8ddd0", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ fontSize: 24 }}>🌿</div>
@@ -3241,6 +3243,11 @@ const handleAdminQrInput = async (value) => {
             <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>癒楽里 {currentStore.name}</div>
             <div style={{ fontSize: 11, color: "#aaa" }}>管理画面</div>
           </div>
+        </div>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", justifyContent: "center", alignItems: "center", padding: "0 12px" }}>
+          {unreadAdminCount > 0 && (
+            <div onClick={() => setShowAdminNotif(true)} style={{ background: "#e07070", color: "white", borderRadius: 10, padding: "8px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", animation: "adminNotifBlink 1.2s ease-in-out infinite" }}>🔔 新着通知 {unreadAdminCount}件</div>
+          )}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={() => { window.location.reload(); }} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 13, cursor: "pointer" }}>🔄 更新</button>
