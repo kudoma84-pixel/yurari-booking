@@ -3350,7 +3350,7 @@ const handleAdminQrInput = async (value) => {
                         <span style={{ fontSize: 11, color: "#aaa" }}>{new Date(n.created_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
                         {!n.is_read && <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#3b82f6", display: "inline-block", marginLeft: "auto", flexShrink: 0 }} />}
                       </div>
-                      <div onClick={n.customer_id ? () => { setTab("customers"); fetchCustomerDetail(n.customer_id); fetchCustomerTickets(n.customer_id); fetchCustomerHistory(n.customer_id); } : undefined} style={{ fontSize: 12, color: n.customer_id ? "#5a9e7a" : "#555", cursor: n.customer_id ? "pointer" : "default", textDecoration: n.customer_id ? "underline" : "none" }}>{n.body}</div>
+                      <div onClick={n.customer_id ? () => { setCustomerTickets([]); setTab("customers"); fetchCustomerDetail(n.customer_id); fetchCustomerTickets(n.customer_id); fetchCustomerHistory(n.customer_id); } : undefined} style={{ fontSize: 12, color: n.customer_id ? "#5a9e7a" : "#555", cursor: n.customer_id ? "pointer" : "default", textDecoration: n.customer_id ? "underline" : "none" }}>{n.body}</div>
                     </div>
                   ))}
                 </div>
@@ -4938,7 +4938,7 @@ const handleAdminQrInput = async (value) => {
                             <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a" }}>{n.type === "booking_change" ? "🔄 予約変更" : n.type === "new_booking" ? "🆕 新規予約" : n.title}</div>
                             <div style={{ fontSize: 10, color: "#aaa" }}>{new Date(n.created_at).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })}</div>
                           </div>
-                          <div onClick={n.customer_id ? () => { setTab("customers"); fetchCustomerDetail(n.customer_id); fetchCustomerTickets(n.customer_id); fetchCustomerHistory(n.customer_id); } : undefined} style={{ fontSize: 12, color: n.customer_id ? "#5a9e7a" : "#888", cursor: n.customer_id ? "pointer" : "default", textDecoration: n.customer_id ? "underline" : "none", marginBottom: 4 }}>{n.body?.slice(0, 50)}{n.body?.length > 50 ? "..." : ""}</div>
+                          <div onClick={n.customer_id ? () => { setCustomerTickets([]); setTab("customers"); fetchCustomerDetail(n.customer_id); fetchCustomerTickets(n.customer_id); fetchCustomerHistory(n.customer_id); } : undefined} style={{ fontSize: 12, color: n.customer_id ? "#5a9e7a" : "#888", cursor: n.customer_id ? "pointer" : "default", textDecoration: n.customer_id ? "underline" : "none", marginBottom: 4 }}>{n.body?.slice(0, 50)}{n.body?.length > 50 ? "..." : ""}</div>
                           <div style={{ fontSize: 11, color: "#aaa" }}>送信方法: {n.sent_via || "-"}</div>
                         </div>
                       ))}
@@ -5291,7 +5291,7 @@ const handleAdminQrInput = async (value) => {
                     .map((c, i) => {
                       const tkt = allCustomerTickets[c.id] || { purchase: 0, present: 0 };
                       return (
-                        <tr key={c.id} style={{ borderTop: "1px solid #f0ebe4", cursor: "pointer" }} onClick={() => { setSelectedCustomer(c); fetchCustomerDetail(c.id); fetchCustomerHistory(c.id); fetchCustomerTickets(c.id); }}>
+                        <tr key={c.id} style={{ borderTop: "1px solid #f0ebe4", cursor: "pointer" }} onClick={() => { setCustomerTickets([]); setSelectedCustomer(c); fetchCustomerDetail(c.id); fetchCustomerHistory(c.id); fetchCustomerTickets(c.id); }}>
                           <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.customer_number || i+1}</td>
                           <td style={{ padding: "12px 16px", fontSize: 13, fontWeight: 600, color: "#5a9e7a" }}>{c.name}</td>
                           <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.tel}</td>
