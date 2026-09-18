@@ -1184,6 +1184,61 @@ const handleAdminQrInput = async (value) => {
     if (memberId === selectedCustomer.id) setSelectedCustomer({ ...selectedCustomer, share_group_id: null });
   };
 
+  // ── 金券操作ログ ──────────────────────────────
+  // gift_ticket_logs への記録は監査用の補助機能。
+  // ここで失敗しても金券操作そのものは絶対に止めない（console.error のみ）。
+  const captureGiftTicketState = async (customerId) => {
+    if (!customerId) return null;
+    try {
+      // 共有グループの金券も「その顧客の保有分」として扱う（fetchCustomerTickets と同じ範囲）
+      const custRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}&select=share_group_id`, { headers });
+      const custData = await custRes.json();
+      const shareGroupId = custData?.[0]?.share_group_id;
+      let idList = [customerId];
+      if (shareGroupId) {
+        const groupRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?share_group_id=eq.${shareGroupId}&select=id`, { headers });
+        const groupData = await groupRes.json();
+        if (Array.isArray(groupData) && groupData.length > 0) idList = groupData.map(c => c.id);
+      }
+      const idFilter = idList.length > 1 ? `customer_id=in.(${idList.join(",")})` : `customer_id=eq.${customerId}`;
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${idFilter}&select=id,ticket_type,status,issued_at,used_at&order=issued_at.asc`, { headers });
+      const data = await res.json();
+      const tickets = Array.isArray(data) ? data : [];
+      const counts = { purchase: { active: 0, used: 0 }, present: { active: 0, used: 0 } };
+      const list = [];
+      tickets.forEach(t => {
+        const bucket = t.ticket_type === "purchase" ? counts.purchase : t.ticket_type === "present" ? counts.present : null;
+        if (bucket) {
+          if (t.status === "active") bucket.active++;
+          else if (t.status === "used") bucket.used++;
+        }
+        list.push({ id: t.id, ticket_type: t.ticket_type, status: t.status, issued_at: t.issued_at, used_at: t.used_at });
+      });
+      return { purchase: counts.purchase, present: counts.present, tickets: list };
+    } catch (e) {
+      console.error("[gift_ticket_logs] 金券状態の取得に失敗:", e);
+      return null;
+    }
+  };
+
+  const logGiftTicketAction = async (action, customerId, beforeState, afterState) => {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_ticket_logs`, {
+        method: "POST", headers,
+        body: JSON.stringify({
+          customer_id: customerId || null,
+          store_id: currentStore?.id || null,
+          action,
+          before_state: beforeState,
+          after_state: afterState,
+        }),
+      });
+      if (!res.ok) console.error("[gift_ticket_logs] 記録に失敗:", action, res.status, await res.text());
+    } catch (e) {
+      console.error("[gift_ticket_logs] 記録に失敗:", action, e);
+    }
+  };
+
   const fetchCustomerTickets = async (customerId) => {
     if (!customerId) return;
     const today = formatDate(new Date());
@@ -1257,6 +1312,7 @@ const handleAdminQrInput = async (value) => {
     if (!editGiftGroupModal) return;
     if (!window.confirm("金券を変更します。よいですか？")) return;
     const { allTickets, customerId, purchaseGroupId, activeCount, newCount, newIssuedAt, newExpiresAt, newTicketType, ticketEdits } = editGiftGroupModal;
+    const beforeState = await captureGiftTicketState(customerId);
     for (const t of allTickets) {
       await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, {
         method: "PATCH", headers,
@@ -1308,14 +1364,17 @@ const handleAdminQrInput = async (value) => {
         });
       }
     }
+    await logGiftTicketAction("edit", customerId, beforeState, await captureGiftTicketState(customerId));
     setEditGiftGroupModal(null);
     await fetchGiftHistory();
   };
 
-  const deleteGiftTickets = async (ticketIds, customerName) => {
+  const deleteGiftTickets = async (ticketIds, customerName, customerId) => {
     if (!window.confirm(`${customerName || "この顧客"}の金券グループ（${ticketIds.length}件）を削除しますか？`)) return;
     const ids = ticketIds.join(",");
+    const beforeState = await captureGiftTicketState(customerId);
     await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=in.(${ids})`, { method: "DELETE", headers });
+    await logGiftTicketAction("delete", customerId, beforeState, await captureGiftTicketState(customerId));
     await fetchGiftHistory();
   };
 
@@ -4286,9 +4345,11 @@ const handleAdminQrInput = async (value) => {
                                         if (useCount === 0) return;
                                         const targets = purchaseTickets.slice(0, useCount);
                                         const usedAt = new Date().toISOString();
+                                        const beforeState = await captureGiftTicketState(checkoutBooking.customer_id);
                                         for (const t of targets) {
                                           await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "used", used_at: usedAt, booking_id: checkoutBooking.id }) });
                                         }
+                                        await logGiftTicketAction("use", checkoutBooking.customer_id, beforeState, await captureGiftTicketState(checkoutBooking.customer_id));
                                         setCheckoutTicketUse(u => ({ ...u, purchase: 0 }));
                                         await fetchCustomerTickets(checkoutBooking.customer_id);
                                       }} disabled={useCount === 0} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: useCount > 0 ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: useCount > 0 ? "white" : "#bbb", fontSize: 12, fontWeight: 700, cursor: useCount > 0 ? "pointer" : "not-allowed" }}>
@@ -4318,9 +4379,11 @@ const handleAdminQrInput = async (value) => {
                                         if (useCount === 0) return;
                                         const targets = presentTickets.slice(0, useCount);
                                         const usedAt = new Date().toISOString();
+                                        const beforeState = await captureGiftTicketState(checkoutBooking.customer_id);
                                         for (const t of targets) {
                                           await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "used", used_at: usedAt, booking_id: checkoutBooking.id }) });
                                         }
+                                        await logGiftTicketAction("use", checkoutBooking.customer_id, beforeState, await captureGiftTicketState(checkoutBooking.customer_id));
                                         setCheckoutTicketUse(u => ({ ...u, present: 0 }));
                                         await fetchCustomerTickets(checkoutBooking.customer_id);
                                       }} disabled={useCount === 0} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: useCount > 0 ? "linear-gradient(135deg, #e07b39, #c05020)" : "#e8ddd0", color: useCount > 0 ? "white" : "#bbb", fontSize: 12, fontWeight: 700, cursor: useCount > 0 ? "pointer" : "not-allowed" }}>
@@ -4354,6 +4417,7 @@ const handleAdminQrInput = async (value) => {
                             const expires = new Date(today);
                             expires.setFullYear(expires.getFullYear() + 1);
                             const groupId = crypto.randomUUID();
+                            const beforeState = await captureGiftTicketState(checkoutBooking.customer_id);
                             for (let i = 0; i < count; i++) {
                               await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
                                 method: "POST", headers,
@@ -4372,6 +4436,7 @@ const handleAdminQrInput = async (value) => {
                                 }),
                               });
                             }
+                            await logGiftTicketAction("sell", checkoutBooking.customer_id, beforeState, await captureGiftTicketState(checkoutBooking.customer_id));
                             await fetchCustomerTickets(checkoutBooking.customer_id);
                             setCheckoutSellTicketId("");
                             // 合計に追加
@@ -4400,6 +4465,7 @@ const handleAdminQrInput = async (value) => {
                             const today = new Date();
                             const expires = new Date(today);
                             expires.setFullYear(expires.getFullYear() + 1);
+                            const beforeState = await captureGiftTicketState(checkoutBooking.customer_id);
                             await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
                               method: "POST", headers,
                               body: JSON.stringify({
@@ -4416,6 +4482,7 @@ const handleAdminQrInput = async (value) => {
                                 checkout_action: "gifted_at_checkout",
                               }),
                             });
+                            await logGiftTicketAction("gift", checkoutBooking.customer_id, beforeState, await captureGiftTicketState(checkoutBooking.customer_id));
                             await fetchCustomerTickets(checkoutBooking.customer_id);
                             setCheckoutPresentTicketId("");
                             alert(`${template.name}を1枚プレゼントしました`);
@@ -5081,7 +5148,7 @@ const handleAdminQrInput = async (value) => {
                           style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #b0d8b8", background: "#eaf5ec", color: "#3a7a5a", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
                         >編集</button>
                         <button
-                          onClick={() => deleteGiftTickets(row.tickets.map(t => t.id), row.customer?.name)}
+                          onClick={() => deleteGiftTickets(row.tickets.map(t => t.id), row.customer?.name, row.customer_id)}
                           style={{ padding: "4px 8px", borderRadius: 8, border: "1px solid #f0b0b0", background: "#fff0f0", color: "#c06060", fontSize: 12, cursor: "pointer" }}
                         >🗑</button>
                       </td>
@@ -5137,7 +5204,7 @@ const handleAdminQrInput = async (value) => {
                         style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #f0c8a0", background: "#fff5ee", color: "#c06020", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
                       >編集</button>
                       <button
-                        onClick={() => deleteGiftTickets(c.tickets.map(t => t.id), c.customer?.name)}
+                        onClick={() => deleteGiftTickets(c.tickets.map(t => t.id), c.customer?.name, c.customerId)}
                         style={{ padding: "4px 8px", borderRadius: 8, border: "1px solid #f0b0b0", background: "#fff0f0", color: "#c06060", fontSize: 12, cursor: "pointer" }}
                       >🗑</button>
                     </td>
