@@ -1826,7 +1826,7 @@ const handleAdminQrInput = async (value) => {
   const searchNotifyCustomer = async (query) => {
     if (!query) { setNotifyCustomerResult(null); return; }
     const kw = encodeURIComponent(sanitizeSearch(query));
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?or=(name.ilike.*${kw}*,tel.ilike.*${kw}*)&select=id,name,tel,email&limit=5`, { headers });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?or=(name.ilike.*${kw}*,kana.ilike.*${kw}*,tel.ilike.*${kw}*,customer_number.ilike.*${kw}*)&is_deleted=eq.false&select=id,customer_number,name,tel,email,line_user_id,notification_method&order=customer_number.asc&limit=30`, { headers });
     const data = await res.json();
     setNotifyCustomerResult(Array.isArray(data) ? data : []);
   };
@@ -4976,14 +4976,15 @@ const handleAdminQrInput = async (value) => {
                     <div style={{ marginBottom: 16 }}>
                       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                         <input value={notifyCustomerSearch} onChange={e => setNotifyCustomerSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && searchNotifyCustomer(notifyCustomerSearch)}
-                          placeholder="名前・電話番号で検索" style={{ flex: 1, padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+                          placeholder="名前・フリガナ・電話番号・顧客番号で検索" style={{ flex: 1, padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
                         <button onClick={() => searchNotifyCustomer(notifyCustomerSearch)}
                           style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>検索</button>
                       </div>
                       {notifyCustomerResult && notifyCustomerResult.map(c => (
                         <div key={c.id} onClick={() => { setNotifyCustomerId(c.id); setNotifyCustomerResult(null); setNotifyCustomerSearch(c.name); }}
                           style={{ padding: "10px 14px", background: notifyCustomerId === c.id ? "#eaf5ec" : "#f9f6f2", borderRadius: 10, cursor: "pointer", marginBottom: 4, fontSize: 13 }}>
-                          {c.name} / {c.tel}
+                          {c.name}{c.customer_number && `（No.${c.customer_number}）`} / {c.tel}
+                          <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: c.line_user_id ? "#06c755" : "#aaa" }}>{c.line_user_id ? "LINE連携済" : "LINE未連携"}</span>
                         </div>
                       ))}
                       {notifyCustomerId && <div style={{ fontSize: 12, color: "#5a9e7a", marginTop: 4 }}>✓ {notifyCustomerSearch} を選択中</div>}
