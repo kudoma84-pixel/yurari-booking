@@ -157,6 +157,7 @@ export default function AdminPage() {
   const [isSavingDirectBooking, setIsSavingDirectBooking] = useState(false);
   const [isSavingChangeBooking, setIsSavingChangeBooking] = useState(false);
   const [directBookingProducts, setDirectBookingProducts] = useState([{ name: "", price: "", quantity: 1 }]);
+  const [directBookingPayMethod, setDirectBookingPayMethod] = useState("cash");
   const [customerSearchResult, setCustomerSearchResult] = useState(null);
   const [customerSearchResults, setCustomerSearchResults] = useState([]);
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
@@ -1527,7 +1528,7 @@ const handleAdminQrInput = async (value) => {
           subtotal: total,
           discount: 0,
           total: total,
-          payment_method: "cash",
+          payment_method: directBookingPayMethod,
           payment_status: "paid",
           notes: "",
         }),
@@ -1556,6 +1557,20 @@ const handleAdminQrInput = async (value) => {
         await fetch(`${SUPABASE_URL}/rest/v1/payments?id=eq.${paymentId}`, { method: "DELETE", headers });
         await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${bookingId}`, { method: "DELETE", headers });
         alert("商品明細の登録に失敗しました。登録を取り消しました。ステータス：" + itemsRes.status);
+        setIsSavingDirectBooking(false);
+        return;
+      }
+      // 日報の金種別売上は payment_methods を参照するため、会計画面と同様に明細を登録
+      const methodsRes = await fetch(`${SUPABASE_URL}/rest/v1/payment_methods`, {
+        method: "POST", headers,
+        body: JSON.stringify({ payment_id: paymentId, method: directBookingPayMethod, amount: total }),
+      });
+      if (!methodsRes.ok) {
+        // 支払方法INSERT失敗 → payment_items・payment・bookingをロールバック
+        await fetch(`${SUPABASE_URL}/rest/v1/payment_items?payment_id=eq.${paymentId}`, { method: "DELETE", headers });
+        await fetch(`${SUPABASE_URL}/rest/v1/payments?id=eq.${paymentId}`, { method: "DELETE", headers });
+        await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${bookingId}`, { method: "DELETE", headers });
+        alert("支払方法の登録に失敗しました。登録を取り消しました。ステータス：" + methodsRes.status);
         setIsSavingDirectBooking(false);
         return;
       }
@@ -1609,6 +1624,7 @@ const handleAdminQrInput = async (value) => {
     setDirectBookingForm({});
     setDirectBookingMode("normal");
     setDirectBookingProducts([{ name: "", price: "", quantity: 1 }]);
+    setDirectBookingPayMethod("cash");
     setCustomerSearchResult(null);
     setCustomerSearchQuery("");
     const savedDateStr = formatDate(savedDate);
@@ -2536,11 +2552,11 @@ const handleAdminQrInput = async (value) => {
     <div style={{ minHeight: "100vh", background: "#f5f5f5", fontFamily: "'Noto Sans JP', sans-serif" }}>
 
       {directBookingModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => { setDirectBookingModal(null); setDirectBookingMode("normal"); setDirectBookingProducts([{ name: "", price: "", quantity: 1 }]); }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => { setDirectBookingModal(null); setDirectBookingMode("normal"); setDirectBookingProducts([{ name: "", price: "", quantity: 1 }]); setDirectBookingPayMethod("cash"); }}>
           <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 480, maxHeight: "90vh", overflow: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
               <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>📝 直接予約入力</div>
-              <button onClick={() => { setDirectBookingModal(null); setDirectBookingMode("normal"); setDirectBookingProducts([{ name: "", price: "", quantity: 1 }]); }} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+              <button onClick={() => { setDirectBookingModal(null); setDirectBookingMode("normal"); setDirectBookingProducts([{ name: "", price: "", quantity: 1 }]); setDirectBookingPayMethod("cash"); }} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
             </div>
             {/* タブ切替 */}
             <div style={{ display: "flex", background: "#f0ebe4", borderRadius: 12, padding: 4, marginBottom: 20, gap: 4 }}>
@@ -2667,6 +2683,12 @@ const handleAdminQrInput = async (value) => {
                       </div>
                     )}
                   </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>支払い方法</label>
+                    <select value={directBookingPayMethod} onChange={e => setDirectBookingPayMethod(e.target.value)} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", background: "white" }}>
+                      {PAYMENT_METHODS.map(m => <option key={m.id} value={m.id}>{m.icon} {m.name}</option>)}
+                    </select>
+                  </div>
                 </>
               )}
               <div>
@@ -2675,7 +2697,7 @@ const handleAdminQrInput = async (value) => {
               </div>
             </div>
             <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
-              <button onClick={() => { setDirectBookingModal(null); setDirectBookingMode("normal"); setDirectBookingProducts([{ name: "", price: "", quantity: 1 }]); }} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>キャンセル</button>
+              <button onClick={() => { setDirectBookingModal(null); setDirectBookingMode("normal"); setDirectBookingProducts([{ name: "", price: "", quantity: 1 }]); setDirectBookingPayMethod("cash"); }} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>キャンセル</button>
               {directBookingMode === "normal" ? (
                 <button onClick={saveDirectBooking} disabled={isSavingDirectBooking || !directBookingForm.customer_name || !directBookingForm.course_id || !directBookingForm.staff_id} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id && directBookingForm.staff_id ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id && directBookingForm.staff_id ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id && directBookingForm.staff_id ? "pointer" : "not-allowed" }}>{isSavingDirectBooking ? "登録中..." : "予約を登録する"}</button>
               ) : (
