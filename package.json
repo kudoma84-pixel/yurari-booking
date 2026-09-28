@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@line/liff": "^2.22.0",
+    "@vercel/functions": "^3.9.9",
     "next": "14.2.3",
     "next-auth": "^4.24.7",
     "react": "^18",

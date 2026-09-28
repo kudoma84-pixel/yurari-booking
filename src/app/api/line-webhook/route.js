@@ -1,5 +1,66 @@
 import { NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { SUPABASE_URL, sbHeaders, sbSelect, q, verifyLineSignature } from "../_lib/server";
+
+// 1イベント分の保存。LINEの再送で同じ webhookEventId が来た場合は UNIQUE 制約で弾かれるのでスキップ扱い
+async function saveEvent(event) {
+  if (event.type !== "message" || event.message?.type !== "text") return;
+
+  const lineUserId = event.source?.userId;
+  if (!lineUserId) return;
+  const message = event.message.text;
+  const webhookEventId = event.webhookEventId || null;
+
+  const customers = await sbSelect(
+    `customers?line_user_id=eq.${q(lineUserId)}&select=id&limit=1`
+  );
+  const customerId = customers.length > 0 ? customers[0].id : null;
+
+  const row = {
+    line_user_id: lineUserId,
+    customer_id: customerId,
+    direction: "inbound",
+    message,
+    is_read: false,
+    webhook_event_id: webhookEventId,
+  };
+  const insert = (data) => fetch(`${SUPABASE_URL}/rest/v1/line_messages`, {
+    method: "POST",
+    headers: { ...sbHeaders, Prefer: "return=representation" },
+    body: JSON.stringify(data),
+  });
+
+  let res = await insert(row);
+  if (res.ok) return;
+
+  let text = await res.text();
+  let code = null;
+  try { code = JSON.parse(text)?.code; } catch {}
+  // webhook_event_id カラム未追加（SQL未実行）の場合はカラムなしで従来どおり保存
+  if (code === "PGRST204") {
+    const { webhook_event_id, ...legacyRow } = row;
+    res = await insert(legacyRow);
+    if (res.ok) return;
+    text = await res.text();
+    code = null;
+    try { code = JSON.parse(text)?.code; } catch {}
+  }
+  if (res.status === 409 || code === "23505") {
+    console.log("[line-webhook] 再送された重複イベントのためスキップ", webhookEventId);
+    return;
+  }
+  console.error("[line-webhook] 保存失敗", res.status, text);
+}
+
+async function processEvents(events) {
+  for (const event of events) {
+    try {
+      await saveEvent(event);
+    } catch (e) {
+      console.error("[line-webhook] イベント処理エラー", e);
+    }
+  }
+}
 
 export async function POST(request) {
   try {
@@ -17,31 +78,9 @@ export async function POST(request) {
     }
     const events = body.events || [];
 
-    for (const event of events) {
-      if (event.type !== "message" || event.message?.type !== "text") continue;
-
-      const lineUserId = event.source?.userId;
-      if (!lineUserId) continue;
-      const message = event.message.text;
-
-      const customers = await sbSelect(
-        `customers?line_user_id=eq.${q(lineUserId)}&select=id&limit=1`
-      );
-      const customerId = customers.length > 0 ? customers[0].id : null;
-
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/line_messages`, {
-        method: "POST",
-        headers: { ...sbHeaders, Prefer: "return=representation" },
-        body: JSON.stringify({
-          line_user_id: lineUserId,
-          customer_id: customerId,
-          direction: "inbound",
-          message,
-          is_read: false,
-        }),
-      });
-      if (!res.ok) console.error("[line-webhook] 保存失敗", res.status, await res.text());
-    }
+    // LINEのタイムアウトによる再送を防ぐため、保存を待たずに200を返す。
+    // waitUntil により応答後も関数の実行は保存完了まで継続される（Vercel）
+    waitUntil(processEvents(events));
 
     return NextResponse.json({ ok: true });
   } catch (e) {
