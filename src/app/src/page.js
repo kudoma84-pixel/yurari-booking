@@ -71,6 +71,22 @@ function AppInner() {
   // LIFFでない／失敗した場合は従来どおり外部ブラウザ引き渡し＋NextAuthのLINEログイン。
   useEffect(() => {
     liffReadyRef.current = (async () => {
+      // [診断] LIFFがどこで失敗しているかを auth_error_logs に記録する（トークン等の認証情報は記録しない）
+      const liffIdEnv = process.env.NEXT_PUBLIC_LIFF_ID;
+      const diag = {
+        liffIdSet: !!liffIdEnv,
+        liffIdHead: liffIdEnv ? String(liffIdEnv).slice(0, 10) : null,
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+        initResult: "failed",
+        initError: null,
+        isInClient: null,
+        isLoggedIn: null,
+        idTokenGot: null,
+        verifyStatus: null,
+        verifyError: null,
+        finalUserId: false,
+        stepError: null,
+      };
       try {
         const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
         if (!liffId) throw new Error("NEXT_PUBLIC_LIFF_ID が未設定です");
@@ -80,6 +96,9 @@ function AppInner() {
           liff.init({ liffId }),
           new Promise((_, reject) => setTimeout(() => reject(new Error("liff.init タイムアウト")), 8000)),
         ]);
+        diag.initResult = "ok";
+        diag.isInClient = liff.isInClient();
+        diag.isLoggedIn = liff.isLoggedIn();
         if (!liff.isInClient()) {
           handOffToExternalBrowser();
           return null;
@@ -89,21 +108,42 @@ function AppInner() {
           return new Promise(() => {}); // ログイン画面へ遷移するため解決しない
         }
         const idToken = liff.getIDToken();
+        diag.idTokenGot = !!idToken;
         if (!idToken) throw new Error("IDトークンが取得できません（LIFFのスコープに openid が必要）");
         const res = await fetch("/api/liff-verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ idToken }),
         });
-        if (!res.ok) throw new Error("IDトークン検証失敗 status=" + res.status);
+        diag.verifyStatus = res.status;
+        if (!res.ok) {
+          diag.verifyError = await res.text().catch(() => null);
+          throw new Error("IDトークン検証失敗 status=" + res.status);
+        }
         const data = await res.json();
         if (!data?.lineUserId) throw new Error("検証結果に lineUserId がありません");
         setLiffUser({ lineUserId: data.lineUserId, displayName: data.displayName || "" });
+        diag.finalUserId = true;
         return data;
       } catch (e) {
+        const errInfo = { name: e?.name, message: e?.message };
+        if (diag.initResult !== "ok") diag.initError = errInfo;
+        else diag.stepError = errInfo;
         console.error("[LIFF] 初期化・認証に失敗したため従来フローで続行します", e);
         handOffToExternalBrowser();
         return null;
+      } finally {
+        // どの経路でも必ず1回記録。await せず、失敗しても画面の動作に影響させない
+        try {
+          fetch(`${SUPABASE_URL}/rest/v1/auth_error_logs`, {
+            method: "POST",
+            keepalive: true, // 外部ブラウザ引き渡し・liff.login の遷移中でも送信を完了させる
+            headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY, "Content-Type": "application/json", "Prefer": "return=minimal" },
+            body: JSON.stringify({ error_code: "LIFF_DEBUG", detail: JSON.stringify(diag), user_agent: diag.userAgent }),
+          }).catch(err => console.error("[LIFF] 診断ログ記録失敗", err));
+        } catch (err) {
+          console.error("[LIFF] 診断ログ記録失敗", err);
+        }
       }
     })();
   }, []);
