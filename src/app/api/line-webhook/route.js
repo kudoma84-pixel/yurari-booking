@@ -30,11 +30,7 @@ async function saveEvent(event) {
     body: JSON.stringify(data),
   });
 
-  // [debug] 原因調査用の一時ログ（webhook_event_id が null になる件）。確認後に削除する
-  console.log("[line-webhook][debug] webhookEventId:", event.webhookEventId, "deliveryContext:", JSON.stringify(event.deliveryContext));
-
   let res = await insert(row);
-  console.log("[line-webhook][debug] INSERT status:", res.status);
   if (res.ok) return;
 
   let text = await res.text();
@@ -42,10 +38,8 @@ async function saveEvent(event) {
   try { code = JSON.parse(text)?.code; } catch {}
   // webhook_event_id カラム未追加（SQL未実行）の場合はカラムなしで従来どおり保存
   if (code === "PGRST204") {
-    console.warn("[line-webhook][debug] PGRST204 のためカラムなしで再INSERT:", text);
     const { webhook_event_id, ...legacyRow } = row;
     res = await insert(legacyRow);
-    console.log("[line-webhook][debug] 再INSERT status:", res.status);
     if (res.ok) return;
     text = await res.text();
     code = null;
@@ -62,7 +56,6 @@ async function processEvents(events) {
   for (const event of events) {
     try {
       await saveEvent(event);
-      console.log("[line-webhook][debug] バックグラウンド処理完了");
     } catch (e) {
       console.error("[line-webhook] イベント処理エラー", e);
     }
@@ -84,8 +77,6 @@ export async function POST(request) {
       return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
     }
     const events = body.events || [];
-    // [debug] 原因調査用の一時ログ。どのビルドが応答しているか・waitUntil が関数か確認する
-    console.log("[line-webhook][debug] commit:", process.env.VERCEL_GIT_COMMIT_SHA, "events:", events.length, "waitUntil:", typeof waitUntil);
 
     // LINEのタイムアウトによる再送を防ぐため、保存を待たずに200を返す。
     // waitUntil により応答後も関数の実行は保存完了まで継続される（Vercel）
