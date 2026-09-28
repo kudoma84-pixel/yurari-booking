@@ -43,6 +43,25 @@ function AppInner() {
   const changeBookingId = searchParams?.get('change');
   const notifyFromUrl = searchParams?.get('notify');
 
+  // LINEアプリ内ブラウザで開かれた場合は外部ブラウザへ引き渡す。
+  // 内部ブラウザでLINEログインを始めると、戻り先（Safari等）に state cookie が無く OAuthCallback エラーになるため。
+  useEffect(() => {
+    try {
+      if (!/ line\//i.test(navigator.userAgent)) return;
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("openExternalBrowser") === "1") return;
+      // ログイン復帰中はセッションがこのブラウザにあるため引き渡さない
+      if (params.get("notify")) return;
+      // 無限ループ防止：一度実行したら二度目は何もしない
+      if (sessionStorage.getItem("yurari_open_external")) return;
+      sessionStorage.setItem("yurari_open_external", "1");
+      params.set("openExternalBrowser", "1");
+      window.location.replace(`${window.location.pathname}?${params.toString()}${window.location.hash}`);
+    } catch (e) {
+      console.error("[src] 外部ブラウザへの引き渡しに失敗", e);
+    }
+  }, []);
+
   // NextAuthのLINEログイン復帰中（?notify=line）はローディング表示
   const [screen, setScreen] = useState(notifyFromUrl === 'line' ? "loading" : "top");
   const [notificationMethod, setNotificationMethod] = useState(null);

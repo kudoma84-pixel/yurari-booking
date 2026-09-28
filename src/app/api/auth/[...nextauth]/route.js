@@ -46,6 +46,22 @@ const handler = NextAuth({
   ],
   // NEXTAUTH_URLが未設定のVercel環境でもcookieが正しく設定されるようにする
   useSecureCookies: true,
+  // OAuth のやり取りで使う cookie の SameSite 制限を緩める（保険）。
+  // 名前は useSecureCookies: true 時の NextAuth v4 デフォルトに合わせて __Secure- 接頭辞付き
+  cookies: {
+    state: {
+      name: "__Secure-next-auth.state",
+      options: { httpOnly: true, sameSite: "none", path: "/", secure: true, maxAge: 900 },
+    },
+    pkceCodeVerifier: {
+      name: "__Secure-next-auth.pkce.code_verifier",
+      options: { httpOnly: true, sameSite: "none", path: "/", secure: true, maxAge: 900 },
+    },
+    nonce: {
+      name: "__Secure-next-auth.nonce",
+      options: { httpOnly: true, sameSite: "none", path: "/", secure: true, maxAge: 900 },
+    },
+  },
   // 標準の英語エラー画面の代わりに独自ページを表示。
   // OAuthCallback 等はエラーページではなくサインインページに ?error= 付きで飛ぶため signIn も指定する。
   // ※signIn を /src にするとループするので必ず /auth-error（自動で再ログインしないページ）にすること
