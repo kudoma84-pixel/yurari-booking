@@ -1,5 +1,36 @@
 import NextAuth from "next-auth";
 import LineProvider from "next-auth/providers/line";
+import { waitUntil } from "@vercel/functions";
+import { SUPABASE_URL, sbHeaders } from "../../_lib/server";
+
+// Error オブジェクトは通常の JSON.stringify では {} になるため展開する
+const safeStringify = (v) => {
+  try {
+    return JSON.stringify(v, (k, val) =>
+      val instanceof Error
+        ? { name: val.name, message: val.message, stack: val.stack }
+        : val
+    );
+  } catch (e) {
+    return String(v);
+  }
+};
+
+// NextAuth 内部の失敗理由を auth_error_logs に記録する。
+// 失敗しても認証処理に影響させないため、await せず例外もすべて握りつぶす。
+// waitUntil で応答後も送信完了まで関数を生かす（Vercel）
+const recordAuthError = (code, detail) => {
+  try {
+    const p = fetch(`${SUPABASE_URL}/rest/v1/auth_error_logs`, {
+      method: "POST",
+      headers: { ...sbHeaders, Prefer: "return=minimal" },
+      body: JSON.stringify({ error_code: code, detail }),
+    }).catch(e => console.error("[next-auth][error] 記録失敗", e));
+    try { waitUntil(p); } catch {}
+  } catch (e) {
+    console.error("[next-auth][error] 記録失敗", e);
+  }
+};
 
 if (!process.env.NEXTAUTH_SECRET) {
   console.error("[auth] NEXTAUTH_SECRET が未設定です。Vercelの環境変数に設定してください。");
@@ -21,6 +52,14 @@ const handler = NextAuth({
   pages: {
     signIn: "/auth-error",
     error: "/auth-error",
+  },
+  // 失敗理由（state cookie missing / invalid_grant など）は logger の metadata にしか出ないため記録する
+  logger: {
+    error(code, metadata) {
+      const detail = safeStringify(metadata);
+      console.error("[next-auth][error]", code, detail);
+      recordAuthError(code, detail);
+    },
   },
   callbacks: {
     async jwt({ token, account }) {
