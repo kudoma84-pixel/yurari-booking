@@ -15,8 +15,11 @@ const handler = NextAuth({
   ],
   // NEXTAUTH_URLが未設定のVercel環境でもcookieが正しく設定されるようにする
   useSecureCookies: true,
-  // 標準の英語エラー画面の代わりに独自ページを表示（signIn は指定しない：/src にするとループする）
+  // 標準の英語エラー画面の代わりに独自ページを表示。
+  // OAuthCallback 等はエラーページではなくサインインページに ?error= 付きで飛ぶため signIn も指定する。
+  // ※signIn を /src にするとループするので必ず /auth-error（自動で再ログインしないページ）にすること
   pages: {
+    signIn: "/auth-error",
     error: "/auth-error",
   },
   callbacks: {
