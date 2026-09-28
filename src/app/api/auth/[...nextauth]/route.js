@@ -15,6 +15,10 @@ const handler = NextAuth({
   ],
   // NEXTAUTH_URLが未設定のVercel環境でもcookieが正しく設定されるようにする
   useSecureCookies: true,
+  // 標準の英語エラー画面の代わりに独自ページを表示（signIn は指定しない：/src にするとループする）
+  pages: {
+    error: "/auth-error",
+  },
   callbacks: {
     async jwt({ token, account }) {
       if (account) {
