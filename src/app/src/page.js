@@ -43,9 +43,14 @@ function AppInner() {
   const changeBookingId = searchParams?.get('change');
   const notifyFromUrl = searchParams?.get('notify');
 
-  // LINEアプリ内ブラウザで開かれた場合は外部ブラウザへ引き渡す。
+  // LIFF（LINEアプリ内）で開かれた場合に検証済みのLINEユーザー情報を入れる
+  const [liffUser, setLiffUser] = useState(null);
+  // LIFFの判定結果：LIFFで取得できたLINEユーザーID、LIFFでなければ／失敗時は null で解決する
+  const liffReadyRef = useRef(null);
+
+  // LINEアプリ内ブラウザで開かれた場合は外部ブラウザへ引き渡す（LIFFでない場合の従来動作）。
   // 内部ブラウザでLINEログインを始めると、戻り先（Safari等）に state cookie が無く OAuthCallback エラーになるため。
-  useEffect(() => {
+  const handOffToExternalBrowser = () => {
     try {
       if (!/ line\//i.test(navigator.userAgent)) return;
       const params = new URLSearchParams(window.location.search);
@@ -60,7 +65,51 @@ function AppInner() {
     } catch (e) {
       console.error("[src] 外部ブラウザへの引き渡しに失敗", e);
     }
+  };
+
+  // 起動時：LIFFとして開かれていればLIFFでLINEユーザーIDを取得（リダイレクトなし）。
+  // LIFFでない／失敗した場合は従来どおり外部ブラウザ引き渡し＋NextAuthのLINEログイン。
+  useEffect(() => {
+    liffReadyRef.current = (async () => {
+      try {
+        const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
+        if (!liffId) throw new Error("NEXT_PUBLIC_LIFF_ID が未設定です");
+        const liff = (await import("@line/liff")).default;
+        // init が応答しない環境でも操作不能にならないようタイムアウトで従来フローへ落とす
+        await Promise.race([
+          liff.init({ liffId }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("liff.init タイムアウト")), 8000)),
+        ]);
+        if (!liff.isInClient()) {
+          handOffToExternalBrowser();
+          return null;
+        }
+        if (!liff.isLoggedIn()) {
+          liff.login();
+          return new Promise(() => {}); // ログイン画面へ遷移するため解決しない
+        }
+        const idToken = liff.getIDToken();
+        if (!idToken) throw new Error("IDトークンが取得できません（LIFFのスコープに openid が必要）");
+        const res = await fetch("/api/liff-verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ idToken }),
+        });
+        if (!res.ok) throw new Error("IDトークン検証失敗 status=" + res.status);
+        const data = await res.json();
+        if (!data?.lineUserId) throw new Error("検証結果に lineUserId がありません");
+        setLiffUser({ lineUserId: data.lineUserId, displayName: data.displayName || "" });
+        return data;
+      } catch (e) {
+        console.error("[LIFF] 初期化・認証に失敗したため従来フローで続行します", e);
+        handOffToExternalBrowser();
+        return null;
+      }
+    })();
   }, []);
+
+  // LINEユーザーID：LIFFで検証済みのID、なければNextAuthセッションのID
+  const authLineUserId = liffUser?.lineUserId || session?.lineUserId || null;
 
   // NextAuthのLINEログイン復帰中（?notify=line）はローディング表示
   const [screen, setScreen] = useState(notifyFromUrl === 'line' ? "loading" : "top");
@@ -177,7 +226,7 @@ function AppInner() {
 
     // 成功パスでもURLから?notify=lineを除去してループを防ぐ
     if (typeof window !== "undefined") window.history.replaceState({}, "", "/src");
-    checkExistingCustomer();
+    checkExistingCustomer(session.lineUserId, session.user?.name || "");
   }, [notifyFromUrl, session, sessionStatus]);
 
   useEffect(() => {
@@ -380,8 +429,8 @@ function AppInner() {
     }
     setStaffShiftDates(dateMap);
   };
-  const checkExistingCustomer = async () => {
-    const lineUserId = session?.lineUserId;
+  // lineUserId はLIFF検証済みのID またはNextAuthセッションのID（authLineUserId 参照）
+  const checkExistingCustomer = async (lineUserId = authLineUserId, displayName = liffUser?.displayName || session?.user?.name || "") => {
     if (!lineUserId) return;
     // line_user_idを確実に保存（次回以降の自動ログインとLINE通知送信に使用）
     localStorage.setItem('yurari_line_user_id', lineUserId);
@@ -408,7 +457,7 @@ function AppInner() {
       setScreen("booking");
     } else {
       // 新規ユーザー：LINEの表示名をプリセットして登録画面へ
-      setProfile(p => ({ ...p, name: session?.user?.name || "" }));
+      setProfile(p => ({ ...p, name: displayName }));
       setScreen("register");
     }
   };
@@ -420,8 +469,18 @@ function AppInner() {
     setNotificationMethod(method);
     if (method === "line") {
       localStorage.setItem('yurari_notification_method', 'line');
-      // NextAuth LINE OAuth → /src?notify=line に戻り、checkExistingCustomer で処理
-      signIn("line", { callbackUrl: "/src?notify=line" });
+      const startLineLogin = async () => {
+        // LIFF（LINEアプリ内）ならリダイレクトせず、検証済みのLINEユーザーIDでそのまま照合
+        let liffData = null;
+        try { liffData = await liffReadyRef.current; } catch {}
+        if (liffData?.lineUserId) {
+          checkExistingCustomer(liffData.lineUserId, liffData.displayName || "");
+          return;
+        }
+        // NextAuth LINE OAuth → /src?notify=line に戻り、checkExistingCustomer で処理
+        signIn("line", { callbackUrl: "/src?notify=line" });
+      };
+      startLineLogin();
     } else {
       setScreen("register");
     }
@@ -531,7 +590,7 @@ function AppInner() {
               zipcode: profile.zipcode,
               birthday: profile.birthday || null,
               points: 0,
-              line_user_id: session?.lineUserId || localStorage.getItem('yurari_line_user_id') || null,
+              line_user_id: authLineUserId || localStorage.getItem('yurari_line_user_id') || null,
               notification_method: notificationMethod || "line",
             }),
           });
