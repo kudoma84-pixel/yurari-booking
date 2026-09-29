@@ -47,6 +47,26 @@ const NOMINEE_STAFFS = ["工藤昌彦", "久保田誠", "工藤浩哉", "工藤�
 // toISOString() はUTC基準のため 0:00〜8:59 に前日を返してしまう。日付判定は必ずこれを使う。
 const jstToday = () => new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+// タイムスタンプ（UTC）を日本時間の日付 YYYY-MM-DD にする
+const jstDateOf = (ts) => {
+  if (!ts) return null;
+  const s = /[Z+]/.test(ts) ? ts : ts + "Z";
+  return new Date(new Date(s).getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+};
+
+// ── 売上計上日（payments.sales_date） ──────────────────────────────
+// 売上の日付集計（日報・会計一覧・月報）はすべて sales_date 基準にそろえる。
+// created_at は「入力した日時」なので集計には使わない。
+// sales_date が NULL の会計は created_at の日本時間の日付で代用する（安全側）。
+const paymentSalesDate = (p) => p?.sales_date || jstDateOf(p?.created_at);
+
+// payments を売上計上日の期間（両端含む）で絞る PostgREST の条件
+const salesDateRangeFilter = (startDate, endDate) => {
+  const utcStart = new Date(`${startDate}T00:00:00+09:00`).toISOString().slice(0, 19);
+  const utcEnd = new Date(`${endDate}T23:59:59+09:00`).toISOString().slice(0, 19);
+  return `or=(and(sales_date.gte.${startDate},sales_date.lte.${endDate}),and(sales_date.is.null,created_at.gte.${utcStart},created_at.lte.${utcEnd}))`;
+};
+
 // 金券は1枚=1,000円固定。会計では金額ではなく枚数で指定する。
 const GIFT_TICKET_UNIT_PRICE = 1000;
 
@@ -116,6 +136,7 @@ export default function AdminPage() {
   const [checkoutDiscountReason, setCheckoutDiscountReason] = useState("");
   const [checkoutPaymentMethods, setCheckoutPaymentMethods] = useState([{ method: "cash", amount: 0 }]);
   const [checkoutNote, setCheckoutNote] = useState("");
+  const [checkoutSalesDate, setCheckoutSalesDate] = useState(""); // 売上計上日（payments.sales_date）
   const [checkoutFreeProduct, setCheckoutFreeProduct] = useState({ name: "", price: "", quantity: 1 });
   const [checkoutComplete, setCheckoutComplete] = useState(false);
   const [checkoutResult, setCheckoutResult] = useState(null);
@@ -328,19 +349,27 @@ const handleAdminQrInput = async (value) => {
 
   const fetchCompletedBookings = async (dateStr) => {
     const d = dateStr || formatDate(new Date());
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${d}&status=eq.completed&select=*,customers(name,tel)&order=booking_time.asc`, { headers });
-    const data = await res.json();
-    if (!Array.isArray(data)) { setCompletedBookings([]); return; }
-    // 各予約の支払い情報を取得
-    const bookingsWithPayment = await Promise.all(data.map(async b => {
-      const pRes = await fetch(`${SUPABASE_URL}/rest/v1/payments?booking_id=eq.${b.id}&select=*,payment_methods(method,amount)`, { headers });
-      const pData = await pRes.json();
-      const payment = Array.isArray(pData) && pData.length > 0 ? pData[0] : null;
-      const piRes = await fetch(`${SUPABASE_URL}/rest/v1/payment_items?payment_id=eq.${payment?.id}&select=*`, { headers });
+    // 会計済みは売上計上日（sales_date）で絞る。日報と同じ基準なので合計が一致する。
+    const pRes = await fetch(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&${salesDateRangeFilter(d, d)}&select=*,payment_methods(method,amount)&order=created_at.asc`, { headers });
+    const payments = await pRes.json();
+    if (!Array.isArray(payments)) { setCompletedBookings([]); return; }
+    const bookingIds = [...new Set(payments.map(p => p.booking_id).filter(Boolean))];
+    const bookingMap = {};
+    if (bookingIds.length > 0) {
+      const bRes = await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=in.(${bookingIds.join(",")})&select=*,customers(name,tel)`, { headers });
+      const bData = await bRes.json();
+      if (Array.isArray(bData)) bData.forEach(b => { bookingMap[b.id] = b; });
+    }
+    const rows = await Promise.all(payments.map(async payment => {
+      const piRes = await fetch(`${SUPABASE_URL}/rest/v1/payment_items?payment_id=eq.${payment.id}&select=*`, { headers });
       const piData = await piRes.json();
-      return { ...b, payment, paymentItems: Array.isArray(piData) ? piData : [] };
+      const b = bookingMap[payment.booking_id];
+      // 予約に紐づかない会計も日報の合計に含まれるため一覧に出す（修正は予約単位のため不可）
+      const base = b || { id: `payment_${payment.id}`, noBooking: true, customer_id: payment.customer_id, customers: null, booking_time: "", course_name: "予約なしの会計", staff_name: "" };
+      return { ...base, payment, paymentItems: Array.isArray(piData) ? piData : [], salesDate: paymentSalesDate(payment) };
     }));
-    setCompletedBookings(bookingsWithPayment);
+    rows.sort((a, b) => (a.booking_time || "").localeCompare(b.booking_time || ""));
+    setCompletedBookings(rows);
   };
 
   const revertPayment = async (booking) => {
@@ -373,6 +402,8 @@ const handleAdminQrInput = async (value) => {
     fetchTodayBookings();
     // 再会計画面へ
     setCheckoutBooking({ ...booking, customers: booking.customers });
+    // 修正時は元の会計の売上計上日を引き継ぐ（再会計の画面で変更も可能）
+    setCheckoutSalesDate(booking.salesDate || booking.booking_date || jstToday());
     // 施術メニューをcheckoutItemsにセット
     const course = courseMenus.find(c => c.name === booking.course_name);
     setCheckoutItems([{ type: "course", name: booking.course_name, price: course?.price || 0, quantity: 1 }]);
@@ -652,11 +683,9 @@ const handleAdminQrInput = async (value) => {
   };
 
   const fetchDailyReport = async (dateStr) => {
-    // JST 0:00〜23:59 をUTCに変換（UTC = JST - 9h）
-    const utcStart = new Date(`${dateStr}T00:00:00+09:00`).toISOString().slice(0, 19);
-    const utcEnd   = new Date(`${dateStr}T23:59:59+09:00`).toISOString().slice(0, 19);
+    // 売上は売上計上日（sales_date）で集計する（会計一覧と同じ基準）
     const [paymentsRes, bookingsRes] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&created_at=gte.${utcStart}&created_at=lte.${utcEnd}&select=*,payment_methods(method,amount)`, { headers }),
+      fetch(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&${salesDateRangeFilter(dateStr, dateStr)}&select=*,payment_methods(method,amount)`, { headers }),
       fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${dateStr}&select=*,customers(name)`, { headers }),
     ]);
     const payments = await paymentsRes.json();
@@ -751,18 +780,11 @@ const handleAdminQrInput = async (value) => {
       const pyStart = `${pyMonthStr}-01`;
       const pyEnd = `${pyMonthStr}-${String(pyLastDay).padStart(2,'0')}`;
 
-      // UTC変換（payments用）
-      const toUtcStr = (dateStr, time) => new Date(`${dateStr}T${time}+09:00`).toISOString().slice(0,19);
-      const h6UtcStart = toUtcStr(h6Start, '00:00:00');
-      const h6UtcEnd = toUtcStr(h6End, '23:59:59');
-      const pyUtcStart = toUtcStr(pyStart, '00:00:00');
-      const pyUtcEnd = toUtcStr(pyEnd, '23:59:59');
-
-      // 並列フェッチ
+      // 並列フェッチ（payments は売上計上日 sales_date 基準）
       const [bookingsRaw, paymentsRaw, pyPayRaw, pyBookRaw, shiftsRaw] = await Promise.all([
         fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=gte.${h6Start}&booking_date=lte.${h6End}&select=id,customer_id,staff_id,staff_name,booking_date,status&order=booking_date.asc`, { headers }).then(r => r.json()),
-        fetch(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&created_at=gte.${h6UtcStart}&created_at=lte.${h6UtcEnd}&select=id,booking_id,total,created_at`, { headers }).then(r => r.json()),
-        fetch(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&created_at=gte.${pyUtcStart}&created_at=lte.${pyUtcEnd}&select=total`, { headers }).then(r => r.json()),
+        fetch(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&${salesDateRangeFilter(h6Start, h6End)}&select=id,booking_id,total,created_at,sales_date`, { headers }).then(r => r.json()),
+        fetch(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&${salesDateRangeFilter(pyStart, pyEnd)}&select=total`, { headers }).then(r => r.json()),
         fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=gte.${pyStart}&booking_date=lte.${pyEnd}&select=id,status,staff_name`, { headers }).then(r => r.json()),
         fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&work_date=gte.${curStart}&work_date=lte.${curEnd}&select=staff_id,work_date`, { headers }).then(r => r.json()),
       ]);
@@ -775,13 +797,8 @@ const handleAdminQrInput = async (value) => {
 
       const validBookings = allBookings.filter(b => b.status !== 'cancelled');
 
-      // 当月のpayments
-      const payToJstMonth = (p) => {
-        if (!p.created_at) return null;
-        const s = /[Z+]/.test(p.created_at) ? p.created_at : p.created_at + 'Z';
-        const jst = new Date(new Date(s).getTime() + 9 * 3600000);
-        return `${jst.getUTCFullYear()}-${String(jst.getUTCMonth()+1).padStart(2,'0')}`;
-      };
+      // 当月のpayments（売上計上日の月で振り分ける）
+      const payToJstMonth = (p) => paymentSalesDate(p)?.slice(0, 7) || null;
       const curPayments = allPayments.filter(p => payToJstMonth(p) === monthStr);
 
       // payment_items（当月のみ、100件ごとチャンク）
@@ -1543,6 +1560,7 @@ const handleAdminQrInput = async (value) => {
           store_id: targetStoreId,
           booking_id: bookingId,
           customer_id: customerId || null,
+          sales_date: bookingDate, // 物販のみは登録した予約日を売上計上日にする
           subtotal: total,
           discount: 0,
           total: total,
@@ -2136,6 +2154,8 @@ const handleAdminQrInput = async (value) => {
   const startCheckout = (booking) => {
     const course = courseMenus.find(c => c.id === booking.course_id) || { name: booking.course_name, price: 0 };
     setCheckoutBooking(booking);
+    // 売上計上日の既定値は予約日。予約日がなければ本日
+    setCheckoutSalesDate(booking.booking_date || jstToday());
     setCheckoutDiscount(0);
     setCheckoutPaymentMethods([{ method: "cash", amount: 0 }]);
     setCheckoutNote("");
@@ -2247,7 +2267,7 @@ const handleAdminQrInput = async (value) => {
     try {
     const paymentRes = await fetch(`${SUPABASE_URL}/rest/v1/payments`, {
       method: "POST", headers,
-      body: JSON.stringify({ store_id: currentStore.id, customer_id: checkoutBooking?.customer_id || null, booking_id: checkoutBooking?.id || null, subtotal, discount: checkoutDiscount, discount_reason: checkoutDiscountReason, total, payment_method: checkoutPaymentMethods.map(p => p.method).join(","), payment_status: "paid", notes: checkoutNote }),
+      body: JSON.stringify({ store_id: currentStore.id, customer_id: checkoutBooking?.customer_id || null, booking_id: checkoutBooking?.id || null, sales_date: checkoutSalesDate || checkoutBooking?.booking_date || jstToday(), subtotal, discount: checkoutDiscount, discount_reason: checkoutDiscountReason, total, payment_method: checkoutPaymentMethods.map(p => p.method).join(","), payment_status: "paid", notes: checkoutNote }),
     });
     const paymentData = await paymentRes.json();
     const paymentId = paymentData[0]?.id;
@@ -4208,11 +4228,14 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                     <div style={{ fontSize: 15, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>✅ 会計済み</div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                       {completedBookings.map(b => (
-                        <div key={b.id} style={{ background: "white", borderRadius: 16, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+                        <div key={b.payment?.id || b.id} style={{ background: "white", borderRadius: 16, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                             <div>
                               <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a" }}>{b.customers?.name || "未登録"}</div>
-                              <div style={{ fontSize: 12, color: "#888" }}>{b.booking_time} / {b.course_name} / {b.staff_name}</div>
+                              <div style={{ fontSize: 12, color: "#888" }}>{b.noBooking ? b.course_name : `${b.booking_time} / ${b.course_name} / ${b.staff_name}`}</div>
+                              {b.booking_date && b.salesDate && b.booking_date !== b.salesDate && (
+                                <div style={{ fontSize: 11, color: "#c06020", marginTop: 2 }}>予約日 {Number(b.booking_date.slice(5, 7))}/{Number(b.booking_date.slice(8, 10))} の施術分</div>
+                              )}
                               {b.payment && <div style={{ fontSize: 13, color: "#5a9e7a", fontWeight: 700, marginTop: 4 }}>¥{b.payment.total?.toLocaleString()}</div>}
                             </div>
                             <div style={{ display: "flex", gap: 8 }}>
@@ -4220,10 +4243,12 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                                 style={{ padding: "8px 14px", borderRadius: 10, border: "2px solid #5a9e7a", background: "white", color: "#5a9e7a", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                                 {selectedCompletedPayment?.id === b.id ? "閉じる" : "詳細"}
                               </button>
-                              <button onClick={() => revertPayment(b)}
-                                style={{ padding: "8px 14px", borderRadius: 10, border: "2px solid #e07070", background: "white", color: "#e07070", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                                修正
-                              </button>
+                              {!b.noBooking && (
+                                <button onClick={() => revertPayment(b)}
+                                  style={{ padding: "8px 14px", borderRadius: 10, border: "2px solid #e07070", background: "white", color: "#e07070", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                                  修正
+                                </button>
+                              )}
                             </div>
                           </div>
                           {selectedCompletedPayment?.id === b.id && b.payment && (
@@ -4277,6 +4302,28 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                 <div style={{ flex: 1, minWidth: 300 }}>
                   <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
                     <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a", marginBottom: 16 }}>{checkoutBooking.customers?.name || "お客様"} 様の会計</div>
+                    {(() => {
+                      // 売上計上日：日報・会計一覧はこの日付で集計される
+                      const bookingDate = checkoutBooking.booking_date || "";
+                      const fmtMd = d => d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}` : "";
+                      const isPastBooking = bookingDate && bookingDate < jstToday();
+                      const differsFromBooking = bookingDate && checkoutSalesDate && checkoutSalesDate !== bookingDate;
+                      return (
+                        <div style={{ marginBottom: 16, padding: "10px 14px", borderRadius: 12, background: "#f9f6f2" }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a" }}>売上計上日</span>
+                            <input type="date" value={checkoutSalesDate} onChange={e => setCheckoutSalesDate(e.target.value)}
+                              style={{ padding: "6px 10px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, color: "#3a5a3a" }} />
+                          </div>
+                          {isPastBooking && (
+                            <div style={{ fontSize: 11, color: "#a06000", marginTop: 6 }}>この予約は{fmtMd(bookingDate)}です</div>
+                          )}
+                          {differsFromBooking && (
+                            <div style={{ fontSize: 11, color: "#c06020", fontWeight: 700, marginTop: 4 }}>⚠️ 予約日（{fmtMd(bookingDate)}）とは別の日（{fmtMd(checkoutSalesDate)}）の売上として計上します</div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {connectedBooking && (
                       <div style={{ marginBottom: 16, padding: "12px 16px", borderRadius: 12, background: includeConnectedBooking ? "#e8f5ee" : "#f9f6f2", border: "2px solid " + (includeConnectedBooking ? "#52b788" : "#e8ddd0") }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
