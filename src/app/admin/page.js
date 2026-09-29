@@ -47,6 +47,17 @@ const NOMINEE_STAFFS = ["工藤昌彦", "久保田誠", "工藤浩哉", "工藤�
 // toISOString() はUTC基準のため 0:00〜8:59 に前日を返してしまう。日付判定は必ずこれを使う。
 const jstToday = () => new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+// 金券は1枚=1,000円固定。会計では金額ではなく枚数で指定する。
+const GIFT_TICKET_UNIT_PRICE = 1000;
+
+// 数値入力欄の共通設定：スマホでテンキーを出し、上下矢印キー・ホイールで値が変わらないようにする。
+// （ブラウザ標準の上下矢印ボタン＝スピナーは、画面内の <style> で input[type=number] 全体に対して非表示にしている）
+const numericInputProps = {
+  inputMode: "numeric",
+  onKeyDown: e => { if (e.key === "ArrowUp" || e.key === "ArrowDown") e.preventDefault(); },
+  onWheel: e => e.currentTarget.blur(),
+};
+
 export default function AdminPage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [currentStore, setCurrentStore] = useState(null);
@@ -106,7 +117,6 @@ export default function AdminPage() {
   const [checkoutPaymentMethods, setCheckoutPaymentMethods] = useState([{ method: "cash", amount: 0 }]);
   const [checkoutNote, setCheckoutNote] = useState("");
   const [checkoutFreeProduct, setCheckoutFreeProduct] = useState({ name: "", price: "", quantity: 1 });
-  const [checkoutTicketUse, setCheckoutTicketUse] = useState({ purchase: 0, present: 0 });
   const [checkoutComplete, setCheckoutComplete] = useState(false);
   const [checkoutResult, setCheckoutResult] = useState(null);
   const [todayBookings, setTodayBookings] = useState([]);
@@ -369,7 +379,6 @@ const handleAdminQrInput = async (value) => {
     setCheckoutDiscount(0);
     setCheckoutDiscountReason("");
     setCheckoutPaymentMethods([{ method: "cash", amount: 0 }]);
-    setCheckoutTicketUse({ purchase: 0, present: 0 });
     fetchProducts();
     fetchCourseMenus();
     fetchSubMenus();
@@ -1313,13 +1322,22 @@ const handleAdminQrInput = async (value) => {
   const saveGiftGroupEdit = async () => {
     if (!editGiftGroupModal) return;
     if (!window.confirm("金券を変更します。よいですか？")) return;
-    const { allTickets, customerId, purchaseGroupId, activeCount, newCount, newIssuedAt, newExpiresAt, newTicketType, ticketEdits } = editGiftGroupModal;
+    const { allTickets, customerId, purchaseGroupId, activeCount, newCount, newIssuedAt, newExpiresAt, newTicketType, ticketEdits, initial } = editGiftGroupModal;
     const beforeState = await captureGiftTicketState(customerId);
-    for (const t of allTickets) {
-      await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, {
-        method: "PATCH", headers,
-        body: JSON.stringify({ issued_at: newIssuedAt || null, expires_at: newExpiresAt || null, ticket_type: newTicketType }),
-      });
+    // 変更された項目だけを全チケットに反映する。
+    // プレゼント金券は顧客単位のグループで支給日がチケットごとに異なるため、
+    // 触っていない日付まで一律に上書きすると個別の支給日が失われる。
+    const groupPatch = {};
+    if (!initial || (newIssuedAt || "") !== initial.issuedAt) groupPatch.issued_at = newIssuedAt || null;
+    if (!initial || (newExpiresAt || "") !== initial.expiresAt) groupPatch.expires_at = newExpiresAt || null;
+    if (!initial || newTicketType !== initial.ticketType) groupPatch.ticket_type = newTicketType;
+    if (Object.keys(groupPatch).length > 0) {
+      for (const t of allTickets) {
+        await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, {
+          method: "PATCH", headers,
+          body: JSON.stringify(groupPatch),
+        });
+      }
     }
     const { sortedTickets, ticketDates } = editGiftGroupModal;
     if (ticketDates && sortedTickets) {
@@ -2120,7 +2138,6 @@ const handleAdminQrInput = async (value) => {
     setCheckoutBooking(booking);
     setCheckoutDiscount(0);
     setCheckoutPaymentMethods([{ method: "cash", amount: 0 }]);
-    setCheckoutTicketUse({ purchase: 0, present: 0 });
     setCheckoutNote("");
     setCheckoutComplete(false);
     setCheckoutResult(null);
@@ -2190,8 +2207,42 @@ const handleAdminQrInput = async (value) => {
   const subtotal = checkoutItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const total = Math.max(0, subtotal - checkoutDiscount);
 
+  // ── 金券払い（枚数指定） ──────────────────────────────
+  // customerTickets は fetchCustomerTickets で取得した「使える金券」（共有グループ分を含む・期限の近い順）
+  const heldPurchaseTickets = customerTickets.filter(t => t.ticket_type === "purchase");
+  const heldPresentTickets = customerTickets.filter(t => t.ticket_type === "present");
+  const ticketPayCounts = checkoutPaymentMethods
+    .filter(p => p.method === "ticket")
+    .reduce((s, p) => ({ purchase: s.purchase + (p.purchaseCount || 0), present: s.present + (p.presentCount || 0) }), { purchase: 0, present: 0 });
+  // システム上の保有を超えた枚数 = 未登録の紙の金券とみなす分（ブロックはしない）
+  const ticketOverCounts = {
+    purchase: Math.max(0, ticketPayCounts.purchase - heldPurchaseTickets.length),
+    present: Math.max(0, ticketPayCounts.present - heldPresentTickets.length),
+  };
+
+  const changePaymentMethodAt = (idx, method) => setCheckoutPaymentMethods(prev => prev.map((p, i) => {
+    if (i !== idx) return p;
+    // 金券は金額を直接入力させず、枚数 × 1,000円で自動計算する
+    if (method === "ticket") return { method, amount: 0, purchaseCount: 0, presentCount: 0 };
+    return { method, amount: p.method === "ticket" ? 0 : p.amount };
+  }));
+
+  const changeTicketCountAt = (idx, key, delta) => setCheckoutPaymentMethods(prev => prev.map((p, i) => {
+    if (i !== idx) return p;
+    const next = { ...p, [key]: Math.min(99, Math.max(0, (p[key] || 0) + delta)) };
+    next.amount = ((next.purchaseCount || 0) + (next.presentCount || 0)) * GIFT_TICKET_UNIT_PRICE;
+    return next;
+  }));
+
   const savePayment = async () => {
     if (isSavingPayment) return;
+    // 保有枚数を超える金券払いは、未登録の紙の金券の可能性があるため確認のうえ続行できるようにする
+    if (ticketOverCounts.purchase + ticketOverCounts.present > 0) {
+      const lines = [];
+      if (ticketOverCounts.purchase > 0) lines.push(`購入金券：${ticketPayCounts.purchase}枚を指定／システム上の保有は${heldPurchaseTickets.length}枚です。`);
+      if (ticketOverCounts.present > 0) lines.push(`プレゼント金券：${ticketPayCounts.present}枚を指定／システム上の保有は${heldPresentTickets.length}枚です。`);
+      if (!window.confirm(`${lines.join("\n")}\n\n紙の金券ですか？\n\n続行すると、システム上の保有分のみ引き落とし、超過分は未登録の金券として記録します。`)) return;
+    }
     setIsSavingPayment(true);
     try {
     const paymentRes = await fetch(`${SUPABASE_URL}/rest/v1/payments`, {
@@ -2209,6 +2260,40 @@ const handleAdminQrInput = async (value) => {
           await fetch(`${SUPABASE_URL}/rest/v1/payment_methods`, { method: "POST", headers, body: JSON.stringify({ payment_id: paymentId, method: pm.method, amount: pm.amount }) });
         }
       }
+    }
+    // 金券払い：システム上の保有分のみ引き落とす（存在しない分は引けない）。
+    // 引き落とした金券には booking_id を付けるので、会計取り消し時は従来どおり active に戻る。
+    if (ticketPayCounts.purchase + ticketPayCounts.present > 0) {
+      const ticketCustomerId = checkoutBooking?.customer_id || null;
+      const targets = [
+        ...heldPurchaseTickets.slice(0, ticketPayCounts.purchase),
+        ...heldPresentTickets.slice(0, ticketPayCounts.present),
+      ];
+      let stateNow = ticketCustomerId ? await captureGiftTicketState(ticketCustomerId) : null;
+      if (targets.length > 0) {
+        const usedAt = new Date().toISOString();
+        const beforeState = stateNow;
+        for (const t of targets) {
+          await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "used", used_at: usedAt, booking_id: checkoutBooking?.id || null }) });
+        }
+        stateNow = await captureGiftTicketState(ticketCustomerId);
+        await logGiftTicketAction("use", ticketCustomerId, beforeState, stateNow);
+      }
+      // 保有を超えた分（未登録の紙の金券）は引き落とさず、ログにだけ残す
+      if (ticketOverCounts.purchase + ticketOverCounts.present > 0) {
+        await logGiftTicketAction("use_unregistered", ticketCustomerId, stateNow, {
+          ...(stateNow || {}),
+          unregistered: {
+            purchase: ticketOverCounts.purchase,
+            present: ticketOverCounts.present,
+            total: ticketOverCounts.purchase + ticketOverCounts.present,
+          },
+          requested: { purchase: ticketPayCounts.purchase, present: ticketPayCounts.present },
+          booking_id: checkoutBooking?.id || null,
+          payment_id: paymentId || null,
+        });
+      }
+      if (ticketCustomerId) await fetchCustomerTickets(ticketCustomerId);
     }
     if (checkoutBooking) {
       await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${checkoutBooking.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "completed", completed_at: new Date().toISOString() }) });
@@ -2800,7 +2885,7 @@ const handleAdminQrInput = async (value) => {
                 枚数
               </label>
               <input
-                type="number" min="0" max="99"
+                type="number" {...numericInputProps} min="0" max="99"
                 value={editTicketModal.count}
                 onChange={e => setEditTicketModal({ ...editTicketModal, count: Math.max(0, parseInt(e.target.value) || 0) })}
                 style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `2px solid ${editTicketModal.type === "purchase" ? "#b0d8b8" : "#f0c8a0"}`, fontSize: 18, fontWeight: 700, boxSizing: "border-box", textAlign: "center" }}
@@ -2850,7 +2935,7 @@ const handleAdminQrInput = async (value) => {
               </select>
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>購入日 / 支給日（issued_at）</label>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>{editGiftGroupModal.newTicketType === "present" ? "支給日" : "購入日"}（issued_at）</label>
               <input
                 type="date"
                 value={editGiftGroupModal.newIssuedAt ?? ""}
@@ -2877,7 +2962,7 @@ const handleAdminQrInput = async (value) => {
                   style={{ width: 36, height: 36, borderRadius: 8, border: "2px solid #b0d8b8", background: "white", fontSize: 18, fontWeight: 700, cursor: "pointer", color: "#5a9e7a" }}
                 >−</button>
                 <input
-                  type="number" min="0" max="99"
+                  type="number" {...numericInputProps} min="0" max="99"
                   value={editGiftGroupModal.newCount}
                   onChange={e => setEditGiftGroupModal({ ...editGiftGroupModal, newCount: Math.max(0, parseInt(e.target.value) || 0) })}
                   style={{ flex: 1, padding: "8px", borderRadius: 10, border: "2px solid #b0d8b8", fontSize: 20, fontWeight: 700, textAlign: "center", boxSizing: "border-box" }}
@@ -3409,7 +3494,9 @@ const handleAdminQrInput = async (value) => {
         </div>
       )}
 
-      <style>{`@keyframes adminNotifBlink { 0% { opacity: 1; } 50% { opacity: 0.55; } 100% { opacity: 1; } }`}</style>
+      <style>{`@keyframes adminNotifBlink { 0% { opacity: 1; } 50% { opacity: 0.55; } 100% { opacity: 1; } }
+input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</style>
 
       <div style={{ background: "white", borderBottom: "1px solid #e8ddd0", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -3660,7 +3747,7 @@ const handleAdminQrInput = async (value) => {
                       </div>
                       {editingMonthlyTarget ? (
                         <div style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center" }}>
-                          <input type="number" value={monthlyTargetInput} onChange={e => setMonthlyTargetInput(e.target.value)}
+                          <input type="number" {...numericInputProps} value={monthlyTargetInput} onChange={e => setMonthlyTargetInput(e.target.value)}
                             style={{ width: 100, padding: "4px 8px", borderRadius: 8, border: "2px solid #5a9e7a", fontSize: 14, textAlign: "right" }} />
                           <button onClick={saveMonthlyTarget} style={{ padding: "4px 12px", borderRadius: 8, border: "none", background: "#5a9e7a", color: "white", fontSize: 12, cursor: "pointer" }}>保存</button>
                           <button onClick={() => setEditingMonthlyTarget(false)} style={{ padding: "4px 8px", borderRadius: 8, border: "1px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, cursor: "pointer" }}>✕</button>
@@ -4238,7 +4325,7 @@ const handleAdminQrInput = async (value) => {
                         <span style={{ fontSize: 13, color: "#888" }}>割引</span>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontSize: 13, color: "#888" }}>¥</span>
-                          <input type="number" value={checkoutDiscount} onChange={e => setCheckoutDiscount(parseInt(e.target.value) || 0)} style={{ width: 80, padding: "4px 8px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, textAlign: "right" }} />
+                          <input type="number" {...numericInputProps} value={checkoutDiscount} onChange={e => setCheckoutDiscount(parseInt(e.target.value) || 0)} style={{ width: 80, padding: "4px 8px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, textAlign: "right" }} />
                         </div>
                       </div>
                       {checkoutDiscount > 0 && (
@@ -4254,21 +4341,64 @@ const handleAdminQrInput = async (value) => {
                   </div>
                   <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>支払い方法</div>
-                    {checkoutPaymentMethods.map((pm, idx) => (
-                      <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-                        <select value={pm.method} onChange={e => setCheckoutPaymentMethods(checkoutPaymentMethods.map((p, i) => i === idx ? { ...p, method: e.target.value } : p))}
-                          style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13 }}>
-                          {PAYMENT_METHODS.map(m => <option key={m.id} value={m.id}>{m.icon} {m.name}</option>)}
-                        </select>
-                        <span style={{ fontSize: 13, color: "#888" }}>¥</span>
-                        <input type="number" value={pm.amount || ""} onChange={e => setCheckoutPaymentMethods(checkoutPaymentMethods.map((p, i) => i === idx ? { ...p, amount: parseInt(e.target.value) || 0 } : p))}
-                          style={{ width: 90, padding: "8px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13, textAlign: "right" }} />
-                        <button onClick={() => idx === 0
-                          ? setCheckoutPaymentMethods(checkoutPaymentMethods.map((p, i) => i === 0 ? { ...p, method: "cash", amount: 0 } : p))
-                          : setCheckoutPaymentMethods(checkoutPaymentMethods.filter((_, i) => i !== idx))}
-                          style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: "#f0e8d8", color: "#e07070", cursor: "pointer" }}>✕</button>
+                    {checkoutPaymentMethods.map((pm, idx) => {
+                      const isTicket = pm.method === "ticket";
+                      const hasSharedTickets = customerTickets.some(t => t.customer_id !== checkoutBooking?.customer_id);
+                      const ticketRows = [
+                        { key: "purchaseCount", type: "purchase", label: "購入金券", color: "#3a7a5a", border: "#b0d8b8", held: heldPurchaseTickets.length },
+                        { key: "presentCount", type: "present", label: "プレゼント金券", color: "#c06020", border: "#f0c8a0", held: heldPresentTickets.length },
+                      ];
+                      return (
+                      <div key={idx} style={{ marginBottom: 8 }}>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <select value={pm.method} onChange={e => changePaymentMethodAt(idx, e.target.value)}
+                            style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13 }}>
+                            {PAYMENT_METHODS.map(m => <option key={m.id} value={m.id}>{m.icon} {m.name}</option>)}
+                          </select>
+                          <span style={{ fontSize: 13, color: "#888" }}>¥</span>
+                          {isTicket ? (
+                            // 金券は枚数 × 1,000円の自動計算のため編集不可
+                            <div title="枚数 × 1,000円で自動計算" style={{ width: 90, padding: "8px", borderRadius: 10, border: "2px solid #e8ddd0", background: "#f5f2ee", color: "#3a5a3a", fontSize: 13, fontWeight: 700, textAlign: "right" }}>{(pm.amount || 0).toLocaleString()}</div>
+                          ) : (
+                            <input type="number" {...numericInputProps} value={pm.amount || ""} onChange={e => setCheckoutPaymentMethods(checkoutPaymentMethods.map((p, i) => i === idx ? { ...p, amount: parseInt(e.target.value) || 0 } : p))}
+                              style={{ width: 90, padding: "8px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13, textAlign: "right" }} />
+                          )}
+                          <button onClick={() => idx === 0
+                            ? setCheckoutPaymentMethods(checkoutPaymentMethods.map((p, i) => i === 0 ? { method: "cash", amount: 0 } : p))
+                            : setCheckoutPaymentMethods(checkoutPaymentMethods.filter((_, i) => i !== idx))}
+                            style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: "#f0e8d8", color: "#e07070", cursor: "pointer" }}>✕</button>
+                        </div>
+                        {isTicket && (
+                          <div style={{ marginTop: 6, background: "#f9f6f2", borderRadius: 10, padding: "10px 12px" }}>
+                            <div style={{ fontSize: 12, color: "#555", marginBottom: 8 }}>
+                              保有：購入 <b>{heldPurchaseTickets.length}</b>枚／プレゼント <b>{heldPresentTickets.length}</b>枚
+                              {hasSharedTickets && <span style={{ fontSize: 10, color: "#888" }}>　※共有グループ含む</span>}
+                            </div>
+                            {ticketRows.map(r => (
+                              <div key={r.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: r.color }}>{r.label}</span>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <button onClick={() => changeTicketCountAt(idx, r.key, -1)} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${r.border}`, background: "white", cursor: "pointer", fontSize: 15, color: r.color }}>－</button>
+                                  <span style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", minWidth: 24, textAlign: "center" }}>{pm[r.key] || 0}</span>
+                                  <button onClick={() => changeTicketCountAt(idx, r.key, 1)} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${r.border}`, background: "white", cursor: "pointer", fontSize: 15, color: r.color }}>＋</button>
+                                  <span style={{ fontSize: 11, color: "#888" }}>枚</span>
+                                </div>
+                              </div>
+                            ))}
+                            <div style={{ fontSize: 12, color: "#3a5a3a", textAlign: "right", marginTop: 4 }}>
+                              {(pm.purchaseCount || 0) + (pm.presentCount || 0)}枚 × ¥1,000 = <b>{formatPrice(pm.amount || 0)}</b>
+                            </div>
+                            {ticketRows.filter(r => ticketOverCounts[r.type] > 0).map(r => (
+                              <div key={r.type} style={{ marginTop: 6, padding: "6px 10px", borderRadius: 8, background: "#fff4e0", border: "1px solid #f0c060", color: "#a06000", fontSize: 12, fontWeight: 700 }}>
+                                ⚠️ {r.label}：システム上の保有は{r.held}枚です。紙の金券ですか？
+                                <div style={{ fontSize: 11, fontWeight: 400, marginTop: 2 }}>超過{ticketOverCounts[r.type]}枚はシステムから引き落とさず、未登録の金券として記録します。</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    ))}
+                      );
+                    })}
                     <button onClick={() => setCheckoutPaymentMethods([...checkoutPaymentMethods, { method: "cash", amount: 0 }])}
                       style={{ width: "100%", padding: "8px", borderRadius: 10, border: "2px dashed #e8ddd0", background: "white", color: "#aaa", fontSize: 13, cursor: "pointer", marginTop: 4 }}>
                       ＋ 支払い方法を追加
@@ -4276,11 +4406,17 @@ const handleAdminQrInput = async (value) => {
                     {(() => {
                       const paid = checkoutPaymentMethods.reduce((s, p) => s + p.amount, 0);
                       const diff = paid - total;
-                      return paid > 0 ? (
-                        <div style={{ marginTop: 8, fontSize: 12, color: diff === 0 ? "#5a9e7a" : diff > 0 ? "#e07070" : "#e0a040", fontWeight: 700 }}>
-                          {diff === 0 ? "✅ 金額が一致しています" : diff > 0 ? `⚠️ ${formatPrice(diff)} 過払い` : `⚠️ ${formatPrice(-diff)} 不足`}
+                      if (paid <= 0) return null;
+                      if (diff === 0) {
+                        return <div style={{ marginTop: 8, fontSize: 12, color: "#5a9e7a", fontWeight: 700 }}>✅ 金額が一致しています</div>;
+                      }
+                      // 不一致は見落とされやすいため、大きな赤字＋背景色で目立たせる
+                      return (
+                        <div role="alert" style={{ marginTop: 12, padding: "12px 16px", borderRadius: 12, background: "#fdecec", border: "2px solid #e04848", color: "#c62828", textAlign: "center" }}>
+                          <div style={{ fontSize: 24, fontWeight: 800 }}>⚠️ {formatPrice(Math.abs(diff))} {diff < 0 ? "不足" : "超過"}</div>
+                          <div style={{ fontSize: 12, fontWeight: 600, marginTop: 4 }}>合計 {formatPrice(total)} ／ 支払い内訳 {formatPrice(paid)}</div>
                         </div>
-                      ) : null;
+                      );
                     })()}
                   </div>
                   <div style={{ display: "flex", gap: 12 }}>
@@ -4317,7 +4453,7 @@ const handleAdminQrInput = async (value) => {
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 11, color: "#7a9a7a", marginBottom: 3 }}>単価（円）</div>
                           <input
-                            type="number" min="0" placeholder="0"
+                            type="number" {...numericInputProps} min="0" placeholder="0"
                             value={checkoutFreeProduct.price}
                             onChange={e => setCheckoutFreeProduct(p => ({ ...p, price: e.target.value }))}
                             style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box" }}
@@ -4326,7 +4462,7 @@ const handleAdminQrInput = async (value) => {
                         <div style={{ width: 72 }}>
                           <div style={{ fontSize: 11, color: "#7a9a7a", marginBottom: 3 }}>数量</div>
                           <input
-                            type="number" min="1"
+                            type="number" {...numericInputProps} min="1"
                             value={checkoutFreeProduct.quantity}
                             onChange={e => setCheckoutFreeProduct(p => ({ ...p, quantity: Math.max(1, parseInt(e.target.value) || 1) }))}
                             style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "2px solid #e8ddd0", fontSize: 13, boxSizing: "border-box" }}
@@ -4354,83 +4490,29 @@ const handleAdminQrInput = async (value) => {
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>🎫 金券</div>
                     {checkoutBooking?.customer_id ? (
                       <>
-                        {/* 保有枚数・使用 */}
+                        {/* 保有枚数（使用は「支払い方法」で金券を選び、枚数で指定する） */}
                         <div style={{ marginBottom: 16 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", marginBottom: 8 }}>保有・使用</div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", marginBottom: 8 }}>保有枚数</div>
                           {customerTickets.length === 0 ? (
                             <div style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: 12 }}>金券がありません</div>
                           ) : (
                             <>
-                              {/* A. 購入金券 */}
-                              {(() => {
-                                const purchaseTickets = customerTickets.filter(t => t.ticket_type === "purchase");
-                                if (purchaseTickets.length === 0) return null;
-                                const useCount = checkoutTicketUse.purchase;
+                              {[
+                                { type: "purchase", label: "A. 購入金券", color: "#5a9e7a", bg: "#f0f8f4" },
+                                { type: "present", label: "B. プレゼント金券", color: "#e07b39", bg: "#fff8f0" },
+                              ].map(r => {
+                                const list = customerTickets.filter(t => t.ticket_type === r.type);
+                                if (list.length === 0) return null;
                                 return (
-                                  <div style={{ background: "#f0f8f4", borderRadius: 12, padding: "10px 14px", marginBottom: 8 }}>
-                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#5a9e7a", marginBottom: 6 }}>A. 購入金券（{purchaseTickets.length}枚）{purchaseTickets.some(t => t.customer_id !== checkoutBooking.customer_id) && <span style={{ fontSize: 10, color: "#888", fontWeight: 400 }}>　※共有含む</span>}</div>
-                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                        <button onClick={() => setCheckoutTicketUse(u => ({ ...u, purchase: Math.max(0, u.purchase - 1) }))} style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid #b0d8b8", background: "white", cursor: "pointer", fontSize: 15, color: "#3a7a5a" }}>－</button>
-                                        <span style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", minWidth: 24, textAlign: "center" }}>{useCount}</span>
-                                        <button onClick={() => setCheckoutTicketUse(u => ({ ...u, purchase: Math.min(purchaseTickets.length, u.purchase + 1) }))} style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid #b0d8b8", background: "white", cursor: "pointer", fontSize: 15, color: "#3a7a5a" }}>＋</button>
-                                        <span style={{ fontSize: 11, color: "#888" }}>枚使用</span>
-                                      </div>
-                                      <button onClick={async () => {
-                                        if (useCount === 0) return;
-                                        const targets = purchaseTickets.slice(0, useCount);
-                                        const usedAt = new Date().toISOString();
-                                        const beforeState = await captureGiftTicketState(checkoutBooking.customer_id);
-                                        for (const t of targets) {
-                                          await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "used", used_at: usedAt, booking_id: checkoutBooking.id }) });
-                                        }
-                                        await logGiftTicketAction("use", checkoutBooking.customer_id, beforeState, await captureGiftTicketState(checkoutBooking.customer_id));
-                                        setCheckoutTicketUse(u => ({ ...u, purchase: 0 }));
-                                        await fetchCustomerTickets(checkoutBooking.customer_id);
-                                      }} disabled={useCount === 0} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: useCount > 0 ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: useCount > 0 ? "white" : "#bbb", fontSize: 12, fontWeight: 700, cursor: useCount > 0 ? "pointer" : "not-allowed" }}>
-                                        {useCount}枚使用する
-                                      </button>
-                                    </div>
-                                    <div style={{ fontSize: 10, color: "#aaa", marginTop: 4 }}>最短期限: {purchaseTickets[0]?.expires_at}</div>
+                                  <div key={r.type} style={{ background: r.bg, borderRadius: 12, padding: "10px 14px", marginBottom: 8 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: r.color }}>{r.label}（{list.length}枚）{list.some(t => t.customer_id !== checkoutBooking.customer_id) && <span style={{ fontSize: 10, color: "#888", fontWeight: 400 }}>　※共有含む</span>}</div>
+                                    <div style={{ fontSize: 10, color: "#aaa", marginTop: 4 }}>最短期限: {list[0]?.expires_at}</div>
                                   </div>
                                 );
-                              })()}
-                              {/* B. プレゼント金券 */}
-                              {(() => {
-                                const presentTickets = customerTickets.filter(t => t.ticket_type === "present");
-                                if (presentTickets.length === 0) return null;
-                                const useCount = checkoutTicketUse.present;
-                                return (
-                                  <div style={{ background: "#fff8f0", borderRadius: 12, padding: "10px 14px", marginBottom: 8 }}>
-                                    <div style={{ fontSize: 11, fontWeight: 700, color: "#e07b39", marginBottom: 6 }}>B. プレゼント金券（{presentTickets.length}枚）{presentTickets.some(t => t.customer_id !== checkoutBooking.customer_id) && <span style={{ fontSize: 10, color: "#888", fontWeight: 400 }}>　※共有含む</span>}</div>
-                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                        <button onClick={() => setCheckoutTicketUse(u => ({ ...u, present: Math.max(0, u.present - 1) }))} style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid #f0c8a0", background: "white", cursor: "pointer", fontSize: 15, color: "#c06020" }}>－</button>
-                                        <span style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", minWidth: 24, textAlign: "center" }}>{useCount}</span>
-                                        <button onClick={() => setCheckoutTicketUse(u => ({ ...u, present: Math.min(presentTickets.length, u.present + 1) }))} style={{ width: 26, height: 26, borderRadius: "50%", border: "1px solid #f0c8a0", background: "white", cursor: "pointer", fontSize: 15, color: "#c06020" }}>＋</button>
-                                        <span style={{ fontSize: 11, color: "#888" }}>枚使用</span>
-                                      </div>
-                                      <button onClick={async () => {
-                                        if (useCount === 0) return;
-                                        const targets = presentTickets.slice(0, useCount);
-                                        const usedAt = new Date().toISOString();
-                                        const beforeState = await captureGiftTicketState(checkoutBooking.customer_id);
-                                        for (const t of targets) {
-                                          await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?id=eq.${t.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "used", used_at: usedAt, booking_id: checkoutBooking.id }) });
-                                        }
-                                        await logGiftTicketAction("use", checkoutBooking.customer_id, beforeState, await captureGiftTicketState(checkoutBooking.customer_id));
-                                        setCheckoutTicketUse(u => ({ ...u, present: 0 }));
-                                        await fetchCustomerTickets(checkoutBooking.customer_id);
-                                      }} disabled={useCount === 0} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: useCount > 0 ? "linear-gradient(135deg, #e07b39, #c05020)" : "#e8ddd0", color: useCount > 0 ? "white" : "#bbb", fontSize: 12, fontWeight: 700, cursor: useCount > 0 ? "pointer" : "not-allowed" }}>
-                                        {useCount}枚使用する
-                                      </button>
-                                    </div>
-                                    <div style={{ fontSize: 10, color: "#aaa", marginTop: 4 }}>最短期限: {presentTickets[0]?.expires_at}</div>
-                                  </div>
-                                );
-                              })()}
+                              })}
                             </>
                           )}
+                          <div style={{ fontSize: 10, color: "#888", marginTop: 4 }}>※ 使用するときは「支払い方法」で「ゆらり金券」を選び、枚数を指定してください（会計確定時に引き落とします）</div>
                         </div>
 
                         {/* 金券販売 */}
@@ -5177,6 +5259,7 @@ const handleAdminQrInput = async (value) => {
                             newExpiresAt: expiresAt !== "-" ? expiresAt : "",
                             newCount: row.active,
                             newTicketType: "purchase",
+                            initial: { issuedAt: row.issuedAt || "", expiresAt: expiresAt !== "-" ? expiresAt : "", ticketType: "purchase" },
                             ticketEdits: Object.fromEntries(row.tickets.map(t => [t.id, t.used_at || ""])),
                             sortedTickets: [...row.tickets].filter(t => t.status !== "cancelled").sort((a, b) => a.id.localeCompare(b.id)),
                             ticketDates: [...row.tickets].filter(t => t.status !== "cancelled").sort((a, b) => a.id.localeCompare(b.id)).map(t => t.used_at ? t.used_at.slice(0,10) : ""),
@@ -5235,7 +5318,11 @@ const handleAdminQrInput = async (value) => {
                           newExpiresAt: latestExpiresAt || "",
                           newCount: c.active,
                           newTicketType: "present",
+                          initial: { issuedAt: latestIssuedAt || "", expiresAt: latestExpiresAt || "", ticketType: "present" },
                           ticketEdits: Object.fromEntries(c.tickets.map(t => [t.id, t.used_at || ""])),
+                          // 使用N は表の「支給N」と同じ並び（issued_at 昇順）にそろえる
+                          sortedTickets: c.tickets.filter(t => t.status !== "cancelled"),
+                          ticketDates: c.tickets.filter(t => t.status !== "cancelled").map(t => t.used_at ? t.used_at.slice(0,10) : ""),
                         })}
                         style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #f0c8a0", background: "#fff5ee", color: "#c06020", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
                       >編集</button>
