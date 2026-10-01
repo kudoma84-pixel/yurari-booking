@@ -625,7 +625,13 @@ function MyPageInner() {
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 16 }}>🔔 通知設定</div>
 
-            {/* プッシュ通知 */}
+            {/* プッシュ通知：LINE連携済みの方は通知がLINEに届くため案内しない（通知の二重化を防ぐ）。
+                LINEアプリ内ブラウザもプッシュ通知に対応できないため出さない */}
+            {customer?.line_user_id ? (
+              <div style={{ background: "#f0f8f4", borderRadius: 16, padding: "16px 20px", marginBottom: 16, fontSize: 13, color: GREEN, fontWeight: 700, lineHeight: 1.7 }}>
+                💚 予約の確認やお知らせはLINEに届きます
+              </div>
+            ) : !(typeof navigator !== "undefined" && / Line\//i.test(navigator.userAgent)) && (
             <div style={{ background: "white", borderRadius: 16, padding: "20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a", marginBottom: 8 }}>アプリへのプッシュ通知</div>
               <div style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>予約リマインドをアプリに通知します</div>
@@ -657,6 +663,7 @@ function MyPageInner() {
                 🔔 プッシュ通知を許可する
               </button>
             </div>
+            )}
 
             {/* 通知方法 */}
             <div style={{ background: "white", borderRadius: 16, padding: "20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>

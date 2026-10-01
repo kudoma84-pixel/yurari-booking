@@ -1010,6 +1010,9 @@ function AppInner() {
   }
 
   if (screen === "complete") {
+    // LINE連携済みの方は通知がLINEに届くため、ホーム画面追加・プッシュ通知の案内は出さない（通知の二重化を防ぐ）
+    const isLineLinked = !!(existingCustomer?.line_user_id || authLineUserId
+      || (typeof localStorage !== "undefined" && localStorage.getItem('yurari_line_user_id')));
     return (
       <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
         <Header showBack={true} />
@@ -1040,7 +1043,12 @@ function AppInner() {
           </div>
           <a href="/mypage" style={{ display: "block", width: "100%", padding: "14px", borderRadius: 14, background: GREEN, color: "white", fontSize: 15, fontWeight: 700, textDecoration: "none", textAlign: "center", marginBottom: 12, boxSizing: "border-box" }}>マイページで予約を確認する</a>
           <button onClick={() => { reset(); setScreen("booking"); }} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "2px solid " + GREEN, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer", marginBottom: 20 }}>別の予約をする</button>
-          {!pushGranted && (
+          {isLineLinked && (
+            <div style={{ background: "#f0f8f4", borderRadius: 16, padding: "16px 20px", marginBottom: 16, textAlign: "left", fontSize: 13, color: GREEN, fontWeight: 700, lineHeight: 1.7 }}>
+              💚 予約の確認やお知らせはLINEに届きます
+            </div>
+          )}
+          {!isLineLinked && !pushGranted && (
             <div style={{ background: "linear-gradient(135deg, #e8f5ee, #d4eddf)", borderRadius: 16, padding: "20px", marginBottom: 16, textAlign: "left", border: "1px solid " + LIGHT_GREEN }}>
               {pushStatus === "done" ? (
                 <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, textAlign: "center" }}>✅ 通知を設定しました</div>
@@ -1058,6 +1066,7 @@ function AppInner() {
               )}
             </div>
           )}
+          {!isLineLinked && (
           <div style={{ background: "#f0f8f4", borderRadius: 16, padding: "20px", textAlign: "left" }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 12 }}>📱 アプリとして使うと便利です</div>
             <div style={{ fontSize: 13, color: "#555", lineHeight: 2 }}>
@@ -1068,6 +1077,7 @@ function AppInner() {
             </div>
             <div style={{ fontSize: 11, color: "#aaa", marginTop: 8 }}>※ ホーム画面追加でリマインド通知が届きます</div>
           </div>
+          )}
         </div>
       </div>
     );
