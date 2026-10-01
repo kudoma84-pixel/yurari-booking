@@ -155,6 +155,12 @@ function MyPageInner() {
         const bdMatch = c.birthday && c.birthday.replace(/-/g, "").slice(4, 8) === (birthMonth + birthDay);
         return telMatch && bdMatch;
       }) : [];
+      console.log("[マイページ照合]", { has_tel: true, hits: data.length });
+      // 2件以上ヒットした場合は先頭を採用しない（別人のマイページに入ってしまうのを防ぐ）
+      if (data.length > 1) {
+        setError("同じログインコードのお客様が複数いるため、ご本人を特定できませんでした。お手数ですが店舗までお電話ください。");
+        return;
+      }
       if (data && data.length > 0) {
         setCustomer(data[0]);
         setProfileForm({

@@ -180,6 +180,8 @@ function AppInner() {
   const [courses, setCourses] = useState([]);
   const [staffList, setStaffList] = useState([]);
   const [existingCustomer, setExistingCustomer] = useState(null);
+  // existingCustomer をどう特定したか（予約登録時にサーバーのログへ渡す）
+  const customerMatchRef = useRef(null);
   const [sameDayLeadTime, setSameDayLeadTime] = useState(60);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [staffShiftDates, setStaffShiftDates] = useState({});
@@ -290,6 +292,7 @@ function AppInner() {
             birthday: c.birthday || "", firstVisit: "2回目以降", notes: "",
           });
           setExistingCustomer(c);
+          customerMatchRef.current = { source: "saved_customer_id", has_tel: !!(c.tel || "").trim(), hits: data.length };
           setNotificationMethod(c.notification_method || "email");
           setScreen("booking");
         }
@@ -301,6 +304,11 @@ function AppInner() {
           headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
         });
         const data = await res.json();
+        // 2件以上ヒットした場合は先頭を採用しない（別人に紐づくのを防ぐ）
+        if (Array.isArray(data) && data.length > 1) {
+          console.error("[顧客照合] 同じLINEユーザーIDの顧客が複数あるため自動ログインしません", data.length);
+          return;
+        }
         if (data && data[0]) {
           const c = data[0];
           setProfile({
@@ -311,6 +319,7 @@ function AppInner() {
             birthday: c.birthday || "", firstVisit: "2回目以降", notes: "",
           });
           setExistingCustomer(c);
+          customerMatchRef.current = { source: "saved_line_user_id", has_tel: !!(c.tel || "").trim(), hits: data.length };
           setNotificationMethod("line");
           localStorage.setItem('yurari_customer_id', c.id);
           localStorage.setItem('yurari_login_expire', Date.now() + 24 * 60 * 60 * 1000);
@@ -348,6 +357,7 @@ function AppInner() {
             birthday: c.birthday || "", firstVisit: "2回目以降", notes: "",
           });
           setExistingCustomer(c);
+          customerMatchRef.current = { source: "change_booking", has_tel: !!(c.tel || "").trim(), hits: 1 };
           setNotificationMethod(c.notification_method || "email");
         }
       };
@@ -476,8 +486,16 @@ function AppInner() {
     localStorage.setItem('yurari_line_user_id', lineUserId);
     const res = await fetch(SUPABASE_URL + "/rest/v1/customers?line_user_id=eq." + lineUserId + "&select=*", { headers });
     const data = await res.json();
+    // 2件以上ヒットした場合は先頭を採用しない（別人に紐づくのを防ぐ）
+    if (Array.isArray(data) && data.length > 1) {
+      console.error("[顧客照合] 同じLINEユーザーIDの顧客が複数あります", data.length);
+      setScreen("auth");
+      alert("お客様情報を特定できませんでした。お手数ですが店舗までお電話ください。");
+      return;
+    }
     if (data && data.length > 0) {
       const c = data[0];
+      customerMatchRef.current = { source: "line", has_tel: !!(c.tel || "").trim(), hits: data.length };
       // line_user_idと通知方法をDBにも確実に保存
       await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${c.id}`, {
         method: "PATCH",
@@ -546,16 +564,34 @@ function AppInner() {
       "Content-Type": "application/json",
     };
     const lineUserId = localStorage.getItem('yurari_line_user_id') || null;
-    const searchRes = await fetch(SUPABASE_URL + "/rest/v1/customers?tel=eq." + encodeURIComponent(profile.tel) + "&select=id,name,kana,tel,email,address,zipcode,birthday", { headers: getHeaders });
+    // 電話番号が空（空白・記号のみを含む）なら照合しない。
+    // 空のまま tel=eq. で検索すると、電話番号が空の別の顧客がヒットしてしまう。
+    const tel = String(profile.tel || "").trim();
+    if (tel.replace(/[^0-9]/g, "").length === 0) {
+      setError("電話番号を入力してください");
+      return;
+    }
+    const searchRes = await fetch(SUPABASE_URL + "/rest/v1/customers?tel=eq." + encodeURIComponent(tel) + "&select=id,name,kana,tel,email,address,zipcode,birthday", { headers: getHeaders });
     const existing = await searchRes.json();
-    if (existing && existing.length > 0) {
+    console.log("[顧客照合] 電話番号で照合", { has_tel: true, hits: Array.isArray(existing) ? existing.length : null });
+    if (!searchRes.ok || !Array.isArray(existing)) {
+      setError("お客様情報の確認に失敗しました。通信状態をご確認のうえ、もう一度お試しください。");
+      return;
+    }
+    // 2件以上ヒットした場合は先頭を採用しない（別人に紐づくのを防ぐ）
+    if (existing.length > 1) {
+      setError("同じ電話番号のお客様が複数登録されているため、ご本人を特定できませんでした。お手数ですが店舗までお電話ください。");
+      return;
+    }
+    if (existing.length === 1) {
+      customerMatchRef.current = { source: "register_tel", has_tel: true, hits: 1 };
       const patchHeaders = {
         "apikey": SUPABASE_KEY,
         "Authorization": "Bearer " + SUPABASE_KEY,
         "Content-Type": "application/json",
       };
       const patchBody = {
-        name: profile.name, kana: profile.kana, tel: profile.tel,
+        name: profile.name, kana: profile.kana, tel,
         email: profile.email, address: profile.address,
         zipcode: profile.zipcode, birthday: profile.birthday || null,
         notification_method: notificationMethod || "email",
@@ -566,7 +602,7 @@ function AppInner() {
         method: "PATCH", headers: patchHeaders,
         body: JSON.stringify(patchBody),
       });
-      setExistingCustomer({ ...existing[0], ...profile, line_user_id: lineUserId || existing[0].line_user_id });
+      setExistingCustomer({ ...existing[0], ...profile, tel, line_user_id: lineUserId || existing[0].line_user_id });
       localStorage.setItem('yurari_customer_id', existing[0].id);
       localStorage.setItem('yurari_login_expire', Date.now() + 24 * 60 * 60 * 1000);
     } else {
@@ -579,7 +615,7 @@ function AppInner() {
       const newRes = await fetch(SUPABASE_URL + "/rest/v1/customers", {
             method: "POST", headers: { ...headers, "Prefer": "return=representation" },
             body: JSON.stringify({
-          name: profile.name, kana: profile.kana, tel: profile.tel,
+          name: profile.name, kana: profile.kana, tel,
           email: profile.email, address: profile.address,
           zipcode: profile.zipcode, birthday: profile.birthday || null,
           notification_method: notificationMethod || "email",
@@ -595,6 +631,7 @@ function AppInner() {
         return;
       }
       setExistingCustomer(newCustomer[0]);
+      customerMatchRef.current = { source: "register_new", has_tel: true, hits: 0 };
       localStorage.removeItem('yurari_customer_id');
       localStorage.removeItem('yurari_login_expire');
       localStorage.setItem('yurari_customer_id', newCustomer[0].id);
@@ -615,72 +652,57 @@ function AppInner() {
     setError("");
     const num = "YR-" + Date.now().toString().slice(-6);
     try {
-      let customerId = existingCustomer?.id;
+      // 顧客はログイン・登録の段階で確定している必要がある。
+      // ここで電話番号から照合し直すと、画面の情報が空のときに電話番号が空の別の顧客に紐づいてしまう
+      // （2026-10-01「別の予約をする」で笛木様に紐づいた不具合）。確定していなければ登録しない。
+      const customerId = existingCustomer?.id;
       if (!customerId) {
-        const searchRes = await fetch(SUPABASE_URL + "/rest/v1/customers?tel=eq." + encodeURIComponent(profile.tel) + "&select=id", { headers });
-        const customers = await searchRes.json();
-        if (customers && customers.length > 0) {
-          customerId = customers[0].id;
-        } else {
-          const newRes = await fetch(SUPABASE_URL + "/rest/v1/customers", {
-            method: "POST", headers,
-            body: JSON.stringify({
-              name: profile.name, kana: profile.kana, tel: profile.tel,
-              email: profile.email, address: profile.address,
-              zipcode: profile.zipcode,
-              birthday: profile.birthday || null,
-              points: 0,
-              line_user_id: authLineUserId || localStorage.getItem('yurari_line_user_id') || null,
-              notification_method: notificationMethod || "line",
-            }),
-          });
-          const newCustomer = await newRes.json();
-          customerId = newCustomer[0]?.id;
-          if (!customerId) { alert("顧客登録に失敗しました。もう一度お試しください。"); setLoading(false); return; }
-        }
-      }
-      const booking1Res = await fetch(SUPABASE_URL + "/rest/v1/bookings", {
-        method: "POST", headers,
-        body: JSON.stringify({
-          customer_id: customerId, store_id: store.id,
-          course_id: course.id, course_name: course.name, course_duration: course.duration || "30分",
-          staff_id: staff.id, staff_name: staff.name,
-          booking_date: formatDate(date), booking_time: time,
-          status: "confirmed", notes: profile.notes, booking_number: num,
-        }),
-      });
-      const booking1Data = await booking1Res.json();
-      const booking1Id = booking1Data[0]?.id;
-      // 予約が保存できていないのに「完了」と表示しないよう、ここで必ず検証する
-      if (!booking1Res.ok || !booking1Id) {
-        console.error("予約の登録に失敗:", booking1Res.status, booking1Data);
-        setError("予約の登録に失敗しました。通信状態をご確認のうえ、もう一度お試しください。");
+        console.error("[予約] 顧客が確定していないため登録を中止しました");
+        setError("お客様情報が確認できませんでした。お手数ですが最初からやり直してください。");
         setLoading(false);
         return;
       }
-      if (course2 && booking1Id) {
+      const bookingBodies = [{
+        store_id: store.id,
+        course_id: course.id, course_name: course.name, course_duration: course.duration || "30分",
+        staff_id: staff.id, staff_name: staff.name,
+        booking_date: formatDate(date), booking_time: time,
+        notes: profile.notes, booking_number: num,
+      }];
+      if (course2) {
         const dur1Min = parseInt((course.duration || "30分").replace(/[^0-9]/g, "")) || 30;
-        const time2 = addMinutesToTime(time, dur1Min);
-        const num2 = "YR-" + (Date.now() + 1).toString().slice(-6);
-        const booking2Res = await fetch(SUPABASE_URL + "/rest/v1/bookings", {
-          method: "POST", headers,
-          body: JSON.stringify({
-            customer_id: customerId, store_id: store.id,
-            course_id: course2.id, course_name: course2.name, course_duration: course2.duration || "30分",
-            staff_id: staff.id, staff_name: staff.name,
-            booking_date: formatDate(date), booking_time: time2,
-            status: "confirmed", notes: profile.notes, booking_number: num2,
-            connected_booking_id: booking1Id,
-          }),
+        bookingBodies.push({
+          store_id: store.id,
+          course_id: course2.id, course_name: course2.name, course_duration: course2.duration || "30分",
+          staff_id: staff.id, staff_name: staff.name,
+          booking_date: formatDate(date), booking_time: addMinutesToTime(time, dur1Min),
+          notes: profile.notes, booking_number: "YR-" + (Date.now() + 1).toString().slice(-6),
         });
-        const booking2Data = await booking2Res.json();
-        const booking2Id = booking2Data[0]?.id;
-        if (booking2Id) {
-          await fetch(SUPABASE_URL + "/rest/v1/bookings?id=eq." + booking1Id, {
-            method: "PATCH", headers,
-            body: JSON.stringify({ connected_booking_id: booking2Id }),
-          });
-        }
+      }
+      // 登録はサーバーで行い、customer_id がフォームの顧客（電話番号 or LINE ID が一致）かを検証してもらう
+      const createRes = await fetch("/api/booking-create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer_id: customerId,
+          // 照合の材料は「フォームの電話番号」と「このブラウザでログインしたLINE ID」。
+          // existingCustomer 自身の値を送ると検証が素通りになるため使わない
+          tel: profile.tel || "",
+          line_user_id: authLineUserId || localStorage.getItem('yurari_line_user_id') || null,
+          match: customerMatchRef.current,
+          bookings: bookingBodies,
+        }),
+      });
+      const createData = await createRes.json().catch(() => ({}));
+      const booking1Id = createData?.booking_id;
+      // 予約が保存できていないのに「完了」と表示しないよう、ここで必ず検証する
+      if (!createRes.ok || !booking1Id) {
+        console.error("予約の登録に失敗:", createRes.status, createData);
+        setError(createRes.status === 409
+          ? "お客様情報が確認できなかったため、予約を登録できませんでした。お手数ですが最初からやり直してください。"
+          : "予約の登録に失敗しました。通信状態をご確認のうえ、もう一度お試しください。");
+        setLoading(false);
+        return;
       }
       // 新しい予約の作成に成功したことを確認した後でのみ、元の予約をキャンセルする
       // （順序を逆にすると、新規作成が失敗したときに予約が消えてしまう）
@@ -759,7 +781,22 @@ function AppInner() {
     setStaff(null); setDate(null); setTime(null);
     setProfile({ name: "", kana: "", zipcode: "", address: "", tel: "", birthYear: "", birthMonth: "", birthDay: "", birthday: "", email: "", firstVisit: "初めて", notes: "" });
     setBookingNum(""); setError(""); setExistingCustomer(null);
+    customerMatchRef.current = null;
     setStaffShiftDates({});
+  };
+
+  // 「別の予約をする」用：確定済みの顧客（existingCustomer・profile・通知方法）は残し、予約内容だけ初期化する。
+  // 以前は reset() で顧客まで消したまま予約画面に戻していたため、2件目が電話番号の空の別人に紐づいていた。
+  const resetForNextBooking = () => {
+    window.history.replaceState({}, '', '/src');
+    setStep(0);
+    setStore(null); setCourse(null); setCourseCategory(null); setCourseVisitType(null);
+    setShowAddEsthe(false); setCourse2(null); setCourseVisitType2(null);
+    setStaff(null); setDate(null); setTime(null);
+    setProfile(p => ({ ...p, notes: "" }));
+    setBookingNum(""); setError("");
+    setStaffShiftDates({});
+    setScreen(existingCustomer ? "booking" : "top");
   };
 
   // 実在する日付かを検証する（「13月40日」のような値をDBに送らない）
@@ -1042,7 +1079,7 @@ function AppInner() {
             当日は予約時間の5分前にお越しください。<br/>キャンセル・変更は前日17時まで承ります。
           </div>
           <a href="/mypage" style={{ display: "block", width: "100%", padding: "14px", borderRadius: 14, background: GREEN, color: "white", fontSize: 15, fontWeight: 700, textDecoration: "none", textAlign: "center", marginBottom: 12, boxSizing: "border-box" }}>マイページで予約を確認する</a>
-          <button onClick={() => { reset(); setScreen("booking"); }} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "2px solid " + GREEN, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer", marginBottom: 20 }}>別の予約をする</button>
+          <button onClick={resetForNextBooking} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "2px solid " + GREEN, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer", marginBottom: 20 }}>別の予約をする</button>
           {isLineLinked && (
             <div style={{ background: "#f0f8f4", borderRadius: 16, padding: "16px 20px", marginBottom: 16, textAlign: "left", fontSize: 13, color: GREEN, fontWeight: 700, lineHeight: 1.7 }}>
               💚 予約の確認やお知らせはLINEに届きます
