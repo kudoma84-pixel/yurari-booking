@@ -2256,6 +2256,11 @@ const handleAdminQrInput = async (value) => {
 
   const savePayment = async () => {
     if (isSavingPayment) return;
+    // 明細（payment_items）が0件の会計は確定させない（合計0円そのものは割引で起こり得るので止めない）
+    if (checkoutItems.length === 0) {
+      alert("施術やメニューが1つも選択されていません");
+      return;
+    }
     // 保有枚数を超える金券払いは、未登録の紙の金券の可能性があるため確認のうえ続行できるようにする
     if (ticketOverCounts.purchase + ticketOverCounts.present > 0) {
       const lines = [];
