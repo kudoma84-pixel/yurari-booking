@@ -2,6 +2,7 @@
 // server.js の SUPABASE_KEY は「サービスロールキー → 公開キー」とフォールバックするため、ここでは使わない。
 // サービスロールキーが無ければ処理を止める（fail-closed）。
 import crypto from "crypto";
+import { NextResponse } from "next/server";
 import { SUPABASE_URL } from "./server";
 
 export const SESSION_COOKIE = "yurari_mypage_session";
@@ -58,11 +59,12 @@ export function verifySessionToken(token) {
   }
 }
 
-// ── 総当たり対策（同一IPから10回/10分） ─────────────────
+// ── 総当たり対策（同一IPから20回/10分） ─────────────────
 // 複数のサーバーインスタンスで共有するため mypage_login_attempts テーブルで数える。
 // IPはそのまま保存せず、NEXTAUTH_SECRET で HMAC したハッシュだけを保存する。
 // テーブル未作成などでDBが使えない場合は、インスタンス内メモリで数える（制限を外さない）。
-export const RATE_LIMIT_MAX = 10;
+// 携帯キャリアは多数の利用者が同じIPを共有するため、20回まで許容する
+export const RATE_LIMIT_MAX = 20;
 export const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 
 export function clientIp(request) {
@@ -107,14 +109,67 @@ export async function recordAttemptAndCheckLimit(request, headers) {
     );
     if (!res.ok) throw new Error(`select ${res.status}`);
     const rows = await res.json();
-    // 古い記録の掃除（失敗しても判定には影響しない）
-    const old = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    fetch(`${SUPABASE_URL}/rest/v1/mypage_login_attempts?created_at=lt.${encodeURIComponent(old)}`, { method: "DELETE", headers }).catch(() => {});
     return Array.isArray(rows) && rows.length > RATE_LIMIT_MAX;
   } catch (e) {
     console.error("[mypage-login] 試行回数テーブルが使えないため、メモリで制限します:", e.message);
     return memoryRateLimited(hash);
   }
+}
+
+// 判定に使わなくなった古い試行記録（10分より前）を削除する。失敗しても判定には影響しない。
+export async function deleteOldAttempts(headers) {
+  const old = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/mypage_login_attempts?created_at=lt.${encodeURIComponent(old)}`, { method: "DELETE", headers });
+    if (!res.ok) console.error("[mypage-login] 古い試行記録の削除に失敗しました:", res.status);
+  } catch (e) {
+    console.error("[mypage-login] 古い試行記録の削除に失敗しました:", e.message);
+  }
+}
+
+// ── マイページAPI共通：セッション検証 ─────────────────
+// Cookie のセッションを検証し、本人の顧客レコードを取得する。
+// 戻り値が { error } ならそのまま return すること（500: 設定不備 / 401: 未ログイン・無効）。
+// 操作対象の顧客IDは必ずここで得た customer.id を使い、クライアントから渡された顧客IDは使わない。
+export async function requireMypageSession(request) {
+  const headers = serviceRoleHeaders();
+  if (!headers || !process.env.NEXTAUTH_SECRET) {
+    console.error("[mypage] SUPABASE_SERVICE_ROLE_KEY または NEXTAUTH_SECRET が未設定です");
+    return { error: NextResponse.json({ error: "サーバーの設定に問題があります" }, { status: 500 }) };
+  }
+  const customerId = verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value);
+  if (!customerId) {
+    return { error: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
+  }
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${encodeURIComponent(customerId)}&select=*`, { headers });
+  if (!res.ok) {
+    console.error("[mypage] 顧客情報の取得に失敗しました:", res.status);
+    return { error: NextResponse.json({ error: "エラーが発生しました" }, { status: 500 }) };
+  }
+  const rows = await res.json();
+  const customer = Array.isArray(rows) ? rows[0] : null;
+  // 削除済み（統合された側など）の顧客のセッションは無効として扱う
+  if (!customer || customer.is_deleted === true) {
+    return { error: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
+  }
+  return { headers, customer };
+}
+
+// 操作対象のレコードがセッションの本人のものか検証する。違えば 403 のレスポンスを返す（一致なら null）。
+export function forbidUnlessOwner(rowCustomerId, customer) {
+  if (rowCustomerId && String(rowCustomerId) === String(customer.id)) return null;
+  return NextResponse.json({ error: "forbidden" }, { status: 403 });
+}
+
+// サービスロールキーで Supabase REST を呼ぶ。失敗時は例外を投げる（本文はログに出さない）。
+export async function sbFetch(headers, path, init = {}) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...init,
+    headers: { ...headers, ...(init.prefer ? { Prefer: init.prefer } : {}) },
+  });
+  if (!res.ok) throw new Error(`Supabase ${init.method || "GET"} ${path.split("?")[0]} ${res.status}`);
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 
 // マイページに返す顧客情報（本人分のみ・画面で使う項目だけ）

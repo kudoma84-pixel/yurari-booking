@@ -2,8 +2,17 @@
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
-const SUPABASE_URL = "https://pbjekdzmvjqhqbbrzbfk.supabase.co";
-const SUPABASE_KEY = "sb_publishable_I_98PawL-eNS__SZa0DlPA_80VwFUZc";
+// マイページのデータはすべて /api/mypage/* を経由する（Supabase を直接呼ばない）。
+// 各APIはセッションCookieの顧客IDで本人のデータだけを扱う。
+const api = async (path, init) => {
+  const res = await fetch("/api/mypage/" + path, {
+    cache: "no-store",
+    ...init,
+    headers: init?.body ? { "Content-Type": "application/json" } : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+};
 
 const GREEN = "#2d6a4f";
 const LIGHT_GREEN = "#52b788";
@@ -26,7 +35,6 @@ function MyPageInner() {
   const [customer, setCustomer] = useState(null);
   const [bookings, setBookings] = useState([]);
   const [tickets, setTickets] = useState([]);
-  const [staffList, setStaffList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("booking");
@@ -43,18 +51,11 @@ function MyPageInner() {
   const [checkinLoading, setCheckinLoading] = useState(false);
   const [qrLoaded, setQrLoaded] = useState(false);
 
-  const headers = {
-    "apikey": SUPABASE_KEY,
-    "Authorization": "Bearer " + SUPABASE_KEY,
-    "Content-Type": "application/json",
-    "Prefer": "return=representation",
-  };
-
   useEffect(() => {
     if (!customer) return;
     const interval = setInterval(() => {
-      fetchBookings(customer.id);
-      fetchNotices(customer.id);
+      fetchBookings();
+      fetchNotices();
     }, 5000);
     return () => clearInterval(interval);
   }, [customer]);
@@ -72,27 +73,14 @@ function MyPageInner() {
           const liff = (await import('@line/liff')).default;
           await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID_MYPAGE });
           if (liff.isLoggedIn()) {
-            const profile = await liff.getProfile();
-            const lineUserId = profile.userId;
-            const stored = localStorage.getItem('yurari_customer_id');
-            if (stored) {
-              await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + stored, {
-                method: "PATCH",
-                headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY, "Content-Type": "application/json" },
-                body: JSON.stringify({ line_user_id: lineUserId, notification_method: "line" }),
-              });
-              // 顧客情報を再取得して画面を更新
-              const res = await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + stored + "&select=*", {
-                headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY },
-              });
-              const data = await res.json();
-              if (data && data[0]) {
-                // customerをsetするためにwindow経由でイベント発火
-                window.__liffLineUserId = lineUserId;
-              }
+            // LINEユーザーIDはサーバーがアクセストークンを検証して取得する。対象はログイン中の本人のみ。
+            const r = await api("line-link", { method: "POST", body: JSON.stringify({ accessToken: liff.getAccessToken() }) });
+            if (r.ok) {
               alert("LINEと連携しました！");
               window.history.replaceState({}, '', '/mypage');
               window.location.reload();
+            } else if (r.status !== 401) {
+              alert("LINE連携に失敗しました");
             }
           }
         } catch (e) {
@@ -108,10 +96,9 @@ function MyPageInner() {
 
   // /api/mypage/me からログイン中の本人の情報を取得してマイページを表示する。成功なら true。
   const loadMyCustomer = async () => {
-    const res = await fetch("/api/mypage/me", { cache: "no-store" });
-    if (!res.ok) return false;
-    const { customer: c } = await res.json();
-    if (!c?.id) return false;
+    const r = await api("me");
+    const c = r.data?.customer;
+    if (!r.ok || !c?.id) return false;
     setCustomer(c);
     setProfileForm({
       name: c.name || "",
@@ -122,12 +109,11 @@ function MyPageInner() {
       zipcode: c.zipcode || "",
       preferred_staff_id: c.preferred_staff_id || "",
     });
-    // LINE連携・プッシュ通知の登録がこの値を使うため、引き続き保存しておく（ログイン判定には使わない）
+    // プッシュ通知の登録と予約フォームがこの値を使うため、引き続き保存しておく（ログイン判定には使わない）
     localStorage.setItem('yurari_customer_id', c.id);
-    await fetchBookings(c.id);
-    await fetchTickets(c.id);
-    await fetchAllStaff();
-    await fetchNotices(c.id);
+    await fetchBookings();
+    await fetchTickets();
+    await fetchNotices();
     setScreen("mypage");
     return true;
   };
@@ -165,10 +151,10 @@ function MyPageInner() {
     }
   };
 
-  const fetchNotices = async (customerId) => {
-    const res = await fetch(SUPABASE_URL + "/rest/v1/notifications?customer_id=eq." + customerId + "&order=created_at.desc", { headers });
-    const data = await res.json();
-    const list = Array.isArray(data) ? data : [];
+  const fetchNotices = async () => {
+    const r = await api("notifications");
+    if (!r.ok) return; // 一時的な失敗で表示を空にしない
+    const list = Array.isArray(r.data.notifications) ? r.data.notifications : [];
     setNotices(list);
     const count = list.filter(n => !n.is_read).length;
     setUnreadCount(count);
@@ -182,16 +168,10 @@ function MyPageInner() {
     if (!myMessageText || messageSending || !customer?.line_user_id) return;
     setMessageSending(true);
     try {
-      const res = await fetch(SUPABASE_URL + "/rest/v1/line_messages", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ line_user_id: customer.line_user_id, customer_id: customer.id, direction: "inbound", message: myMessageText, is_read: false }),
-      });
-      if (!res.ok) { alert("メッセージの送信に失敗しました"); return; }
+      const r = await api("messages", { method: "POST", body: JSON.stringify({ message: myMessageText }) });
+      if (!r.ok) { alert("メッセージの送信に失敗しました"); return; }
       setMyMessageText("");
-      const listRes = await fetch(SUPABASE_URL + "/rest/v1/line_messages?line_user_id=eq." + encodeURIComponent(customer.line_user_id) + "&order=created_at.asc&limit=100", { headers });
-      const data = await listRes.json();
-      if (Array.isArray(data)) setMyMessages(data);
+      if (Array.isArray(r.data.messages)) setMyMessages(r.data.messages);
     } catch (e) {
       alert("メッセージの送信に失敗しました");
     } finally {
@@ -200,25 +180,26 @@ function MyPageInner() {
   };
 
   const markAllRead = async () => {
-    await fetch(SUPABASE_URL + "/rest/v1/notifications?customer_id=eq." + customer.id + "&is_read=eq.false", {
-      method: "PATCH", headers, body: JSON.stringify({ is_read: true })
-    });
+    const r = await api("notifications/read", { method: "POST", body: "{}" });
+    if (!r.ok) return;
     setNotices(prev => prev.map(n => ({ ...n, is_read: true })));
     setUnreadCount(0);
     if ('setAppBadge' in navigator) navigator.clearAppBadge();
   };
 
-  const fetchBookings = async (customerId) => {
-    const res = await fetch(SUPABASE_URL + "/rest/v1/bookings?customer_id=eq." + customerId + "&order=booking_date.desc&select=*", { headers });
-    const data = await res.json();
-    setBookings(Array.isArray(data) ? data : []);
+  const fetchBookings = async () => {
+    const r = await api("bookings");
+    if (r.ok) setBookings(Array.isArray(r.data.bookings) ? r.data.bookings : []);
   };
 
-  const fetchTickets = async (customerId) => {
-    const today = jstToday();
-    const res = await fetch(SUPABASE_URL + "/rest/v1/gift_tickets?customer_id=eq." + customerId + "&status=eq.active&expires_at=gte." + today + "&order=expires_at.asc", { headers });
-    const data = await res.json();
-    setTickets(Array.isArray(data) ? data : []);
+  const fetchTickets = async () => {
+    const r = await api("tickets");
+    if (r.ok) setTickets(Array.isArray(r.data.tickets) ? r.data.tickets : []);
+  };
+
+  const fetchMessages = async () => {
+    const r = await api("messages");
+    if (r.ok && Array.isArray(r.data.messages)) setMyMessages(r.data.messages);
   };
 
   const groupTicketsByExpiry = (tickets) => {
@@ -231,45 +212,22 @@ function MyPageInner() {
     return Object.values(groups).sort((a, b) => new Date(a.expires_at) - new Date(b.expires_at));
   };
 
-  const fetchAllStaff = async () => {
-    const res = await fetch(SUPABASE_URL + "/rest/v1/staff_members?is_active=eq.true&order=sort_order.asc", { headers });
-    const data = await res.json();
-    if (Array.isArray(data)) {
-      const unique = data.filter((s, i, arr) => arr.findIndex(x => x.id === s.id) === i);
-      setStaffList(unique);
-    } else {
-      setStaffList([]);
-    }
-  };
-
   const cancelBooking = async (bookingId) => {
-    await fetch(SUPABASE_URL + "/rest/v1/bookings?id=eq." + bookingId, {
-      method: "PATCH", headers, body: JSON.stringify({ status: "cancelled" }),
-    });
-    // 管理画面への通知
-    const b = bookings.find(b => b.id === bookingId);
-    if (b) {
-      await fetch(SUPABASE_URL + "/rest/v1/admin_notifications", {
-        method: "POST", headers,
-        body: JSON.stringify({
-          store_id: b.store_id,
-          type: "cancel",
-          title: "キャンセル",
-          body: (customer.name || "") + "様 " + b.booking_date + " " + b.booking_time + " " + b.course_name,
-          booking_id: bookingId,
-          customer_id: customer.id,
-        }),
-      });
+    // 本人の予約かどうかの確認と、管理画面への通知はサーバー側で行う
+    const r = await api("bookings/cancel", { method: "POST", body: JSON.stringify({ bookingId }) });
+    if (!r.ok) {
+      alert(r.data.error || "キャンセルに失敗しました");
+      return;
     }
-    await fetchBookings(customer.id);
+    await fetchBookings();
     setCancelTarget(null);
     setCancelDone(true);
     setTimeout(() => setCancelDone(false), 3000);
   };
 
   const saveProfile = async () => {
-    await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + customer.id, {
-      method: "PATCH", headers,
+    const r = await api("profile", {
+      method: "POST",
       body: JSON.stringify({
         name: profileForm.name,
         kana: profileForm.kana,
@@ -277,10 +235,13 @@ function MyPageInner() {
         email: profileForm.email,
         address: profileForm.address,
         zipcode: profileForm.zipcode,
-        preferred_staff_id: profileForm.preferred_staff_id || null,
       }),
     });
-    setCustomer({ ...customer, ...profileForm });
+    if (!r.ok) {
+      alert(r.data.error || "保存に失敗しました");
+      return;
+    }
+    setCustomer(r.data.customer || { ...customer, ...profileForm });
     setEditProfile(false);
   };
 
@@ -288,25 +249,16 @@ function MyPageInner() {
     if (!customer) return;
     setCheckinLoading(true);
     try {
-      const today = jstToday();
-      const res = await fetch(
-        SUPABASE_URL + "/rest/v1/bookings?customer_id=eq." + customer.id + "&booking_date=eq." + today + "&status=eq.confirmed&order=booking_time.asc&limit=1",
-        { headers }
-      );
-      const data = await res.json();
-      if (data && data.length > 0) {
-        await fetch(SUPABASE_URL + "/rest/v1/bookings?id=eq." + data[0].id, {
-          method: "PATCH", headers, body: JSON.stringify({ status: "received" }),
-        });
-        await fetch(SUPABASE_URL + "/rest/v1/rpc/assign_customer_number", {
-          method: "POST", headers,
-          body: JSON.stringify({ p_customer_id: customer.id, p_store_id: data[0].store_id }),
-        });
-        await fetchBookings(customer.id);
+      // 本人の今日の予約を探して受付済みにする処理はサーバー側で行う
+      const r = await api("checkin", { method: "POST", body: "{}" });
+      if (r.ok) {
+        await fetchBookings();
         setCheckinDone(true);
         setTimeout(() => setCheckinDone(false), 5000);
-      } else {
+      } else if (r.status === 404) {
         alert("本日の予約が見つかりません");
+      } else {
+        alert("エラーが発生しました");
       }
     } catch (e) {
       alert("エラーが発生しました");
@@ -468,12 +420,9 @@ function MyPageInner() {
             <button key={t.id} onClick={() => {
               setActiveTab(t.id);
               if (t.id === "notice") markAllRead();
-              if (t.id === "ticket" && customer) fetchTickets(customer.id);
-              if (t.id === "booking" && customer) fetchBookings(customer.id);
-              if (t.id === "mymessage" && customer) {
-                fetch(SUPABASE_URL + "/rest/v1/line_messages?line_user_id=eq." + customer.line_user_id + "&order=created_at.asc&limit=100", { headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY } })
-                  .then(r => r.json()).then(data => { if (Array.isArray(data)) setMyMessages(data); });
-              }
+              if (t.id === "ticket" && customer) fetchTickets();
+              if (t.id === "booking" && customer) fetchBookings();
+              if (t.id === "mymessage" && customer) fetchMessages();
               if (t.id === "qr") setQrLoaded(false);
             }}
               className="tab-btn" style={{ position: "relative", padding: "10px 20px", borderRadius: 20, border: "none", background: activeTab === t.id ? GREEN : "white", color: activeTab === t.id ? "white" : "#888", fontSize: 13, fontWeight: activeTab === t.id ? 700 : 400, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", overflow: "visible" }}>              {t.label}
@@ -661,14 +610,13 @@ function MyPageInner() {
                         liff.login({ redirectUri: "https://yurari-booking.vercel.app/mypage?liff=1" });
                         return;
                       }
-                      const profile = await liff.getProfile();
-                      const lineUserId = profile.userId;
-                      await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + customer.id, {
-                        method: "PATCH",
-                        headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY, "Content-Type": "application/json" },
-                        body: JSON.stringify({ line_user_id: lineUserId, notification_method: "line" }),
-                      });
-                      setCustomer({ ...customer, line_user_id: lineUserId, notification_method: "line" });
+                      // LINEユーザーIDはサーバーがアクセストークンを検証して取得する
+                      const r = await api("line-link", { method: "POST", body: JSON.stringify({ accessToken: liff.getAccessToken() }) });
+                      if (!r.ok) {
+                        alert("LINE連携に失敗しました");
+                        return;
+                      }
+                      setCustomer({ ...customer, line_user_id: r.data.line_user_id, notification_method: "line" });
                       alert("LINEと連携しました！");
                       return;
                     } catch (e) {
@@ -676,11 +624,11 @@ function MyPageInner() {
                       return;
                     }
                   }
-                  await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + customer.id, {
-                    method: "PATCH",
-                    headers: { apikey: SUPABASE_KEY, Authorization: "Bearer " + SUPABASE_KEY, "Content-Type": "application/json" },
-                    body: JSON.stringify({ notification_method: method }),
-                  });
+                  const r = await api("notification-method", { method: "POST", body: JSON.stringify({ method }) });
+                  if (!r.ok) {
+                    alert(r.data.error || "保存に失敗しました");
+                    return;
+                  }
                   setCustomer({ ...customer, notification_method: method });
                 }} style={{ display: "block", width: "100%", padding: "12px 16px", borderRadius: 12, border: `2px solid ${customer?.notification_method === method ? GREEN : "#e8ddd0"}`, background: customer?.notification_method === method ? "#eaf5ec" : "white", color: customer?.notification_method === method ? GREEN : "#888", fontSize: 14, fontWeight: customer?.notification_method === method ? 700 : 400, cursor: "pointer", marginBottom: 8, textAlign: "left" }}>
                   {method === "line" ? "📱 LINE通知" : method === "email" ? "📧 メール通知" : "🔕 通知なし"}

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { SUPABASE_URL } from "../../_lib/server";
 import {
-  SESSION_COOKIE, sessionCookieOptions, serviceRoleHeaders, createSessionToken, recordAttemptAndCheckLimit,
+  SESSION_COOKIE, sessionCookieOptions, serviceRoleHeaders, createSessionToken, recordAttemptAndCheckLimit, deleteOldAttempts,
 } from "../../_lib/mypage-auth";
 
 // マイページのログイン。「携帯下4桁＋誕生日MMDD」の8桁コードをサーバー側で照合する。
@@ -16,7 +16,9 @@ export async function POST(request) {
     return NextResponse.json({ error: "サーバーの設定に問題があります" }, { status: 500 });
   }
 
-  if (await recordAttemptAndCheckLimit(request, headers)) {
+  const limited = await recordAttemptAndCheckLimit(request, headers);
+  await deleteOldAttempts(headers);
+  if (limited) {
     return NextResponse.json({ error: "試行回数が多すぎます。10分ほど時間をおいてからお試しください" }, { status: 429 });
   }
 
@@ -34,12 +36,13 @@ export async function POST(request) {
   const birthMMDD = clean.slice(4, 8);
 
   // 照合条件は従来のマイページと同じ（電話番号の数字だけの下4桁＋誕生日のMMDD）。
+  // 削除済み（統合された側）の顧客は照合しない（統合後に「複数該当」でログインできなくなるため）。
   // 照合に必要な列だけを取得し、結果はブラウザに返さない。
   const hits = [];
   try {
     for (let offset = 0; ; offset += PAGE_SIZE) {
       const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/customers?select=id,tel,birthday&order=id.asc&limit=${PAGE_SIZE}&offset=${offset}`,
+        `${SUPABASE_URL}/rest/v1/customers?select=id,tel,birthday&is_deleted=not.is.true&order=id.asc&limit=${PAGE_SIZE}&offset=${offset}`,
         { headers }
       );
       if (!res.ok) throw new Error(`customers ${res.status}`);
