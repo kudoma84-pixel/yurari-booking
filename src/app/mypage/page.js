@@ -101,35 +101,36 @@ function MyPageInner() {
       })();
     }
 
-    const customerId = localStorage.getItem('yurari_customer_id');
-    const expire = localStorage.getItem('yurari_login_expire');
-    if (customerId && expire && Date.now() < parseInt(expire)) {
-      const autoLogin = async () => {
-        const res = await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + customerId + "&select=*", {
-          headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
-        });
-        const data = await res.json();
-        if (data && data.length > 0) {
-          setCustomer(data[0]);
-          setProfileForm({
-            name: data[0].name || "",
-            kana: data[0].kana || "",
-            tel: data[0].tel || "",
-            email: data[0].email || "",
-            address: data[0].address || "",
-            zipcode: data[0].zipcode || "",
-            preferred_staff_id: data[0].preferred_staff_id || "",
-          });
-          await fetchBookings(data[0].id);
-          await fetchTickets(data[0].id);
-          await fetchAllStaff();
-          await fetchNotices(data[0].id);
-          setScreen("mypage");
-        }
-      };
-      autoLogin();
-    }
+    // 自動ログイン：サーバーが発行した HttpOnly Cookie のセッションで本人の情報を取得する。
+    // セッションが無い・切れている場合（401）はログイン画面のまま。
+    loadMyCustomer().catch(() => {});
   }, []);
+
+  // /api/mypage/me からログイン中の本人の情報を取得してマイページを表示する。成功なら true。
+  const loadMyCustomer = async () => {
+    const res = await fetch("/api/mypage/me", { cache: "no-store" });
+    if (!res.ok) return false;
+    const { customer: c } = await res.json();
+    if (!c?.id) return false;
+    setCustomer(c);
+    setProfileForm({
+      name: c.name || "",
+      kana: c.kana || "",
+      tel: c.tel || "",
+      email: c.email || "",
+      address: c.address || "",
+      zipcode: c.zipcode || "",
+      preferred_staff_id: c.preferred_staff_id || "",
+    });
+    // LINE連携・プッシュ通知の登録がこの値を使うため、引き続き保存しておく（ログイン判定には使わない）
+    localStorage.setItem('yurari_customer_id', c.id);
+    await fetchBookings(c.id);
+    await fetchTickets(c.id);
+    await fetchAllStaff();
+    await fetchNotices(c.id);
+    setScreen("mypage");
+    return true;
+  };
 
   const formatDate = (d) => {
     const dt = new Date(d);
@@ -145,43 +146,18 @@ function MyPageInner() {
     setLoading(true);
     setError("");
     try {
-      const telLast4 = clean.slice(0, 4);
-      const birthMonth = clean.slice(4, 6);
-      const birthDay = clean.slice(6, 8);
-      const res = await fetch(SUPABASE_URL + "/rest/v1/customers?select=*", { headers });
-      const allCustomers = await res.json();
-      const data = Array.isArray(allCustomers) ? allCustomers.filter(c => {
-        const telMatch = c.tel && c.tel.replace(/[^0-9]/g, "").slice(-4) === telLast4;
-        const bdMatch = c.birthday && c.birthday.replace(/-/g, "").slice(4, 8) === (birthMonth + birthDay);
-        return telMatch && bdMatch;
-      }) : [];
-      console.log("[マイページ照合]", { has_tel: true, hits: data.length });
-      // 2件以上ヒットした場合は先頭を採用しない（別人のマイページに入ってしまうのを防ぐ）
-      if (data.length > 1) {
-        setError("同じログインコードのお客様が複数いるため、ご本人を特定できませんでした。お手数ですが店舗までお電話ください。");
+      // 照合はサーバー側（/api/mypage/login）で行う。成功するとセッションCookieが発行される。
+      const res = await fetch("/api/mypage/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: clean }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "コードが正しくありません");
         return;
       }
-      if (data && data.length > 0) {
-        setCustomer(data[0]);
-        setProfileForm({
-          name: data[0].name || "",
-          kana: data[0].kana || "",
-          tel: data[0].tel || "",
-          email: data[0].email || "",
-          address: data[0].address || "",
-          zipcode: data[0].zipcode || "",
-          preferred_staff_id: data[0].preferred_staff_id || "",
-        });
-        localStorage.setItem('yurari_customer_id', data[0].id);
-        localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
-        await fetchBookings(data[0].id);
-        await fetchTickets(data[0].id);
-        await fetchAllStaff();
-        await fetchNotices(data[0].id);
-        setScreen("mypage");
-      } else {
-        setError("電話番号または生年月日が一致しません");
-      }
+      if (!(await loadMyCustomer())) setError("エラーが発生しました");
     } catch (e) {
       setError("エラーが発生しました");
     } finally {
@@ -407,7 +383,7 @@ function MyPageInner() {
           <img src={LOGO_URL} alt="癒楽里" style={{ height: 44, width: "auto" }} />
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ fontSize: 13, color: GREEN, fontWeight: 700 }}>{customer?.name} 様</div>
-            <button onClick={() => { localStorage.removeItem('yurari_customer_id'); localStorage.removeItem('yurari_login_expire'); setScreen("login"); setCustomer(null); setLoginCode(""); }}
+            <button onClick={() => { fetch("/api/mypage/logout", { method: "POST" }).catch(() => {}); localStorage.removeItem('yurari_customer_id'); localStorage.removeItem('yurari_login_expire'); setScreen("login"); setCustomer(null); setLoginCode(""); }}
               style={{ padding: "8px 16px", borderRadius: 20, border: "2px solid " + GREEN + "40", background: "white", color: GREEN, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
               ログアウト
             </button>
