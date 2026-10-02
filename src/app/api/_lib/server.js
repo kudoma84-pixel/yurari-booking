@@ -18,7 +18,9 @@ export const sbHeaders = {
 export const q = (v) => encodeURIComponent(String(v ?? ""));
 
 export async function sbSelect(path) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: sbHeaders });
+  // cache: "no-store" は必須。Next.js 14 はサーバー側の fetch(GET) の応答を Data Cache に保存するため、
+  // 付けないと最初に取得した時点の古いデータを返し続ける（7501d55 のマイページ予約一覧と同じ問題）。
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: sbHeaders, cache: "no-store" });
   if (!res.ok) throw new Error(`Supabase GET ${res.status}: ${await res.text()}`);
   const data = await res.json();
   return Array.isArray(data) ? data : [];
@@ -122,6 +124,7 @@ export async function sendPushToCustomer({ customer_id, title, body, url }) {
         await fetch(`${SUPABASE_URL}/rest/v1/push_subscriptions?id=eq.${q(sub.id)}`, {
           method: "DELETE",
           headers: sbHeaders,
+          cache: "no-store",
         }).catch(() => {});
       } else {
         console.error("[push] 送信失敗", e.statusCode, e.message);
