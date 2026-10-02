@@ -99,13 +99,13 @@ export async function recordAttemptAndCheckLimit(request, headers) {
   const hash = ipHash(clientIp(request));
   try {
     const ins = await fetch(`${SUPABASE_URL}/rest/v1/mypage_login_attempts`, {
-      method: "POST", headers, body: JSON.stringify({ ip_hash: hash }),
+      method: "POST", headers, body: JSON.stringify({ ip_hash: hash }), cache: "no-store",
     });
     if (!ins.ok) throw new Error(`insert ${ins.status}`);
     const since = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/mypage_login_attempts?ip_hash=eq.${hash}&created_at=gte.${encodeURIComponent(since)}&select=id&limit=${RATE_LIMIT_MAX + 1}`,
-      { headers }
+      { headers, cache: "no-store" }
     );
     if (!res.ok) throw new Error(`select ${res.status}`);
     const rows = await res.json();
@@ -120,7 +120,7 @@ export async function recordAttemptAndCheckLimit(request, headers) {
 export async function deleteOldAttempts(headers) {
   const old = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/mypage_login_attempts?created_at=lt.${encodeURIComponent(old)}`, { method: "DELETE", headers });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/mypage_login_attempts?created_at=lt.${encodeURIComponent(old)}`, { method: "DELETE", headers, cache: "no-store" });
     if (!res.ok) console.error("[mypage-login] 古い試行記録の削除に失敗しました:", res.status);
   } catch (e) {
     console.error("[mypage-login] 古い試行記録の削除に失敗しました:", e.message);
@@ -141,7 +141,7 @@ export async function requireMypageSession(request) {
   if (!customerId) {
     return { error: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
   }
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${encodeURIComponent(customerId)}&select=*`, { headers });
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${encodeURIComponent(customerId)}&select=*`, { headers, cache: "no-store" });
   if (!res.ok) {
     console.error("[mypage] 顧客情報の取得に失敗しました:", res.status);
     return { error: NextResponse.json({ error: "エラーが発生しました" }, { status: 500 }) };
@@ -162,10 +162,13 @@ export function forbidUnlessOwner(rowCustomerId, customer) {
 }
 
 // サービスロールキーで Supabase REST を呼ぶ。失敗時は例外を投げる（本文はログに出さない）。
+// cache: "no-store" は必須。Next.js 14 はサーバー側の fetch(GET) の応答を Data Cache に保存するため、
+// 付けないと予約一覧などが最初に取得した時点の内容のまま更新されなくなる。
 export async function sbFetch(headers, path, init = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...init,
     headers: { ...headers, ...(init.prefer ? { Prefer: init.prefer } : {}) },
+    cache: "no-store",
   });
   if (!res.ok) throw new Error(`Supabase ${init.method || "GET"} ${path.split("?")[0]} ${res.status}`);
   const text = await res.text();

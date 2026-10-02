@@ -43,7 +43,7 @@ export async function POST(request) {
     for (let offset = 0; ; offset += PAGE_SIZE) {
       const res = await fetch(
         `${SUPABASE_URL}/rest/v1/customers?select=id,tel,birthday&is_deleted=not.is.true&order=id.asc&limit=${PAGE_SIZE}&offset=${offset}`,
-        { headers }
+        { headers, cache: "no-store" }
       );
       if (!res.ok) throw new Error(`customers ${res.status}`);
       const rows = await res.json();
@@ -66,7 +66,7 @@ export async function POST(request) {
 
   const customerRes = await fetch(
     `${SUPABASE_URL}/rest/v1/customers?id=eq.${encodeURIComponent(hits[0])}&select=*`,
-    { headers }
+    { headers, cache: "no-store" }
   );
   const rows = customerRes.ok ? await customerRes.json() : [];
   const customer = Array.isArray(rows) ? rows[0] : null;

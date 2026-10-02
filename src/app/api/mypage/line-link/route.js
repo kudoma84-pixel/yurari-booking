@@ -37,14 +37,14 @@ export async function POST(request) {
 
   try {
     // 1) トークンが有効で、こちらのチャネルが発行したものか
-    const verifyRes = await fetch("https://api.line.me/oauth2/v2.1/verify?access_token=" + encodeURIComponent(accessToken));
+    const verifyRes = await fetch("https://api.line.me/oauth2/v2.1/verify?access_token=" + encodeURIComponent(accessToken), { cache: "no-store" });
     const verify = await verifyRes.json().catch(() => ({}));
     if (!verifyRes.ok || !(verify.expires_in > 0) || !allowed.includes(String(verify.client_id))) {
       console.error("[mypage-line-link] アクセストークンの検証に失敗しました", verifyRes.status);
       return NextResponse.json({ error: "LINEの認証に失敗しました" }, { status: 401 });
     }
     // 2) トークンの持ち主のユーザーID
-    const profileRes = await fetch("https://api.line.me/v2/profile", { headers: { Authorization: "Bearer " + accessToken } });
+    const profileRes = await fetch("https://api.line.me/v2/profile", { headers: { Authorization: "Bearer " + accessToken }, cache: "no-store" });
     const profile = await profileRes.json().catch(() => ({}));
     if (!profileRes.ok || !profile.userId) {
       console.error("[mypage-line-link] プロフィールの取得に失敗しました", profileRes.status);
