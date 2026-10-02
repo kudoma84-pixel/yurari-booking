@@ -109,8 +109,11 @@ function MyPageInner() {
       zipcode: c.zipcode || "",
       preferred_staff_id: c.preferred_staff_id || "",
     });
-    // プッシュ通知の登録と予約フォームがこの値を使うため、引き続き保存しておく（ログイン判定には使わない）
+    // 予約フォーム（/src）とプッシュ通知の登録は、まだ localStorage の顧客IDと有効期限でログイン状態を判定している。
+    // 「新しい予約」で予約フォームへログイン済みのまま進めるよう、セッションで確認した本人のIDを渡す。
+    // （マイページ自身のログイン判定には使わない。1-C で /src を Cookie 認証にしたら不要になる橋渡し）
     localStorage.setItem('yurari_customer_id', c.id);
+    localStorage.setItem('yurari_login_expire', Date.now() + 7 * 24 * 60 * 60 * 1000);
     await fetchBookings();
     await fetchTickets();
     await fetchNotices();
