@@ -9,6 +9,7 @@ import {
   jstDateString,
   sendPushToCustomer,
 } from "../_lib/server";
+import { runFollowups } from "../_lib/followup";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -111,5 +112,17 @@ export async function GET(request) {
     }
   }
 
-  return NextResponse.json({ success: true, date: dateStr, sent, failed, idempotent });
+  // 当日分のリマインドの後に、来院日起点のフォロー配信も行う（毎朝1回）。
+  // 失敗してもリマインドの結果には影響させない。
+  let followup = null;
+  if (!isTomorrow) {
+    try {
+      followup = await runFollowups();
+    } catch (e) {
+      console.error("[remind] フォロー配信でエラー", e);
+      followup = { error: "followup failed" };
+    }
+  }
+
+  return NextResponse.json({ success: true, date: dateStr, sent, failed, idempotent, followup });
 }
