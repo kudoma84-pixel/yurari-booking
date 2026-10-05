@@ -82,9 +82,18 @@ async function nextAuthLineUserId(request) {
   }
 }
 
+// サーバー側で検証できたLINEユーザーIDと、その経路（"liff" / "nextauth"）。どちらも無ければ null。
+export async function verifiedLine(request) {
+  const fromLiff = verifyLineToken(request.cookies.get(LINE_COOKIE)?.value);
+  if (fromLiff) return { lineUserId: fromLiff, via: "liff" };
+  const fromNextAuth = await nextAuthLineUserId(request);
+  if (fromNextAuth) return { lineUserId: fromNextAuth, via: "nextauth" };
+  return null;
+}
+
 // サーバー側で検証できたLINEユーザーID（LIFF → NextAuth の順）。どちらも無ければ null。
 export async function verifiedLineUserId(request) {
-  return verifyLineToken(request.cookies.get(LINE_COOKIE)?.value) || (await nextAuthLineUserId(request));
+  return (await verifiedLine(request))?.lineUserId || null;
 }
 
 // ── マイページのセッション ─────────────────────────────

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
-import { requireServiceHeaders, sbFetch, verifiedLineUserId, digits } from "../../_lib/booking-auth";
+import { requireServiceHeaders, sbFetch, verifiedLine, customerByLineUserId, digits } from "../../_lib/booking-auth";
 
 // 予約フォームのお客様情報登録。
-// - 同じ電話番号の顧客が既にいる場合は、その顧客の情報を一切上書きしない（その顧客で予約に進むだけ）。
-//   電話番号は他人でも知り得るため、上書きや LINE の紐づけを許すと、他人の連絡先や通知先を書き換えられてしまう。
+// - 同じ電話番号の顧客が既にいる場合は、名前・住所・メールなどを上書きしない（その顧客で予約に進む）。
+//   電話番号は他人でも知り得るため、上書きを許すと他人の連絡先を書き換えられてしまう。
+//   例外として、検証済みのLINEユーザーIDがあり、その顧客が未連携（line_user_id が空）の場合だけ
+//   line_user_id を紐づける（連携済みの方の通知先は奪えない）。
 // - 同じ電話番号の顧客が2件以上いる場合はエラー（どれにも紐づけない。9/30の誤紐付けと同じ構造を作らない）。
 // - 新規作成時の LINEユーザーIDは、サーバーで検証できたものだけを保存する。
 // - 既存顧客の情報は返さない（電話番号を知っているだけの人に個人情報を渡さないため）。
@@ -51,12 +53,44 @@ export async function POST(request) {
         error: "同じ電話番号のお客様が複数登録されているため、ご本人を特定できませんでした。お手数ですが店舗までお電話ください。",
       }, { status: 409 });
     }
+    const line = await verifiedLine(request);
+    const lineUserId = line?.lineUserId || null;
+
     if (hits.length === 1) {
-      // 既存の方：上書きしない。予約登録（booking-create）は電話番号の一致で本人確認する
-      return NextResponse.json({ customer_id: hits[0].id, existed: true, has_line: !!hits[0].line_user_id });
+      // 既存の方：名前・住所・メールなどは上書きしない。予約登録（booking-create）は電話番号の一致で本人確認する。
+      const existing = hits[0];
+      let linked = false;
+      // LINEの紐づけだけは、次の条件をすべて満たす場合に限り行う：
+      //   検証済みのLINEユーザーIDがある／電話番号が完全一致する顧客が1人だけ（ここまでで確定）／
+      //   その顧客の line_user_id がまだ空。
+      // 連携済みの方の通知先は書き換えない（他人が電話番号を知っていても通知先を奪えない）。
+      if (lineUserId && !existing.line_user_id) {
+        // このLINEユーザーIDが既に別の顧客に紐づいていれば、重複させない
+        const other = await customerByLineUserId(s.headers, lineUserId);
+        if (other.customer || other.multiple) {
+          console.error("[booking-form/register] このLINEは別の顧客に連携済みのため紐づけません", JSON.stringify({ customer_id: existing.id }));
+        } else {
+          const update = { line_user_id: lineUserId };
+          // 通知方法はお客様が選んだ値に従う
+          if (METHODS.includes(body?.notification_method)) update.notification_method = body.notification_method;
+          // line_user_id が空のままの場合だけ更新する（同時実行で別のLINEが先に入っていたら何もしない）。
+          // 空は NULL と空文字の両方があり得るため、照合時の値に合わせて条件を付ける
+          const emptyFilter = existing.line_user_id === null ? "is.null" : "eq.";
+          const updated = await sbFetch(s.headers,
+            `customers?id=eq.${encodeURIComponent(existing.id)}&line_user_id=${emptyFilter}`, {
+              method: "PATCH", prefer: "return=representation", body: JSON.stringify(update),
+            });
+          linked = Array.isArray(updated) && updated.length === 1;
+          if (linked) {
+            console.log("[booking-form/register] 既存顧客にLINEを紐づけました", JSON.stringify({ customer_id: existing.id, via: line.via }));
+          } else {
+            console.error("[booking-form/register] LINEの紐づけ対象が更新されませんでした", JSON.stringify({ customer_id: existing.id }));
+          }
+        }
+      }
+      return NextResponse.json({ customer_id: existing.id, existed: true, has_line: !!existing.line_user_id || linked, linked });
     }
 
-    const lineUserId = await verifiedLineUserId(request);
     const created = await sbFetch(s.headers, "customers", {
       method: "POST",
       prefer: "return=representation",
