@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { LINE_COOKIE, lineCookieOptions, createLineToken } from "../_lib/booking-auth";
 
 // LIFF の IDトークンを LINE の検証エンドポイントで検証し、LINEユーザーIDを返す。
 // クライアントから送られたユーザーIDは信用せず、必ずここで検証した sub だけを使うこと。
@@ -30,7 +31,12 @@ export async function POST(request) {
       console.error("[liff-verify] IDトークン検証失敗", res.status, data?.error, data?.error_description);
       return NextResponse.json({ error: "invalid id token" }, { status: 401 });
     }
-    return NextResponse.json({ lineUserId: data.sub, displayName: data.name || "", picture: data.picture || "" });
+    const response = NextResponse.json({ lineUserId: data.sub, displayName: data.name || "", picture: data.picture || "" });
+    // 予約フォームのAPIがクライアント送信のIDではなく検証済みのIDを使えるよう、署名付きCookieに入れる
+    const token = createLineToken(data.sub);
+    if (token) response.cookies.set(LINE_COOKIE, token, lineCookieOptions);
+    else console.error("[liff-verify] NEXTAUTH_SECRET が未設定のため検証済みCookieを発行できません");
+    return response;
   } catch (e) {
     console.error("[liff-verify] 検証エラー", e);
     return NextResponse.json({ error: "invalid id token" }, { status: 401 });

@@ -34,7 +34,7 @@ export async function POST(request) {
     }
 
     await sbFetch(headers, `bookings?id=eq.${encodeURIComponent(booking.id)}&customer_id=eq.${encodeURIComponent(customer.id)}`, {
-      method: "PATCH", body: JSON.stringify({ status: "cancelled" }),
+      method: "PATCH", body: JSON.stringify({ status: "cancelled", cancelled_at: new Date().toISOString() }),
     });
 
     // 管理画面への通知（失敗してもキャンセル自体は成立しているので、ログだけ残す）

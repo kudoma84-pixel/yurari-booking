@@ -3,8 +3,17 @@ import { useState, useEffect, useRef, Suspense } from "react";
 import { signIn, useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 
-const SUPABASE_URL = "https://pbjekdzmvjqhqbbrzbfk.supabase.co";
-const SUPABASE_KEY = "sb_publishable_I_98PawL-eNS__SZa0DlPA_80VwFUZc";
+// 予約フォームのデータはすべて /api/booking-form/* などのサーバーAPIを経由する（Supabase を直接呼ばない）。
+// 本人確認はサーバー側で行う（電話番号の一致／検証済みLINEユーザーID／マイページのセッション）。
+const api = async (path, init) => {
+  const res = await fetch("/api/" + path, {
+    cache: "no-store",
+    ...init,
+    headers: init?.body ? { "Content-Type": "application/json" } : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+};
 
 const STORES = [
   { id: "minamiurawa", name: "南浦和本院", address: "埼玉県さいたま市南区文蔵2-17-6", tel: "048-762-8333", hours: "10:00〜19:30（最終受付19:00）", lineUrl: "https://lin.ee/MINAMIURAWA" },
@@ -138,11 +147,11 @@ function AppInner() {
       } finally {
         // どの経路でも必ず1回記録。await せず、失敗しても画面の動作に影響させない
         try {
-          fetch(`${SUPABASE_URL}/rest/v1/auth_error_logs`, {
+          fetch("/api/booking-form/liff-log", {
             method: "POST",
             keepalive: true, // 外部ブラウザ引き渡し・liff.login の遷移中でも送信を完了させる
-            headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY, "Content-Type": "application/json", "Prefer": "return=minimal" },
-            body: JSON.stringify({ error_code: "LIFF_DEBUG", detail: JSON.stringify(diag), user_agent: diag.userAgent }),
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ detail: JSON.stringify(diag) }),
           }).catch(err => console.error("[LIFF] 診断ログ記録失敗", err));
         } catch (err) {
           console.error("[LIFF] 診断ログ記録失敗", err);
@@ -192,13 +201,6 @@ function AppInner() {
   const [showAddEsthe, setShowAddEsthe] = useState(false);
   const [course2, setCourse2] = useState(null);
   const [courseVisitType2, setCourseVisitType2] = useState(null);
-  const headers = {
-    "apikey": SUPABASE_KEY,
-    "Authorization": "Bearer " + SUPABASE_KEY,
-    "Content-Type": "application/json",
-    "Prefer": "return=representation",
-  };
-
   useEffect(() => { fetchCourses(); }, []);
 
   useEffect(() => {
@@ -223,12 +225,12 @@ function AppInner() {
         userVisibleOnly: true,
         applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
       });
-      const customerId = typeof localStorage !== "undefined" ? localStorage.getItem("yurari_customer_id") : null;
-      await fetch("/api/push-subscribe", {
+      // 登録先の顧客はサーバーが本人確認する（フォームの電話番号 or 検証済みLINE or マイページのセッション）
+      const r = await api("push-subscribe", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subscription: sub, customer_id: customerId }),
+        body: JSON.stringify({ subscription: sub, customer_id: existingCustomer?.id || null, tel: profile.tel || "" }),
       });
+      if (!r.ok) throw new Error("push-subscribe " + r.status);
       setPushStatus("done");
     } catch (e) {
       console.error("push subscribe error", e);
@@ -276,61 +278,30 @@ function AppInner() {
 
   useEffect(() => {
     if (notifyFromUrl === 'line') return; // NextAuth LINE復帰時はスキップ（上のuseEffectに任せる）
-    const customerId = localStorage.getItem('yurari_customer_id');
-    const expire = localStorage.getItem('yurari_login_expire');
-    const lineUserId = localStorage.getItem('yurari_line_user_id');
-    if (customerId && expire && Date.now() < parseInt(expire) && !changeBookingId) {
-      const fetchMyPageCustomer = async () => {
-        const res = await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + customerId + "&select=*", {
-          headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
-        });
-        const data = await res.json();
-        if (data && data[0]) {
-          const c = data[0];
-          setProfile({
-            name: c.name || "", kana: c.kana || "",
-            tel: c.tel || "", email: c.email || "",
-            address: c.address || "", zipcode: c.zipcode || "",
-            birthYear: "", birthMonth: "", birthDay: "",
-            birthday: c.birthday || "", firstVisit: "2回目以降", notes: "",
-          });
-          setExistingCustomer(c);
-          customerMatchRef.current = { source: "saved_customer_id", has_tel: !!(c.tel || "").trim(), hits: data.length };
-          setNotificationMethod(c.notification_method || "email");
-          setScreen("booking");
-        }
-      };
-      fetchMyPageCustomer();
-    } else if (lineUserId && !changeBookingId) {
-      const fetchLineCustomer = async () => {
-        const res = await fetch(SUPABASE_URL + "/rest/v1/customers?line_user_id=eq." + lineUserId + "&select=*", {
-          headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
-        });
-        const data = await res.json();
-        // 2件以上ヒットした場合は先頭を採用しない（別人に紐づくのを防ぐ）
-        if (Array.isArray(data) && data.length > 1) {
-          console.error("[顧客照合] 同じLINEユーザーIDの顧客が複数あるため自動ログインしません", data.length);
-          return;
-        }
-        if (data && data[0]) {
-          const c = data[0];
-          setProfile({
-            name: c.name || "", kana: c.kana || "",
-            tel: c.tel || "", email: c.email || "",
-            address: c.address || "", zipcode: c.zipcode || "",
-            birthYear: "", birthMonth: "", birthDay: "",
-            birthday: c.birthday || "", firstVisit: "2回目以降", notes: "",
-          });
-          setExistingCustomer(c);
-          customerMatchRef.current = { source: "saved_line_user_id", has_tel: !!(c.tel || "").trim(), hits: data.length };
-          setNotificationMethod("line");
-          localStorage.setItem('yurari_customer_id', c.id);
-          localStorage.setItem('yurari_login_expire', Date.now() + 24 * 60 * 60 * 1000);
-          setScreen("booking");
-        }
-      };
-      fetchLineCustomer();
-    }
+    if (changeBookingId) return; // 予約変更は下の useEffect で扱う
+    // 自動ログイン：従来は localStorage の顧客ID／LINEユーザーIDをそのまま信用していたが、
+    // サーバーが確認できた本人（マイページのセッション → 検証済みLINEユーザーID）だけを使う。
+    const autoLogin = async () => {
+      // LIFF の検証（検証済みCookieの発行）が終わってから問い合わせる
+      try { await liffReadyRef.current; } catch {}
+      const r = await api("booking-form/me");
+      const c = r.data?.customer;
+      if (!r.ok || !c?.id) return;
+      setProfile({
+        name: c.name || "", kana: c.kana || "",
+        tel: c.tel || "", email: c.email || "",
+        address: c.address || "", zipcode: c.zipcode || "",
+        birthYear: "", birthMonth: "", birthDay: "",
+        birthday: c.birthday || "", firstVisit: "2回目以降", notes: "",
+      });
+      setExistingCustomer(c);
+      customerMatchRef.current = { source: r.data.source, has_tel: !!(c.tel || "").trim(), hits: 1 };
+      setNotificationMethod(r.data.source === "verified_line" ? "line" : (c.notification_method || "email"));
+      // 予約確定のLINE通知の送信先（従来どおり localStorage から読む）
+      if (r.data.source === "verified_line" && c.line_user_id) localStorage.setItem('yurari_line_user_id', c.line_user_id);
+      setScreen(s => (s === "top" ? "booking" : s));
+    };
+    autoLogin().catch(e => console.error("[自動ログイン] 失敗", e));
   }, []);
 
   useEffect(() => {
@@ -346,12 +317,20 @@ function AppInner() {
     if (changeBookingId) {
       setNotificationMethod("email");
       const fetchBookingCustomer = async () => {
-        const res = await fetch(SUPABASE_URL + "/rest/v1/bookings?id=eq." + changeBookingId + "&select=*,customers(*)", {
-          headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
-        });
-        const data = await res.json();
-        if (data && data[0]?.customers) {
-          const c = data[0].customers;
+        // 予約IDだけで顧客情報を返さないよう、サーバーで本人確認（マイページのセッション or 検証済みLINE）する
+        try { await liffReadyRef.current; } catch {}
+        const r = await api("booking-form/change-source?id=" + encodeURIComponent(changeBookingId));
+        if (!r.ok) {
+          console.error("[予約変更] 元の予約を取得できませんでした", r.status);
+          alert(r.status === 403
+            ? "ご本人確認ができませんでした。マイページにログインしてから「予約を変更する」を押してください。"
+            : "変更元の予約が見つかりませんでした。");
+          // 顧客が確定しないまま予約画面に残さない（予約変更はマイページから始まる）
+          window.location.href = "/mypage";
+          return;
+        }
+        if (r.data?.customer) {
+          const c = r.data.customer;
           setProfile({
             name: c.name || "", kana: c.kana || "",
             tel: c.tel || "", email: c.email || "",
@@ -370,40 +349,26 @@ function AppInner() {
   }, [changeBookingId]);
 
   const fetchCourses = async () => {
-    const res = await fetch(SUPABASE_URL + "/rest/v1/course_menus?is_active=eq.true&order=sort_order.asc", { headers });
-    const data = await res.json();
-    setCourses(Array.isArray(data) ? data : []);
+    const r = await api("booking-form/courses");
+    setCourses(r.ok && Array.isArray(r.data.courses) ? r.data.courses : []);
   };
 
   const fetchStaff = async (storeId) => {
-    const res = await fetch(SUPABASE_URL + "/rest/v1/staff_members?store_id=eq." + storeId + "&is_active=eq.true&order=sort_order.asc", { headers });
-    const data = await res.json();
-    setStaffList(Array.isArray(data) ? data : []);
+    const r = await api("booking-form/staff?store_id=" + encodeURIComponent(storeId));
+    setStaffList(r.ok && Array.isArray(r.data.staff) ? r.data.staff : []);
   };
 
   const fetchStoreSettings = async (storeId) => {
-    const res = await fetch(SUPABASE_URL + "/rest/v1/store_settings?store_id=eq." + storeId, { headers });
-    const data = await res.json();
-    if (data[0]) setSameDayLeadTime(data[0].same_day_lead_time);
+    const r = await api("booking-form/store-settings?store_id=" + encodeURIComponent(storeId));
+    if (r.ok && r.data.settings) setSameDayLeadTime(r.data.settings.same_day_lead_time);
   };
 
   const fetchBookedSlots = async (staffId, storeId, dateStr) => {
-    const query = staffId === "any"
-      ? `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${storeId}&booking_date=eq.${dateStr}&status=in.(confirmed,received,treatment_done)&select=booking_time,course_id,course_duration`
-      : `${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${storeId}&staff_id=eq.${staffId}&booking_date=eq.${dateStr}&status=in.(confirmed,received,treatment_done)&select=booking_time,course_id,course_duration`;
-    const res = await fetch(query, {
-      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
-    });
-    const data = await res.json();
-
-    
-    // time_extensionsを取得（休憩解放情報）
-    const extRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/time_extensions?store_id=eq.${storeId}&extension_date=eq.${dateStr}&order=created_at.desc&limit=1`,
-      { headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY } }
-    );
-    const extData = await extRes.json();
-    const ext = Array.isArray(extData) && extData.length > 0 ? extData[0] : null;
+    // 予約済みの時間帯・休憩解放（time_extensions）・ブロック（blocks）をまとめて取得
+    const r = await api("booking-form/booked-slots?store_id=" + encodeURIComponent(storeId)
+      + "&staff_id=" + encodeURIComponent(staffId) + "&date=" + encodeURIComponent(dateStr));
+    const data = r.ok ? r.data.bookings : null;
+    const ext = r.ok ? r.data.extension : null;
 
     const blocked = new Set();
 
@@ -427,12 +392,8 @@ function AppInner() {
         }
       }
     }
-    // blocksを取得（ブロック情報）
-    const blockRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/blocks?store_id=eq.${storeId}&block_date=eq.${dateStr}`,
-      { headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY } }
-    );
-    const blocksData = await blockRes.json();
+    // ブロック情報（同じAPIで取得済み）
+    const blocksData = r.data.blocks;
     if (Array.isArray(blocksData)) {
       blocksData.forEach(b => {
         if (staffId === "any" || b.staff_id === staffId || b.staff_id === "all") {
@@ -453,20 +414,14 @@ function AppInner() {
     const toMonth = maxDate.getMonth();
     const toDay = new Date(toYear, toMonth + 1, 0).getDate();
     const to = toYear + "-" + String(toMonth+1).padStart(2,"0") + "-" + String(toDay).padStart(2,"0");
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${storeId}&work_date=gte.${from}&work_date=lte.${to}`, {
-      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
-    });
-    const data = await res.json();
-    const shifts = Array.isArray(data) ? data : [];
+    const r = await api("booking-form/shifts?store_id=" + encodeURIComponent(storeId)
+      + "&from=" + from + "&to=" + to);
+    const shifts = r.ok && Array.isArray(r.data.shifts) ? r.data.shifts : [];
 
     const dateMap = {};
     if (staffId === "any") {
       // 指名なし：アクティブスタッフが1人でも出勤している日はON
-      const activeStaffRes = await fetch(`${SUPABASE_URL}/rest/v1/staff_members?store_id=eq.${storeId}&is_active=eq.true`, {
-        headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY }
-      });
-      const activeStaff = await activeStaffRes.json();
-      const activeIds = activeStaff.map(s => s.id);
+      const activeIds = r.ok && Array.isArray(r.data.active_staff_ids) ? r.data.active_staff_ids : [];
       shifts.filter(s => activeIds.includes(s.staff_id)).forEach(s => {
         dateMap[s.work_date] = "on";
       });
@@ -485,29 +440,19 @@ function AppInner() {
   // lineUserId はLIFF検証済みのID またはNextAuthセッションのID（authLineUserId 参照）
   const checkExistingCustomer = async (lineUserId = authLineUserId, displayName = liffUser?.displayName || session?.user?.name || "") => {
     if (!lineUserId) return;
-    // line_user_idを確実に保存（次回以降の自動ログインとLINE通知送信に使用）
+    // LINE通知の送信先に使う（照合そのものはサーバーが検証済みのLINEユーザーIDで行う）
     localStorage.setItem('yurari_line_user_id', lineUserId);
-    const res = await fetch(SUPABASE_URL + "/rest/v1/customers?line_user_id=eq." + lineUserId + "&select=*", { headers });
-    const data = await res.json();
-    // 2件以上ヒットした場合は先頭を採用しない（別人に紐づくのを防ぐ）
-    if (Array.isArray(data) && data.length > 1) {
-      console.error("[顧客照合] 同じLINEユーザーIDの顧客が複数あります", data.length);
+    const r = await api("booking-form/line-customer", { method: "POST", body: "{}" });
+    if (!r.ok) {
+      console.error("[顧客照合] LINEでの照合に失敗", r.status);
       setScreen("auth");
-      alert("お客様情報を特定できませんでした。お手数ですが店舗までお電話ください。");
+      alert(r.data?.error || "LINEでの確認に失敗しました。お手数ですが、もう一度お試しください。");
       return;
     }
-    if (data && data.length > 0) {
-      const c = data[0];
-      customerMatchRef.current = { source: "line", has_tel: !!(c.tel || "").trim(), hits: data.length };
-      // line_user_idと通知方法をDBにも確実に保存
-      await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${c.id}`, {
-        method: "PATCH",
-        headers,
-        body: JSON.stringify({ line_user_id: lineUserId, notification_method: "line" }),
-      });
-      setExistingCustomer({ ...c, line_user_id: lineUserId });
-      localStorage.setItem('yurari_customer_id', c.id);
-      localStorage.setItem('yurari_login_expire', Date.now() + 24 * 60 * 60 * 1000);
+    if (r.data.found && r.data.customer) {
+      const c = r.data.customer;
+      customerMatchRef.current = { source: "line", has_tel: !!(c.tel || "").trim(), hits: 1 };
+      setExistingCustomer(c);
       setProfile({
         name: c.name || "", kana: c.kana || "",
         zipcode: c.zipcode || "", address: c.address || "",
@@ -601,12 +546,6 @@ function AppInner() {
       return;
     }
     setError("");
-    const getHeaders = {
-      "apikey": SUPABASE_KEY,
-      "Authorization": "Bearer " + SUPABASE_KEY,
-      "Content-Type": "application/json",
-    };
-    const lineUserId = localStorage.getItem('yurari_line_user_id') || null;
     // 電話番号が空（空白・記号のみを含む）なら照合しない。
     // 空のまま tel=eq. で検索すると、電話番号が空の別の顧客がヒットしてしまう。
     const tel = String(profile.tel || "").trim();
@@ -614,72 +553,28 @@ function AppInner() {
       setError("電話番号を入力してください");
       return;
     }
-    const searchRes = await fetch(SUPABASE_URL + "/rest/v1/customers?tel=eq." + encodeURIComponent(tel) + "&select=id,name,kana,tel,email,address,zipcode,birthday", { headers: getHeaders });
-    const existing = await searchRes.json();
-    console.log("[顧客照合] 電話番号で照合", { has_tel: true, hits: Array.isArray(existing) ? existing.length : null });
-    if (!searchRes.ok || !Array.isArray(existing)) {
-      setError("お客様情報の確認に失敗しました。通信状態をご確認のうえ、もう一度お試しください。");
-      return;
-    }
-    // 2件以上ヒットした場合は先頭を採用しない（別人に紐づくのを防ぐ）
-    if (existing.length > 1) {
-      setError("同じ電話番号のお客様が複数登録されているため、ご本人を特定できませんでした。お手数ですが店舗までお電話ください。");
-      return;
-    }
-    if (existing.length === 1) {
-      customerMatchRef.current = { source: "register_tel", has_tel: true, hits: 1 };
-      const patchHeaders = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": "Bearer " + SUPABASE_KEY,
-        "Content-Type": "application/json",
-      };
-      const patchBody = {
+    // 照合・登録はサーバーで行う。同じ電話番号の顧客が既にいる場合は上書きせず、その顧客で予約に進む。
+    // 2件以上いる場合はエラー。LINEユーザーIDはサーバーが検証済みのものだけを保存する。
+    const r = await api("booking-form/register", {
+      method: "POST",
+      body: JSON.stringify({
         name: profile.name, kana: profile.kana, tel,
         email: profile.email, address: profile.address,
-        zipcode: profile.zipcode, birthday: profile.birthday || null,
+        zipcode: profile.zipcode, birthday: profile.birthday,
         notification_method: notificationMethod || "email",
-      };
-      // line_user_idは取得できている場合のみ保存（既存値をnullで上書きしない）
-      if (lineUserId) patchBody.line_user_id = lineUserId;
-      await fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + existing[0].id, {
-        method: "PATCH", headers: patchHeaders,
-        body: JSON.stringify(patchBody),
-      });
-      setExistingCustomer({ ...existing[0], ...profile, tel, line_user_id: lineUserId || existing[0].line_user_id });
-      localStorage.setItem('yurari_customer_id', existing[0].id);
-      localStorage.setItem('yurari_login_expire', Date.now() + 24 * 60 * 60 * 1000);
-    } else {
-      const postHeaders = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": "Bearer " + SUPABASE_KEY,
-        "Content-Type": "application/json",
-        "Prefer": "return=representation",
-      };
-      const newRes = await fetch(SUPABASE_URL + "/rest/v1/customers", {
-            method: "POST", headers: { ...headers, "Prefer": "return=representation" },
-            body: JSON.stringify({
-          name: profile.name, kana: profile.kana, tel,
-          email: profile.email, address: profile.address,
-          zipcode: profile.zipcode, birthday: profile.birthday || null,
-          notification_method: notificationMethod || "email",
-          // 新規顧客作成時にline_user_idを確実に保存（保存漏れの修正）
-          line_user_id: lineUserId,
-        }),
-      });
-      const newCustomer = await newRes.json();
-      // 登録に失敗したまま予約画面へ進むと、予約が顧客に紐づかなくなる
-      if (!newRes.ok || !newCustomer[0]?.id) {
-        console.error("顧客登録に失敗:", newRes.status, newCustomer);
-        setError("お客様情報の登録に失敗しました。入力内容をご確認のうえ、もう一度お試しください。");
-        return;
-      }
-      setExistingCustomer(newCustomer[0]);
-      customerMatchRef.current = { source: "register_new", has_tel: true, hits: 0 };
-      localStorage.removeItem('yurari_customer_id');
-      localStorage.removeItem('yurari_login_expire');
-      localStorage.setItem('yurari_customer_id', newCustomer[0].id);
-      localStorage.setItem('yurari_login_expire', Date.now() + 24 * 60 * 60 * 1000);
+      }),
+    });
+    // 登録に失敗したまま予約画面へ進むと、予約が顧客に紐づかなくなる
+    if (!r.ok || !r.data.customer_id) {
+      console.error("顧客登録に失敗:", r.status);
+      setError(r.data?.error || "お客様情報の確認に失敗しました。通信状態をご確認のうえ、もう一度お試しください。");
+      return;
     }
+    // 既存の方の登録内容はサーバーから受け取らない（入力された内容で予約・確認メールを送る）
+    setExistingCustomer({ id: r.data.customer_id, ...profile, tel, has_line: !!r.data.has_line });
+    customerMatchRef.current = r.data.existed
+      ? { source: "register_tel", has_tel: true, hits: 1 }
+      : { source: "register_new", has_tel: true, hits: 0 };
     setScreen("booking");
   };
 
@@ -722,18 +617,19 @@ function AppInner() {
           notes: profile.notes, booking_number: "YR-" + (Date.now() + 1).toString().slice(-6),
         });
       }
-      // 登録はサーバーで行い、customer_id がフォームの顧客（電話番号 or LINE ID が一致）かを検証してもらう
+      // 登録はサーバーで行い、customer_id がフォームの顧客（電話番号 or 検証済みLINE ID or マイページのセッションが一致）かを検証してもらう。
+      // 予約変更の場合、元の予約のキャンセル（本人の予約か確認のうえ）と管理画面への通知もサーバーが行う。
       const createRes = await fetch("/api/booking-create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           customer_id: customerId,
-          // 照合の材料は「フォームの電話番号」と「このブラウザでログインしたLINE ID」。
+          // 照合の材料は「フォームの電話番号」。LINEユーザーIDはサーバーが検証済みCookie/セッションから取得する。
           // existingCustomer 自身の値を送ると検証が素通りになるため使わない
           tel: profile.tel || "",
-          line_user_id: authLineUserId || localStorage.getItem('yurari_line_user_id') || null,
           match: customerMatchRef.current,
           bookings: bookingBodies,
+          change_booking_id: changeBookingId || null,
         }),
       });
       const createData = await createRes.json().catch(() => ({}));
@@ -747,15 +643,8 @@ function AppInner() {
         setLoading(false);
         return;
       }
-      // 新しい予約の作成に成功したことを確認した後でのみ、元の予約をキャンセルする
-      // （順序を逆にすると、新規作成が失敗したときに予約が消えてしまう）
-      if (changeBookingId && booking1Id) {
-        const cancelRes = await fetch(SUPABASE_URL + "/rest/v1/bookings?id=eq." + encodeURIComponent(changeBookingId), {
-          method: "PATCH", headers,
-          body: JSON.stringify({ status: "cancelled", cancelled_at: new Date().toISOString() }),
-        });
-        if (!cancelRes.ok) console.error("元の予約のキャンセルに失敗:", cancelRes.status);
-      }
+      // 元の予約のキャンセルは booking-create が新しい予約の登録成功後に行う
+      if (changeBookingId && !createData?.change_cancelled) console.error("元の予約のキャンセルに失敗しました");
       if (profile.email && notificationMethod === "email") {
         try {
           const storeName = store.id === "minamiurawa" ? "南浦和本院" : "戸田院";
@@ -790,21 +679,7 @@ function AppInner() {
           }
         }
       }
-      if (customerId) {
-        localStorage.setItem('yurari_customer_id', customerId);
-        localStorage.setItem('yurari_login_expire', Date.now() + 24 * 60 * 60 * 1000);
-      }
-      // 管理画面への通知
-      await fetch(SUPABASE_URL + "/rest/v1/admin_notifications", {
-        method: "POST", headers,
-        body: JSON.stringify({
-          store_id: store.id,
-          type: changeBookingId ? "booking_change" : "new_booking",
-          title: changeBookingId ? "予約変更" : "新規予約",
-          body: (profile.name || "") + "様 " + formatDate(date) + " " + time + " " + course.name,
-          customer_id: customerId,
-        }),
-      });
+      // 管理画面への通知は booking-create がサーバー側で行う
       setBookingNum(num);
       setScreen("complete");
     } catch (e) {
@@ -1091,7 +966,7 @@ function AppInner() {
 
   if (screen === "complete") {
     // LINE連携済みの方は通知がLINEに届くため、ホーム画面追加・プッシュ通知の案内は出さない（通知の二重化を防ぐ）
-    const isLineLinked = !!(existingCustomer?.line_user_id || authLineUserId
+    const isLineLinked = !!(existingCustomer?.line_user_id || existingCustomer?.has_line || authLineUserId
       || (typeof localStorage !== "undefined" && localStorage.getItem('yurari_line_user_id')));
     return (
       <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
