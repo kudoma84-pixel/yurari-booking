@@ -47,6 +47,8 @@ function AppInner() {
   const [liffUser, setLiffUser] = useState(null);
   // LIFFの判定結果：LIFFで取得できたLINEユーザーID、LIFFでなければ／失敗時は null で解決する
   const liffReadyRef = useRef(null);
+  // liff.init の結果（「LINEで登録」を押したときの分岐に使う）。init 失敗時は initOk=false のまま
+  const liffStateRef = useRef({ initOk: false, isInClient: null });
 
   // LINEアプリ内ブラウザで開かれた場合は外部ブラウザへ引き渡す（LIFFでない場合の従来動作）。
   // 内部ブラウザでLINEログインを始めると、戻り先（Safari等）に state cookie が無く OAuthCallback エラーになるため。
@@ -98,6 +100,7 @@ function AppInner() {
         ]);
         diag.initResult = "ok";
         diag.isInClient = liff.isInClient();
+        liffStateRef.current = { initOk: true, isInClient: liff.isInClient() };
         diag.isLoggedIn = liff.isLoggedIn();
         if (!liff.isInClient()) {
           handOffToExternalBrowser();
@@ -535,8 +538,48 @@ function AppInner() {
           checkExistingCustomer(liffData.lineUserId, liffData.displayName || "");
           return;
         }
-        // NextAuth LINE OAuth → /src?notify=line に戻り、checkExistingCustomer で処理
-        signIn("line", { callbackUrl: "/src?notify=line" });
+        const { initOk, isInClient } = liffStateRef.current;
+        if (initOk && isInClient) {
+          // LIFF内でユーザーIDが取れなかった場合は従来どおり（この経路は変更しない）
+          // NextAuth LINE OAuth → /src?notify=line に戻り、checkExistingCustomer で処理
+          signIn("line", { callbackUrl: "/src?notify=line" });
+          return;
+        }
+
+        // ここに来るのは通常ブラウザ（isInClient=false）か liff.init 失敗のとき。
+        // 通常ブラウザで NextAuth の OAuth を始めると、戻り先で state cookie が見つからず失敗しやすい
+        // （"State cookie was missing."）。そのため OAuth は使わず LIFF URL で LINEアプリを開く。
+        const ua = navigator.userAgent || "";
+        if (!/Mobile|iPhone|Android/i.test(ua)) {
+          // PCで LIFF URL を開くと LINE のログイン画面になり、PC版LINEにログインしていない方は進めない
+          alert("LINEでのご登録はスマートフォンからお願いします。\nパソコンの方はメールでご登録ください。");
+          localStorage.removeItem('yurari_notification_method');
+          setNotificationMethod("email");
+          setScreen("register");
+          return;
+        }
+        const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
+        if (!liffId) {
+          console.error("[LINE登録] NEXT_PUBLIC_LIFF_ID が未設定のため LIFF URL を作れません");
+          alert("ただいまLINEでのご登録をご利用いただけません。\nお手数ですがメールでご登録ください。");
+          localStorage.removeItem('yurari_notification_method');
+          setNotificationMethod("email");
+          setScreen("register");
+          return;
+        }
+        // 端末によっては LINEアプリが起動せず、このブラウザで開き直ることがある。
+        // 同じタブで2回目以降なら、メール登録も選べるようにして行き止まりを防ぐ。
+        let triedBefore = false;
+        try { triedBefore = !!sessionStorage.getItem("yurari_liff_redirected"); } catch {}
+        if (triedBefore && !window.confirm("LINEアプリが開かない場合は、メールでのご登録をお願いします。\n\nもう一度LINEアプリを開きますか？\n（「キャンセル」でメール登録に進みます）")) {
+          localStorage.removeItem('yurari_notification_method');
+          setNotificationMethod("email");
+          setScreen("register");
+          return;
+        }
+        if (!triedBefore && !window.confirm("LINEアプリが開きます。\nLINEアプリ内でもう一度「今すぐ予約する」→「LINEで登録する」を押してお進みください。")) return;
+        try { sessionStorage.setItem("yurari_liff_redirected", "1"); } catch {}
+        window.location.href = `https://liff.line.me/${liffId}`;
       };
       startLineLogin();
     } else {
