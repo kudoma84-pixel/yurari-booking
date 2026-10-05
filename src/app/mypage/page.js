@@ -50,6 +50,7 @@ function MyPageInner() {
   const [checkinDone, setCheckinDone] = useState(false);
   const [checkinLoading, setCheckinLoading] = useState(false);
   const [qrLoaded, setQrLoaded] = useState(false);
+  const [lineChecking, setLineChecking] = useState(false);
 
   useEffect(() => {
     if (!customer) return;
@@ -91,7 +92,25 @@ function MyPageInner() {
 
     // 自動ログイン：サーバーが発行した HttpOnly Cookie のセッションで本人の情報を取得する。
     // セッションが無い・切れている場合（401）はログイン画面のまま。
-    loadMyCustomer().catch(() => {});
+    // LINEアプリ内で開かれた場合は、LINEアカウントで自動ログインを試す。
+    // （連携済みのお客様だけ。未連携ならこれまでどおりコード入力の画面のまま）
+    (async () => {
+      if (await loadMyCustomer().catch(() => false)) return;
+      if (params.get('liff') === '1') return; // LINE連携の処理中は上の連携フローに任せる
+      if (!/\bLine\//i.test(navigator.userAgent)) return;
+      setLineChecking(true);
+      try {
+        const liff = (await import('@line/liff')).default;
+        await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID_MYPAGE });
+        if (!liff.isLoggedIn()) return;
+        const r = await api("line-login", { method: "POST", body: JSON.stringify({ accessToken: liff.getAccessToken() }) });
+        if (r.ok) await loadMyCustomer();
+      } catch (e) {
+        console.error("LINE auto login error:", e);
+      } finally {
+        setLineChecking(false);
+      }
+    })();
   }, []);
 
   // /api/mypage/me からログイン中の本人の情報を取得してマイページを表示する。成功なら true。
@@ -289,7 +308,7 @@ function MyPageInner() {
           <div style={{ textAlign: "center", marginBottom: 32 }}>
             <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 8 }}>MY PAGE</div>
             <div style={{ fontSize: 24, fontWeight: 700, color: GREEN, marginBottom: 8 }}>マイページ</div>
-            <div style={{ fontSize: 13, color: "#888" }}>携帯下4桁＋誕生日でログインしてください</div>
+            <div style={{ fontSize: 13, color: "#888" }}>{lineChecking ? "LINEアカウントを確認しています…" : "携帯下4桁＋誕生日でログインしてください"}</div>
             {isCheckin && (
               <div style={{ marginTop: 12, padding: "10px 16px", background: GREEN + "15", borderRadius: 12, fontSize: 13, color: GREEN, fontWeight: 700 }}>
                 来院受付のためログインしてください
