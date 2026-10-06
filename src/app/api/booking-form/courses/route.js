@@ -3,8 +3,8 @@ import { requireServiceHeaders, sbFetch, pickFields } from "../../_lib/booking-a
 
 export const dynamic = "force-dynamic";
 
-// 予約フォーム（/src）のコース選択・確認画面・所要時間の計算で使う項目だけを返す。
-const COURSE_FIELDS = ["id", "name", "description", "price", "duration", "category", "is_first_only"];
+// 予約フォーム（/src）のコース選択・確認画面・所要時間の計算・担当スタッフの絞り込みで使う項目だけを返す。
+const COURSE_FIELDS = ["id", "name", "description", "price", "duration", "category", "is_first_only", "exclusive_staff_id"];
 
 // 予約フォームのコース一覧（公開中のもの）。
 export async function GET() {

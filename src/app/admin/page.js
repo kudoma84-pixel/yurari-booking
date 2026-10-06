@@ -1,6 +1,7 @@
 // admin
 "use client";
 import React, { useState, useEffect, useRef } from "react";
+import { canStaffHandleCourse } from "../_lib/staff-eligibility";
 
 const SUPABASE_URL = "https://pbjekdzmvjqhqbbrzbfk.supabase.co";
 const SUPABASE_KEY = "sb_publishable_I_98PawL-eNS__SZa0DlPA_80VwFUZc";
@@ -1013,6 +1014,12 @@ const handleAdminQrInput = async (value) => {
     if (isSavingChangeBooking) return;
     const f = changeBookingForm;
     if (!f.booking_date || !f.booking_time || !f.course_id) return;
+    // 担当スタッフがメニューを担当できるか（専任スタッフ → 担当カテゴリ）
+    if (f.staff_id) {
+      const c = courseMenus.find(c => c.id === f.course_id);
+      const s = staffMembers.find(s => s.id === f.staff_id);
+      if (!canStaffHandleCourse(s, c)) { alert("選択した担当スタッフはこのメニューを担当できません。担当スタッフを選び直してください。"); return; }
+    }
     setIsSavingChangeBooking(true);
     try {
       const course = courseMenus.find(c => c.id === f.course_id);
@@ -1506,6 +1513,12 @@ const handleAdminQrInput = async (value) => {
     if (directBookingMode === "product" && (!f.customer_name || !directBookingProducts.some(p => p.name && p.price))) return;
     const targetStoreId = directBookingStore || currentStore.id;
     const targetStaffPool = targetStoreId === subStoreId ? subStaffMembers : staffMembers;
+    // 担当スタッフがメニューを担当できるか（専任スタッフ → 担当カテゴリ）。物販のみはメニューが無いので対象外
+    if (directBookingMode === "normal") {
+      const c = courseMenus.find(c => c.id === f.course_id);
+      const s = targetStaffPool.find(s => s.id === f.staff_id);
+      if (!canStaffHandleCourse(s, c)) { alert("選択した担当スタッフはこのメニューを担当できません。担当スタッフを選び直してください。"); return; }
+    }
     setIsSavingDirectBooking(true);
     let customerId = f.customer_id;
     if (!customerId && f.customer_name) {
@@ -2728,8 +2741,12 @@ const handleAdminQrInput = async (value) => {
                   <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>担当スタッフ <span style={{ color: "#e07070" }}>*</span></label>
                   <select value={directBookingForm.staff_id || ""} onChange={e => setDirectBookingForm(f => ({ ...f, staff_id: e.target.value }))} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", background: "white" }}>
                     <option value="">選択してください</option>
-                    {(directBookingStore === subStoreId ? subStaffMembers : staffMembers).filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    {/* コース選択後は、そのメニューを担当できるスタッフだけ（専任スタッフ → 担当カテゴリ） */}
+                    {(directBookingStore === subStoreId ? subStaffMembers : staffMembers).filter(s => s.is_active && (!directBookingForm.course_id || canStaffHandleCourse(s, courseMenus.find(c => c.id === directBookingForm.course_id)))).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
+                  {directBookingForm.course_id && !directBookingForm.staff_id && (
+                    <div style={{ fontSize: 11, color: "#e07070", marginTop: 4 }}>選択中のメニューを担当できるスタッフから選んでください</div>
+                  )}
                 </div>
               )}
               {/* 通常予約のみ: コース選択 */}
@@ -2755,7 +2772,13 @@ const handleAdminQrInput = async (value) => {
                     </div>
                   )}
                   {directBookingCategory && directBookingFirstOnly && (
-                    <select value={directBookingForm.course_id || ""} onChange={e => setDirectBookingForm(f => ({ ...f, course_id: e.target.value }))} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", background: "white" }}>
+                    <select value={directBookingForm.course_id || ""} onChange={e => {
+                      const courseId = e.target.value;
+                      const pool = directBookingStore === subStoreId ? subStaffMembers : staffMembers;
+                      const c = courseMenus.find(c => c.id === courseId);
+                      // カレンダーの列から入った担当がこのメニューを担当できなければ選択を外す
+                      setDirectBookingForm(f => ({ ...f, course_id: courseId, staff_id: c && f.staff_id && !canStaffHandleCourse(pool.find(s => s.id === f.staff_id), c) ? "" : f.staff_id }));
+                    }} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", background: "white" }}>
                       <option value="">選択してください</option>
                       {courseMenus.filter(c => c.is_active && c.category === directBookingCategory && (directBookingFirstOnly === "初回" ? c.is_first_only : !c.is_first_only)).sort((a, b) => a.sort_order - b.sort_order).map(c => <option key={c.id} value={c.id}>{c.name}（{c.duration} / ¥{c.price?.toLocaleString()}）</option>)}
                     </select>
@@ -4697,14 +4720,16 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                   <select value={changeBookingForm.staff_id || ""} onChange={e => setChangeBookingForm({ ...changeBookingForm, staff_id: e.target.value })}
                     style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13 }}>
                     <option value="">選択してください</option>
-                    {staffMembers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    {/* そのメニューを担当できるスタッフだけ（専任スタッフ → 担当カテゴリ） */}
+                    {staffMembers.filter(s => !changeBookingForm.course_id || canStaffHandleCourse(s, courseMenus.find(c => c.id === changeBookingForm.course_id))).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </div>
                 <div>
                   <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>コース</div>
                   <select value={changeBookingForm.course_id || ""} onChange={e => {
                     const course = courseMenus.find(c => c.id === e.target.value);
-                    setChangeBookingForm({ ...changeBookingForm, course_id: e.target.value, course_duration: course?.duration || "30分" });
+                    const staffOk = !changeBookingForm.staff_id || !course || canStaffHandleCourse(staffMembers.find(s => s.id === changeBookingForm.staff_id), course);
+                    setChangeBookingForm({ ...changeBookingForm, course_id: e.target.value, course_duration: course?.duration || "30分", staff_id: staffOk ? changeBookingForm.staff_id : "" });
                   }}
                     style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13 }}>
                     <option value="">選択してください</option>

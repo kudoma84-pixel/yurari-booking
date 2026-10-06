@@ -3,8 +3,9 @@ import { requireServiceHeaders, sbFetch, isSafeId, pickFields } from "../../_lib
 
 export const dynamic = "force-dynamic";
 
-// 予約フォーム（/src）のスタッフ選択で使う項目だけを返す（id は空き枠の取得、name は確認画面・通知にも使う）。
-const STAFF_FIELDS = ["id", "name", "title"];
+// 予約フォーム（/src）のスタッフ選択で使う項目だけを返す（id は空き枠の取得、name は確認画面・通知にも使う、
+// categories はメニューを担当できるかの絞り込みに使う）。
+const STAFF_FIELDS = ["id", "name", "title", "categories"];
 
 // 店舗の在籍スタッフ一覧。
 export async function GET(request) {

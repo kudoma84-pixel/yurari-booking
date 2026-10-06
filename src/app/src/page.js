@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, Suspense } from "react";
 import { signIn, useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
+import { canStaffHandleCourse } from "../_lib/staff-eligibility";
 
 // 予約フォームのデータはすべて /api/booking-form/* などのサーバーAPIを経由する（Supabase を直接呼ばない）。
 // 本人確認はサーバー側で行う（電話番号の一致／検証済みLINEユーザーID／マイページのセッション）。
@@ -172,6 +173,8 @@ function AppInner() {
   const [courseCategory, setCourseCategory] = useState(null);
   const [courseVisitType, setCourseVisitType] = useState(null);
   const [staff, setStaff] = useState(null);
+  // 連続予約（エステ追加）の2件目の担当。2件目のメニューを担当できるスタッフから選ぶ
+  const [staff2, setStaff2] = useState(null);
   const [date, setDate] = useState(null);
   const [time, setTime] = useState(null);
   const [profile, setProfile] = useState({
@@ -198,6 +201,7 @@ function AppInner() {
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [staffShiftDates, setStaffShiftDates] = useState({});
   const [bookedSlots, setBookedSlots] = useState([]);
+  const [bookedSlots2, setBookedSlots2] = useState([]);
   const [showAddEsthe, setShowAddEsthe] = useState(false);
   const [course2, setCourse2] = useState(null);
   const [courseVisitType2, setCourseVisitType2] = useState(null);
@@ -309,8 +313,20 @@ function AppInner() {
   }, [store]);
 
   useEffect(() => {
-    if (staff && store) fetchStaffShifts(staff.id, store.id);
-  }, [staff, store]);
+    if (staff && store) fetchStaffShifts(staff.id, store.id, staff2?.id || null);
+  }, [staff, staff2, store]);
+
+  // メニューを担当できるスタッフだけを選択肢にする（専任スタッフ → 担当カテゴリの順に判定）
+  const staffForCourse = course ? staffList.filter(s => canStaffHandleCourse(s, course)) : [];
+  const staffForCourse2 = course2 ? staffList.filter(s => canStaffHandleCourse(s, course2)) : [];
+
+  // メニューを選び直して担当できなくなったスタッフは選択を外す
+  useEffect(() => {
+    if (staff && !canStaffHandleCourse(staff, course)) { setStaff(null); setDate(null); setTime(null); }
+  }, [course, staff]);
+  useEffect(() => {
+    if (staff2 && !canStaffHandleCourse(staff2, course2)) { setStaff2(null); setDate(null); setTime(null); }
+  }, [course2, staff2]);
 
 
   useEffect(() => {
@@ -363,7 +379,8 @@ function AppInner() {
     if (r.ok && r.data.settings) setSameDayLeadTime(r.data.settings.same_day_lead_time);
   };
 
-  const fetchBookedSlots = async (staffId, storeId, dateStr) => {
+  // setSlots：1件目の担当は setBookedSlots、連続予約の2件目の担当は setBookedSlots2
+  const fetchBookedSlots = async (staffId, storeId, dateStr, setSlots = setBookedSlots) => {
     // 予約済みの時間帯・休憩解放（time_extensions）・ブロック（blocks）をまとめて取得
     const r = await api("booking-form/booked-slots?store_id=" + encodeURIComponent(storeId)
       + "&staff_id=" + encodeURIComponent(staffId) + "&date=" + encodeURIComponent(dateStr));
@@ -377,7 +394,7 @@ function AppInner() {
     if (!ext?.break_released_1400) blocked.add("14:00");
     if (!ext?.break_released_1430) blocked.add("14:30");
 
-    if (!Array.isArray(data)) { setBookedSlots([...blocked]); return; }
+    if (!Array.isArray(data)) { setSlots([...blocked]); return; }
 
     // 予約済みスロットをブロック（所要時間分）。所要時間が未設定の予約はサーバーがコースの所要時間で補って返す
     for (const b of data) {
@@ -402,9 +419,10 @@ function AppInner() {
       });
     }
 
-    setBookedSlots([...blocked]);
+    setSlots([...blocked]);
   };
-  const fetchStaffShifts = async (staffId, storeId) => {
+  // staff2Id：連続予約（エステ追加）の2件目の担当。指定時は両方の担当が出勤している日だけON
+  const fetchStaffShifts = async (staffId, storeId, staff2Id = null) => {
     const today = new Date();
     const maxDate = new Date();
     maxDate.setMonth(maxDate.getMonth() + 2);
@@ -417,22 +435,30 @@ function AppInner() {
       + "&from=" + from + "&to=" + to);
     const shifts = r.ok && Array.isArray(r.data.shifts) ? r.data.shifts : [];
 
-    const dateMap = {};
-    if (staffId === "any") {
-      // 指名なし：アクティブスタッフが1人でも出勤している日はON
-      const activeIds = r.ok && Array.isArray(r.data.active_staff_ids) ? r.data.active_staff_ids : [];
-      shifts.filter(s => activeIds.includes(s.staff_id)).forEach(s => {
-        dateMap[s.work_date] = "on";
-      });
-    } else {
-      // 特定スタッフ：シフトにレコードがある日だけON
-      shifts.filter(s => s.staff_id === staffId).forEach(s => {
-        dateMap[s.work_date] = "on";
-      });
-      // 休院日（closed）は強制的にOFFにする
-      shifts.filter(s => s.staff_id === "closed").forEach(s => {
-        dateMap[s.work_date] = "off";
-      });
+    const shiftDatesOf = (id) => {
+      const dateMap = {};
+      if (id === "any") {
+        // 指名なし：アクティブスタッフが1人でも出勤している日はON
+        const activeIds = r.ok && Array.isArray(r.data.active_staff_ids) ? r.data.active_staff_ids : [];
+        shifts.filter(s => activeIds.includes(s.staff_id)).forEach(s => {
+          dateMap[s.work_date] = "on";
+        });
+      } else {
+        // 特定スタッフ：シフトにレコードがある日だけON
+        shifts.filter(s => s.staff_id === id).forEach(s => {
+          dateMap[s.work_date] = "on";
+        });
+        // 休院日（closed）は強制的にOFFにする
+        shifts.filter(s => s.staff_id === "closed").forEach(s => {
+          dateMap[s.work_date] = "off";
+        });
+      }
+      return dateMap;
+    };
+    const dateMap = shiftDatesOf(staffId);
+    if (staff2Id) {
+      const dateMap2 = shiftDatesOf(staff2Id);
+      for (const d of Object.keys(dateMap)) if (dateMap2[d] !== "on") dateMap[d] = "off";
     }
     setStaffShiftDates(dateMap);
   };
@@ -580,7 +606,7 @@ function AppInner() {
   const canNext = () => {
     if (step === 0) return !!store;
     if (step === 1) return !!course;
-    if (step === 2) return !!staff && !!date && !!time;
+    if (step === 2) return !!staff && (!course2 || !!staff2) && !!date && !!time;
     return true;
   };
 
@@ -611,7 +637,7 @@ function AppInner() {
         bookingBodies.push({
           store_id: store.id,
           course_id: course2.id, course_name: course2.name, course_duration: course2.duration || "30分",
-          staff_id: staff.id, staff_name: staff.name,
+          staff_id: staff2.id, staff_name: staff2.name,
           booking_date: formatDate(date), booking_time: addMinutesToTime(time, dur1Min),
           notes: profile.notes, booking_number: "YR-" + (Date.now() + 1).toString().slice(-6),
         });
@@ -638,7 +664,9 @@ function AppInner() {
         console.error("予約の登録に失敗:", createRes.status, createData);
         setError(createRes.status === 409
           ? "お客様情報が確認できなかったため、予約を登録できませんでした。お手数ですが最初からやり直してください。"
-          : "予約の登録に失敗しました。通信状態をご確認のうえ、もう一度お試しください。");
+          : createRes.status === 422 && createData?.error
+            ? createData.error // 担当スタッフがメニューを担当できない
+            : "予約の登録に失敗しました。通信状態をご確認のうえ、もう一度お試しください。");
         setLoading(false);
         return;
       }
@@ -695,7 +723,7 @@ function AppInner() {
     setScreen("top"); setNotificationMethod(null); setStep(0);
     setStore(null); setCourse(null); setCourseCategory(null); setCourseVisitType(null);
     setShowAddEsthe(false); setCourse2(null); setCourseVisitType2(null);
-    setStaff(null); setDate(null); setTime(null);
+    setStaff(null); setStaff2(null); setDate(null); setTime(null);
     setProfile({ name: "", kana: "", zipcode: "", address: "", tel: "", birthYear: "", birthMonth: "", birthDay: "", birthday: "", email: "", firstVisit: "初めて", notes: "" });
     setBookingNum(""); setError(""); setExistingCustomer(null);
     customerMatchRef.current = null;
@@ -709,7 +737,7 @@ function AppInner() {
     setStep(0);
     setStore(null); setCourse(null); setCourseCategory(null); setCourseVisitType(null);
     setShowAddEsthe(false); setCourse2(null); setCourseVisitType2(null);
-    setStaff(null); setDate(null); setTime(null);
+    setStaff(null); setStaff2(null); setDate(null); setTime(null);
     setProfile(p => ({ ...p, notes: "" }));
     setBookingNum(""); setError("");
     setStaffShiftDates({});
@@ -1204,22 +1232,30 @@ function AppInner() {
               <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>スタッフ・日時を選んでください</div>
             </div>
 
-            {/* 担当スタッフ選択 */}
-            <div style={{ marginBottom: 28 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: "2px solid " + GREEN + "20" }}>担当スタッフ</div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {staffList.map(s => (
-                  <div key={s.id} onClick={() => { setStaff(s); setDate(null); setTime(null); }} style={{ background: staff && staff.id === s.id ? GREEN + "15" : "white", border: "2px solid " + (staff && staff.id === s.id ? GREEN : "#e8ddd0"), borderRadius: 12, padding: "12px 16px", cursor: "pointer", textAlign: "center", minWidth: 90 }}>
-                    <div style={{ fontSize: 28 }}>👤</div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: GREEN, marginTop: 4 }}>{s.name}</div>
-                    <div style={{ fontSize: 10, color: "#888" }}>{s.title}</div>
-                  </div>
-                ))}
+            {/* 担当スタッフ選択（メニューを担当できるスタッフだけ。連続予約は2件目の担当も選ぶ） */}
+            {[
+              { key: "1", label: course2 ? "担当スタッフ（" + course.name + "）" : "担当スタッフ", list: staffForCourse, selected: staff, select: setStaff },
+              ...(course2 ? [{ key: "2", label: "担当スタッフ（" + course2.name + "）", list: staffForCourse2, selected: staff2, select: setStaff2 }] : []),
+            ].map(g => (
+              <div key={g.key} style={{ marginBottom: 28 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: "2px solid " + GREEN + "20" }}>{g.label}</div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {g.list.map(s => (
+                    <div key={s.id} onClick={() => { g.select(s); setDate(null); setTime(null); }} style={{ background: g.selected && g.selected.id === s.id ? GREEN + "15" : "white", border: "2px solid " + (g.selected && g.selected.id === s.id ? GREEN : "#e8ddd0"), borderRadius: 12, padding: "12px 16px", cursor: "pointer", textAlign: "center", minWidth: 90 }}>
+                      <div style={{ fontSize: 28 }}>👤</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: GREEN, marginTop: 4 }}>{s.name}</div>
+                      <div style={{ fontSize: 10, color: "#888" }}>{s.title}</div>
+                    </div>
+                  ))}
+                  {g.list.length === 0 && staffList.length > 0 && (
+                    <div style={{ fontSize: 13, color: "#888", padding: "8px 0" }}>こちらのメニューを担当できるスタッフがいません。お手数ですが店舗までお問い合わせください。</div>
+                  )}
+                </div>
               </div>
-            </div>
+            ))}
 
             {/* 日付選択カレンダー */}
-            {staff && (
+            {staff && (!course2 || staff2) && (
               <div style={{ marginBottom: 24 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: GREEN, marginBottom: 12, paddingBottom: 6, borderBottom: "2px solid " + GREEN + "20" }}>ご希望日</div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
@@ -1270,7 +1306,7 @@ function AppInner() {
                       const isOff = staffShiftDates[dateStr] !== "on";
                       const disabled = isPast || isFuture || isOff;
                       return (
-                        <div key={i} onClick={() => { if (!disabled) { setDate(d); setTime(null); if (store) { fetchStoreSettings(store.id); fetchBookedSlots(staff.id, store.id, dateStr); } } }}
+                        <div key={i} onClick={() => { if (!disabled) { setDate(d); setTime(null); if (store) { fetchStoreSettings(store.id); fetchBookedSlots(staff.id, store.id, dateStr); if (course2 && staff2) { setBookedSlots2([]); fetchBookedSlots(staff2.id, store.id, dateStr, setBookedSlots2); } } } }}
                           style={{ textAlign: "center", padding: "8px 4px", borderRadius: 8, cursor: disabled ? "not-allowed" : "pointer", background: isSelected ? GREEN : "white", color: isSelected ? "white" : disabled ? "#ccc" : dayIdx === 0 ? "#e07070" : dayIdx === 6 ? "#7090e0" : DARK, fontWeight: isSelected ? 700 : 400, fontSize: 13, border: isSelected ? "2px solid " + GREEN : "2px solid transparent", opacity: disabled ? 0.4 : 1 }}>
                           {d.getDate()}
                         </div>
@@ -1293,7 +1329,11 @@ function AppInner() {
                     const startIdx = TIME_SLOTS.indexOf(t);
                     const hasEnoughSlots = Array.from({ length: slotsNeeded }, (_, i) => TIME_SLOTS[startIdx + i])
                       .every(slot => slot && !bookedSlots.includes(slot) && !isSlotDisabled(slot));
-                    const disabled = isSlotDisabled(t) || bookedSlots.includes(t) || !hasEnoughSlots;
+                    // 連続予約：2件目（1件目の終了後）の時間帯が2件目の担当で空いているか
+                    const slotsNeeded2 = course2 ? (parseInt((course2.duration || "30分").replace(/[^0-9]/g, "")) || 30) / 30 : 0;
+                    const secondFree = Array.from({ length: slotsNeeded2 }, (_, i) => TIME_SLOTS[startIdx + Math.ceil(slotsNeeded) + i])
+                      .every(slot => !slot || !bookedSlots2.includes(slot));
+                    const disabled = isSlotDisabled(t) || bookedSlots.includes(t) || !hasEnoughSlots || !secondFree;
                     return (
                       <div key={t} onClick={() => !disabled && setTime(t)} style={{ background: isSelected ? GREEN : disabled ? "#f0f0f0" : "white", border: "2px solid " + (isSelected ? GREEN : disabled ? "#ddd" : "#e8ddd0"), borderRadius: 10, padding: "8px 14px", cursor: disabled ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, color: isSelected ? "white" : disabled ? "#bbb" : DARK }}>
                         {t}
@@ -1317,7 +1357,8 @@ function AppInner() {
                 { label: "店舗", value: "癒楽里 " + (store ? store.name : "") },
                 { label: "コース①", value: course ? course.name + "（" + course.duration + " / ¥" + (course.price ? course.price.toLocaleString() : "0") + "）" : "" },
                 ...(course2 ? [{ label: "コース②", value: course2.name + "（" + course2.duration + " / ¥" + (course2.price ? course2.price.toLocaleString() : "0") + "）" }] : []),
-                { label: "担当", value: staff ? staff.name : "" },
+                { label: course2 ? "担当①" : "担当", value: staff ? staff.name : "" },
+                ...(course2 ? [{ label: "担当②", value: staff2 ? staff2.name : "" }] : []),
                 { label: "日時", value: date && time ? date.getFullYear() + "年" + (date.getMonth()+1) + "月" + date.getDate() + "日（" + DAYS_JP[date.getDay()] + "） " + time + "〜" + (course2 && course ? " → " + addMinutesToTime(time, parseInt((course.duration||"30分").replace(/[^0-9]/g,""))||30) + "〜（連続）" : "") : "" },
                 { label: "お名前", value: profile.name },
                 { label: "電話番号", value: profile.tel },

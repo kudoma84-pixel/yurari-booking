@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   requireServiceHeaders, sbFetch, verifiedLineUserId, mypageCustomer, digits, isSafeId,
 } from "../_lib/booking-auth";
+import { canStaffHandleCourse } from "../../_lib/staff-eligibility";
 
 // 顧客向け予約フォームからの予約登録。
 // 登録の直前に「customer_id が、フォームで確定した顧客本人か」をサーバー側で再検証する。
@@ -99,6 +100,34 @@ export async function POST(request) {
   }
 
   console.log("[booking-create] 顧客照合OK", JSON.stringify({ ...log, verified_by: telOk ? "tel" : lineOk ? "line" : "mypage" }));
+
+  // ── 担当スタッフがメニューを担当できるかの検証 ─────────────
+  // 画面でも絞っているが、古い画面が残った端末から誤った組み合わせが送られても登録しない（全件を登録前に確認）。
+  const pairs = bookings.map((b) => ({ course_id: b?.course_id, staff_id: b?.staff_id }));
+  if (pairs.some((p) => typeof p.course_id !== "string" || !isSafeId(p.course_id) || typeof p.staff_id !== "string" || !isSafeId(p.staff_id))) {
+    return fail(400, "予約内容が不正です", { ...log, reason: "course_or_staff_missing" });
+  }
+  try {
+    const courseIds = [...new Set(pairs.map((p) => p.course_id))].join(",");
+    const staffIds = [...new Set(pairs.map((p) => p.staff_id))].join(",");
+    const [courseRows, staffRows] = await Promise.all([
+      sbFetch(headers, `course_menus?id=in.(${courseIds})&select=id,category,exclusive_staff_id`),
+      sbFetch(headers, `staff_members?id=in.(${staffIds})&select=id,categories`),
+    ]);
+    for (const p of pairs) {
+      const course = Array.isArray(courseRows) ? courseRows.find((r) => String(r.id) === p.course_id) : null;
+      const staff = Array.isArray(staffRows) ? staffRows.find((r) => String(r.id) === p.staff_id) : null;
+      if (!canStaffHandleCourse(staff, course)) {
+        return fail(422, "選択された担当スタッフはこのメニューを担当できません。お手数ですが、担当スタッフを選び直してください。", {
+          ...log, reason: "staff_not_eligible", course_id: p.course_id, staff_id: p.staff_id,
+          course_found: !!course, staff_found: !!staff,
+        });
+      }
+    }
+  } catch (e) {
+    console.error("[booking-create] 担当スタッフの確認に失敗", e.message);
+    return fail(500, "予約内容の確認に失敗しました", log);
+  }
 
   // ── 予約の登録 ─────────────────────────────
   const insert = async (body) => {
