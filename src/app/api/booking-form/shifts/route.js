@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
-import { requireServiceHeaders, sbFetch, isSafeId, isDate } from "../../_lib/booking-auth";
+import { requireServiceHeaders, sbFetch, isSafeId, isDate, pickFields } from "../../_lib/booking-auth";
 
 export const dynamic = "force-dynamic";
 
+// カレンダーの出勤日判定に使うのは「誰が（staff_id。休院日は "closed"）いつ（work_date）出勤か」だけ。
+const SHIFT_FIELDS = ["staff_id", "work_date"];
+
 // カレンダーの出勤日判定の材料：期間内のシフトと、在籍中スタッフのID（指名なし用）。
-// 返す項目の絞り込みは 1-D で行う。
 export async function GET(request) {
   const s = requireServiceHeaders();
   if (s.error) return s.error;
@@ -21,7 +23,7 @@ export async function GET(request) {
       sbFetch(s.headers, `staff_members?store_id=eq.${storeId}&is_active=eq.true&select=id`),
     ]);
     return NextResponse.json({
-      shifts: Array.isArray(shifts) ? shifts : [],
+      shifts: Array.isArray(shifts) ? shifts.map((r) => pickFields(r, SHIFT_FIELDS)) : [],
       active_staff_ids: Array.isArray(activeStaff) ? activeStaff.map((r) => r.id) : [],
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {

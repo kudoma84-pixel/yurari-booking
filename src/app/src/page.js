@@ -379,10 +379,9 @@ function AppInner() {
 
     if (!Array.isArray(data)) { setBookedSlots([...blocked]); return; }
 
-    // 予約済みスロットをブロック（所要時間分）
+    // 予約済みスロットをブロック（所要時間分）。所要時間が未設定の予約はサーバーがコースの所要時間で補って返す
     for (const b of data) {
-      const courseInfo = courses.find(c => c.id === b.course_id);
-      const durationStr = b.course_duration || courseInfo?.duration || "30分";
+      const durationStr = b.course_duration || "30分";
       const durationMin = parseInt(durationStr.replace(/[^0-9]/g, "")) || 30;
       const slots = durationMin / 30;
       const startIdx = TIME_SLOTS.indexOf(b.booking_time);

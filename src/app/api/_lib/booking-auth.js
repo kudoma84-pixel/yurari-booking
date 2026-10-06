@@ -135,3 +135,11 @@ export function pickFormCustomer(row) {
 // クエリの値チェック（PostgREST への注入防止。IDや日付以外の記号を通さない）
 export const isSafeId = (v) => typeof v === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(v);
 export const isDate = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+// 公開APIで返す項目を絞る。行にある項目だけを写す（無い項目は従来どおり返さない）。
+export function pickFields(row, keys) {
+  const out = {};
+  if (!row || typeof row !== "object") return out;
+  for (const k of keys) if (k in row) out[k] = row[k];
+  return out;
+}
