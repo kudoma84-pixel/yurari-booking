@@ -73,6 +73,11 @@ const salesDateRangeFilter = (startDate, endDate) => {
 const GIFT_TICKET_DEFAULT_FACE_VALUE = 1000;
 // ポイント20P達成特典で発行するプレゼント金券の額面
 const POINT_REWARD_TICKET_FACE_VALUE = 1000;
+// 特典金券の gift_tickets.checkout_action。会計取り消し時に、その会計で発行した特典を見分けて削除するための印
+const POINT_REWARD_CHECKOUT_ACTION = "point_reward_at_checkout";
+// 特典金券の notes。発行した会計（予約）を記録する。
+// 金券を使うと booking_id は使った会計のものに書き換わるため、発行元の会計はこちらで見分ける。
+const pointRewardNotes = (bookingId) => `ポイント20P達成特典（発行会計 ${bookingId}）`;
 
 // 金券テンプレートの「販売価格」「発行枚数」「1枚の額面」はそれぞれ別の数字。
 //   例）1000円券セット：販売価格 sale_price=5000 / 発行枚数 ticket_count=10 / 1枚の額面 face_value=1000（合計10,000円分）
@@ -415,10 +420,18 @@ const handleAdminQrInput = async (value) => {
     // 金券の戻し処理（方針）:
     // この予約（booking_id）に紐付く金券のみを対象とする。booking_idがnullの既存金券には一切触れない。
     // ①この会計で新規発行された金券（checkout_actionにsold/giftedのマークあり）→ 削除
+    // ①'この会計で発行したポイント特典の金券（notesで発行元を判定）→ 未使用（active）の場合のみ削除
+    //   使用済み（used）はすでに別の会計に充当されているため削除しない（その会計の支払いの参照先が失われる）。
+    //   回収できなかった旨を表示し、判断は運用側に委ねる。再会計で20Pに戻れば特典がもう1枚出るが、そちらの方が実害が小さい。
+    //   ※ 他の会計で発行された特典をこの会計で使った場合は、notesが一致しないので①'の対象外。②で active に戻る。
     // ②この会計で使用された金券（status=used）→ activeに復元し、used_at/booking_idをクリア
     // ①を先に実行することで「同じ会計で販売してそのまま使用した金券」も正しく削除される
     // （その金券はマーク付きかつstatus=usedのため、②で復元される前に①で削除する必要がある）
     await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?booking_id=eq.${booking.id}&checkout_action=in.(sold_at_checkout,gifted_at_checkout)`, { method: "DELETE", headers });
+    const rewardFilter = `checkout_action=eq.${POINT_REWARD_CHECKOUT_ACTION}&notes=eq.${encodeURIComponent(pointRewardNotes(booking.id))}`;
+    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${rewardFilter}&status=eq.active`, { method: "DELETE", headers });
+    const usedRewardRes = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${rewardFilter}&status=eq.used&select=id`, { headers });
+    const usedRewards = usedRewardRes.ok ? await usedRewardRes.json() : [];
     await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?booking_id=eq.${booking.id}&status=eq.used`, {
       method: "PATCH", headers,
       body: JSON.stringify({ status: "active", used_at: null, booking_id: null }),
@@ -429,6 +442,9 @@ const handleAdminQrInput = async (value) => {
     const ptData = await ptRes.json();
     if (ptData && ptData[0] && ptData[0].points > 0) {
       await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${booking.customer_id}`, { method: "PATCH", headers, body: JSON.stringify({ points: ptData[0].points - 1 }) });
+    }
+    if (Array.isArray(usedRewards) && usedRewards.length > 0) {
+      alert("この会計で発行したポイント特典金券はすでに使用済みのため回収できません。\n（再会計で特典がもう1枚発行される場合があります）");
     }
     setSelectedCompletedPayment(null);
     fetchCompletedBookings();
@@ -2389,19 +2405,37 @@ const handleAdminQrInput = async (value) => {
           method: "PATCH", headers,
           body: JSON.stringify({ points: newPoints }),
         });
-        // 20P到達で1000円金券自動発行
+        // 20P到達ごとに特典の金券を1枚発行する（ポイントは累積のまま減らさない。20・40・60…で1枚ずつ）。
+        // ポイント加算と特典発行はこの会計確定時だけで行う（受付ページでは加算しない）。
+        // 特典の金券はこの会計（booking_id）に紐付け、会計取り消し時にポイントを1戻すのと合わせて削除する。
+        // 紐付けないと「取り消しで20→19、再会計で再び20」で特典が2枚になる。
         if (newPoints % 20 === 0) {
-          const tplRes = await fetch(`${SUPABASE_URL}/rest/v1/gift_ticket_templates?store_id=eq.${currentStore.id}&limit=1`, { headers });
-          const tplData = await tplRes.json();
-          if (tplData && tplData[0]) {
-            const tpl = tplData[0];
-            const ptToday = formatDate(new Date());
-            const ptExpire = new Date();
-            ptExpire.setFullYear(ptExpire.getFullYear() + 1);
-            await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
-              method: "POST", headers,
-              body: JSON.stringify({ customer_id: checkoutBooking.customer_id, store_id: currentStore.id, ticket_type: "present", ticket_name: `${POINT_REWARD_TICKET_FACE_VALUE}円券（ポイント20P達成特典）`, face_value: POINT_REWARD_TICKET_FACE_VALUE, issued_at: ptToday, expires_at: formatDate(ptExpire), status: "active", notes: "ポイント20P達成特典" }),
-            });
+          const ptToday = formatDate(new Date());
+          const ptExpire = new Date();
+          ptExpire.setFullYear(ptExpire.getFullYear() + 1);
+          const beforeState = await captureGiftTicketState(checkoutBooking.customer_id);
+          const rewardRes = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
+            method: "POST", headers,
+            body: JSON.stringify({
+              customer_id: checkoutBooking.customer_id,
+              store_id: currentStore.id,
+              ticket_type: "present",
+              purchase_group_id: crypto.randomUUID(),
+              ticket_name: `${POINT_REWARD_TICKET_FACE_VALUE}円券（ポイント20P達成特典）`,
+              face_value: POINT_REWARD_TICKET_FACE_VALUE,
+              issued_at: ptToday,
+              expires_at: formatDate(ptExpire),
+              status: "active",
+              booking_id: checkoutBooking.id,
+              checkout_action: POINT_REWARD_CHECKOUT_ACTION,
+              notes: pointRewardNotes(checkoutBooking.id),
+            }),
+          });
+          if (rewardRes.ok) {
+            await logGiftTicketAction("point_reward", checkoutBooking.customer_id, beforeState, await captureGiftTicketState(checkoutBooking.customer_id));
+          } else {
+            console.error("[point_reward] 特典金券の発行に失敗:", rewardRes.status, await rewardRes.text());
+            alert(`${newPoints}P達成の特典金券を発行できませんでした。お手数ですが、金券を手動で1枚プレゼントしてください。`);
           }
         }
       }
