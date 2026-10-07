@@ -75,9 +75,16 @@ const GIFT_TICKET_DEFAULT_FACE_VALUE = 1000;
 const POINT_REWARD_TICKET_FACE_VALUE = 1000;
 // 特典金券の gift_tickets.checkout_action。会計取り消し時に、その会計で発行した特典を見分けて削除するための印
 const POINT_REWARD_CHECKOUT_ACTION = "point_reward_at_checkout";
-// 特典金券の notes。発行した会計（予約）を記録する。
-// 金券を使うと booking_id は使った会計のものに書き換わるため、発行元の会計はこちらで見分ける。
-const pointRewardNotes = (bookingId) => `ポイント20P達成特典（発行会計 ${bookingId}）`;
+// 会計の中で発行する金券の checkout_action と、notes に書く見出し
+const CHECKOUT_ISSUE_LABELS = {
+  sold_at_checkout: "会計で販売",
+  gifted_at_checkout: "会計でプレゼント",
+  [POINT_REWARD_CHECKOUT_ACTION]: "ポイント20P達成特典",
+};
+// 会計の中で発行する金券の notes。発行した会計（予約）を記録する。
+// 金券を使うと booking_id は使った会計のものに書き換わるため、会計取り消し時に
+// 「その会計で発行した金券」と「その会計で使った金券」を見分けるのにこちらを使う。
+const checkoutIssueNotes = (action, bookingId) => `${CHECKOUT_ISSUE_LABELS[action]}（発行会計 ${bookingId}）`;
 
 // 金券テンプレートの「販売価格」「発行枚数」「1枚の額面」はそれぞれ別の数字。
 //   例）1000円券セット：販売価格 sale_price=5000 / 発行枚数 ticket_count=10 / 1枚の額面 face_value=1000（合計10,000円分）
@@ -418,20 +425,27 @@ const handleAdminQrInput = async (value) => {
       await fetch(`${SUPABASE_URL}/rest/v1/payments?id=eq.${booking.payment.id}`, { method: "DELETE", headers });
     }
     // 金券の戻し処理（方針）:
-    // この予約（booking_id）に紐付く金券のみを対象とする。booking_idがnullの既存金券には一切触れない。
-    // ①この会計で新規発行された金券（checkout_actionにsold/giftedのマークあり）→ 削除
-    // ①'この会計で発行したポイント特典の金券（notesで発行元を判定）→ 未使用（active）の場合のみ削除
-    //   使用済み（used）はすでに別の会計に充当されているため削除しない（その会計の支払いの参照先が失われる）。
-    //   回収できなかった旨を表示し、判断は運用側に委ねる。再会計で20Pに戻れば特典がもう1枚出るが、そちらの方が実害が小さい。
-    //   ※ 他の会計で発行された特典をこの会計で使った場合は、notesが一致しないので①'の対象外。②で active に戻る。
-    // ②この会計で使用された金券（status=used）→ activeに復元し、used_at/booking_idをクリア
-    // ①を先に実行することで「同じ会計で販売してそのまま使用した金券」も正しく削除される
-    // （その金券はマーク付きかつstatus=usedのため、②で復元される前に①で削除する必要がある）
-    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?booking_id=eq.${booking.id}&checkout_action=in.(sold_at_checkout,gifted_at_checkout)`, { method: "DELETE", headers });
-    const rewardFilter = `checkout_action=eq.${POINT_REWARD_CHECKOUT_ACTION}&notes=eq.${encodeURIComponent(pointRewardNotes(booking.id))}`;
-    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${rewardFilter}&status=eq.active`, { method: "DELETE", headers });
-    const usedRewardRes = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${rewardFilter}&status=eq.used&select=id`, { headers });
-    const usedRewards = usedRewardRes.ok ? await usedRewardRes.json() : [];
+    // 金券を使うと booking_id は「使った会計」のものに書き換わるため、booking_id だけでは
+    // 「この会計で発行した金券」と「この会計で使った金券」を区別できない。
+    // 発行元の会計は notes（checkoutIssueNotes）で判定する。判定できないものは削除せず残す側に倒す
+    // （1枚多く残る方が、お客様が代金を払った金券が消えるより実害が小さい）。
+    //   ①この会計で発行した未使用（active）の金券 → 削除
+    //       ・notes で発行元がこの会計と分かるもの
+    //       ・notes の記録がない古い金券（notes が空）で、販売/プレゼントのマークがあり booking_id がこの会計で active のもの
+    //         （booking_id が書き換わるのは使用時だけなので、active のまま booking_id がこの会計なら発行元はこの会計）
+    //   ②この会計で発行して、この会計の中でそのまま使った金券（notes がこの会計 かつ booking_id もこの会計）→ 削除
+    //       販売そのものを取り消すため。④で active に戻らないよう、先に削除する。
+    //   ③この会計で発行して、別の会計ですでに使った金券 → 削除しない。回収できない旨を表示する
+    //       （削除すると、使った会計の支払いの参照先が失われる）
+    //   ④この会計で使った金券（booking_id がこの会計で used）→ 削除せず active に戻し、used_at/booking_id をクリア
+    //       notes の記録がない古い金券で「この会計で発行・使用」か「別の会計で発行・この会計で使用」か判別できないものもここに入り、残る。
+    const issueMarks = Object.keys(CHECKOUT_ISSUE_LABELS);
+    const issuedHereFilter = `notes=in.${encodeURIComponent(`(${issueMarks.map(a => `"${checkoutIssueNotes(a, booking.id)}"`).join(",")})`)}`;
+    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${issuedHereFilter}&status=eq.active`, { method: "DELETE", headers });
+    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?booking_id=eq.${booking.id}&checkout_action=in.(${issueMarks.join(",")})&notes=is.null&status=eq.active`, { method: "DELETE", headers });
+    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${issuedHereFilter}&booking_id=eq.${booking.id}&status=eq.used`, { method: "DELETE", headers });
+    const usedElsewhereRes = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${issuedHereFilter}&status=eq.used&select=id`, { headers });
+    const usedElsewhere = usedElsewhereRes.ok ? await usedElsewhereRes.json() : [];
     await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?booking_id=eq.${booking.id}&status=eq.used`, {
       method: "PATCH", headers,
       body: JSON.stringify({ status: "active", used_at: null, booking_id: null }),
@@ -443,8 +457,8 @@ const handleAdminQrInput = async (value) => {
     if (ptData && ptData[0] && ptData[0].points > 0) {
       await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${booking.customer_id}`, { method: "PATCH", headers, body: JSON.stringify({ points: ptData[0].points - 1 }) });
     }
-    if (Array.isArray(usedRewards) && usedRewards.length > 0) {
-      alert("この会計で発行したポイント特典金券はすでに使用済みのため回収できません。\n（再会計で特典がもう1枚発行される場合があります）");
+    if (Array.isArray(usedElsewhere) && usedElsewhere.length > 0) {
+      alert(`この会計で発行した金券のうち${usedElsewhere.length}枚は、すでに別の会計で使用済みのため回収できません。\n（再会計で金券の販売・プレゼントをやり直すと、その分多く発行されます。ポイント特典も再会計で20Pに戻ればもう1枚発行されます）`);
     }
     setSelectedCompletedPayment(null);
     fetchCompletedBookings();
@@ -2428,7 +2442,7 @@ const handleAdminQrInput = async (value) => {
               status: "active",
               booking_id: checkoutBooking.id,
               checkout_action: POINT_REWARD_CHECKOUT_ACTION,
-              notes: pointRewardNotes(checkoutBooking.id),
+              notes: checkoutIssueNotes(POINT_REWARD_CHECKOUT_ACTION, checkoutBooking.id),
             }),
           });
           if (rewardRes.ok) {
@@ -4713,6 +4727,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                                   status: "active",
                                   booking_id: checkoutBooking.id,
                                   checkout_action: "sold_at_checkout",
+                                  notes: checkoutIssueNotes("sold_at_checkout", checkoutBooking.id),
                                 }),
                               });
                             }
@@ -4762,6 +4777,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                                 status: "active",
                                 booking_id: checkoutBooking.id,
                                 checkout_action: "gifted_at_checkout",
+                                notes: checkoutIssueNotes("gifted_at_checkout", checkoutBooking.id),
                               }),
                             });
                             await logGiftTicketAction("gift", checkoutBooking.customer_id, beforeState, await captureGiftTicketState(checkoutBooking.customer_id));
