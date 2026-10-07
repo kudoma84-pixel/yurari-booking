@@ -124,12 +124,30 @@ export async function findFollowupTargets() {
 
 async function alreadySent(t) {
   const rows = await sbSelect(
-    `followup_logs?customer_id=eq.${q(t.customerId)}&kind=eq.${q(t.kind)}&visit_date=eq.${q(t.visitDate)}&select=id&limit=1`
+    `followup_logs?customer_id=eq.${q(t.customerId)}&kind=eq.${q(t.kind)}&visit_date=eq.${q(t.visitDate)}&channel=neq.dry_run&select=id&limit=1`
   );
   return rows.length > 0;
 }
 
+// 試運転の記録（channel = 'dry_run'）。本番送信のときはこの行を消してから記録し直す。
+async function deleteDryRunRow(t) {
+  await fetch(
+    `${SUPABASE_URL}/rest/v1/followup_logs?customer_id=eq.${q(t.customerId)}&kind=eq.${q(t.kind)}&visit_date=eq.${q(t.visitDate)}&channel=eq.dry_run`,
+    { method: "DELETE", headers: sbHeaders }
+  ).catch(() => {});
+}
+
+async function recordDryRun(t) {
+  // 同じ対象を何度記録しても1行のまま（重複は無視）
+  await fetch(`${SUPABASE_URL}/rest/v1/followup_logs?on_conflict=customer_id,kind,visit_date`, {
+    method: "POST",
+    headers: { ...sbHeaders, Prefer: "resolution=ignore-duplicates,return=minimal" },
+    body: JSON.stringify({ customer_id: t.customerId, kind: t.kind, visit_date: t.visitDate, channel: "dry_run" }),
+  }).catch((e) => console.error("[followup] 試運転の記録に失敗", e.message));
+}
+
 async function recordSent(t) {
+  await deleteDryRunRow(t);
   const res = await fetch(`${SUPABASE_URL}/rest/v1/followup_logs`, {
     method: "POST",
     headers: { ...sbHeaders, Prefer: "return=minimal" },
@@ -161,6 +179,8 @@ export async function runFollowups() {
   console.log("[followup] 対象", JSON.stringify(summary));
 
   if (!enabled || !logsReady) {
+    // 試運転でも、テーブルがあれば対象者を記録しておく（Vercelのログは1時間ほどで消えるため）
+    if (logsReady) for (const t of targets) await recordDryRun(t);
     return {
       dryRun: true,
       reason: !logsReady ? "followup_logs テーブルがありません（sql/2026-10-followup-logs.sql を実行してください）" : "FOLLOWUP_ENABLED が 1 ではありません",
