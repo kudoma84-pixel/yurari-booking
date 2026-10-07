@@ -69,17 +69,17 @@ function MyPageInner() {
     if (params.get('liff') === '1') {
       (async () => {
         try {
-          const liff = (await import('@line/liff')).default;
-          await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID_MYPAGE });
+          const liff = await getLiff();
           if (liff.isLoggedIn()) {
             // LINEユーザーIDはサーバーがアクセストークンを検証して取得する。対象はログイン中の本人のみ。
             const r = await api("line-link", { method: "POST", body: JSON.stringify({ accessToken: liff.getAccessToken() }) });
             if (r.ok) {
-              alert("LINEと連携しました！");
               window.history.replaceState({}, '', '/mypage');
+              if (await promptAddFriendIfNeeded(liff)) return;
+              alert("LINEと連携しました！");
               window.location.reload();
             } else if (r.status !== 401) {
-              alert("LINE連携に失敗しました");
+              alert(r.data?.error || "LINE連携に失敗しました");
             }
           }
         } catch (e) {
@@ -96,7 +96,7 @@ function MyPageInner() {
       const inLine = /\bLine\//i.test(navigator.userAgent) && params.get('liff') !== '1';
       // LINEアプリ内なら、セッション確認と並行して LIFF の読み込み・初期化を始めておく
       const liffReady = inLine
-        ? import('@line/liff').then(async (m) => { const liff = m.default; await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID_MYPAGE }); return liff; })
+        ? getLiff()
         : null;
       liffReady?.catch(() => {});
       if (await loadMyCustomer().catch(() => false)) return;
@@ -609,8 +609,7 @@ function MyPageInner() {
                   // LINE通知を選択した場合、line_user_idがなければLINEログインへ
                   if (method === "line" && !customer.line_user_id) {
                     try {
-                      const liff = (await import('@line/liff')).default;
-                      await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID_MYPAGE });
+                      const liff = await getLiff();
                       if (!liff.isLoggedIn()) {
                         liff.login({ redirectUri: "https://yurari-booking.vercel.app/mypage?liff=1" });
                         return;
@@ -618,10 +617,11 @@ function MyPageInner() {
                       // LINEユーザーIDはサーバーがアクセストークンを検証して取得する
                       const r = await api("line-link", { method: "POST", body: JSON.stringify({ accessToken: liff.getAccessToken() }) });
                       if (!r.ok) {
-                        alert("LINE連携に失敗しました");
+                        alert(r.data?.error || "LINE連携に失敗しました");
                         return;
                       }
                       setCustomer({ ...customer, line_user_id: r.data.line_user_id, notification_method: "line" });
+                      if (await promptAddFriendIfNeeded(liff)) return;
                       alert("LINEと連携しました！");
                       return;
                     } catch (e) {
@@ -774,6 +774,36 @@ function MyPageInner() {
 }
 
 const LINE_TALK_URL = "https://line.me/R/oaMessage/@fdm5378y/";
+const LINE_ADD_FRIEND_URL = "https://line.me/R/ti/p/@fdm5378y";
+
+// LIFF の初期化は1回だけにする（自動ログインと「LINE通知」ボタンの両方から呼ばれるため）
+let liffPromise = null;
+function getLiff() {
+  if (!liffPromise) {
+    liffPromise = import('@line/liff').then(async (m) => {
+      const liff = m.default;
+      await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID_MYPAGE });
+      return liff;
+    });
+    liffPromise.catch(() => { liffPromise = null; });
+  }
+  return liffPromise;
+}
+
+// 連携後、公式LINEを友だち追加していなければ案内する（友だちでないとLINEに通知が届かないため）
+async function promptAddFriendIfNeeded(liff) {
+  try {
+    const f = await liff.getFriendship();
+    if (f && f.friendFlag === false) {
+      alert("LINEと連携しました。\nお知らせを受け取るため、癒楽里の公式LINEを友だち追加してください。");
+      window.location.href = LINE_ADD_FRIEND_URL;
+      return true;
+    }
+  } catch (e) {
+    console.error("友だち状態の確認に失敗しました:", e);
+  }
+  return false;
+}
 
 export default function MyPage() {
   return (

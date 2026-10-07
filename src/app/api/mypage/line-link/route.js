@@ -51,6 +51,13 @@ export async function POST(request) {
       return NextResponse.json({ error: "LINEの認証に失敗しました" }, { status: 401 });
     }
 
+    // 同じLINEアカウントが別のお客様に連携済みなら断る（自動ログインで本人を特定できなくなるため）
+    const others = await sbFetch(headers,
+      `customers?line_user_id=eq.${encodeURIComponent(profile.userId)}&id=neq.${encodeURIComponent(customer.id)}&is_deleted=not.is.true&select=id&limit=1`);
+    if (Array.isArray(others) && others.length > 0) {
+      return NextResponse.json({ error: "このLINEアカウントは、すでに別のお客様の登録と連携されています。お手数ですが院までお電話ください。" }, { status: 409 });
+    }
+
     await sbFetch(headers, `customers?id=eq.${encodeURIComponent(customer.id)}`, {
       method: "PATCH", body: JSON.stringify({ line_user_id: profile.userId, notification_method: "line" }),
     });
