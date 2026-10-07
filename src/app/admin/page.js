@@ -68,8 +68,40 @@ const salesDateRangeFilter = (startDate, endDate) => {
   return `or=(and(sales_date.gte.${startDate},sales_date.lte.${endDate}),and(sales_date.is.null,created_at.gte.${utcStart},created_at.lte.${utcEnd}))`;
 };
 
-// 金券は1枚=1,000円固定。会計では金額ではなく枚数で指定する。
-const GIFT_TICKET_UNIT_PRICE = 1000;
+// 金券の会計は金額ではなく枚数で指定し、金額は引き落とす金券の face_value（1枚の額面）の合計で求める。
+// face_value が分からない金券（未登録の紙の金券・額面の記録がない古いデータ）だけこの既定額面で数える。
+const GIFT_TICKET_DEFAULT_FACE_VALUE = 1000;
+// ポイント20P達成特典で発行するプレゼント金券の額面
+const POINT_REWARD_TICKET_FACE_VALUE = 1000;
+
+// 金券テンプレートの「販売価格」「発行枚数」「1枚の額面」はそれぞれ別の数字。
+//   例）1000円券セット：販売価格 sale_price=5000 / 発行枚数 ticket_count=10 / 1枚の額面 face_value=1000（合計10,000円分）
+// gift_tickets.face_value には必ず faceValue（1枚の額面）を入れ、会計明細の金額には salePrice を使う。
+// 片方の値をもう片方の代わりに使わないこと。設定が足りない・矛盾しているときは error を返し、発行させない。
+const giftTicketTemplateSpec = (template, mode) => {
+  const toInt = v => (v === null || v === undefined || v === "" ? NaN : Number(v));
+  const faceValue = toInt(template?.face_value);
+  const ticketCount = toInt(template?.ticket_count);
+  const salePrice = toInt(template?.sale_price);
+  const name = template?.name || "この金券";
+  if (!Number.isInteger(faceValue) || faceValue <= 0) {
+    return { error: `${name}の「1枚の額面」が設定されていません。設定 → 金券 で設定してください。` };
+  }
+  // セットの販売価格を1枚の額面に書いてしまう誤りを止める（例：5,000円のセットを「5,000円券×10枚」として発行）。
+  // 額面が誤っていればプレゼントでも同じく誤った額面になるので、プレゼントでも止める。
+  if (ticketCount > 1 && faceValue === salePrice) {
+    return { error: `${name}の「1枚の額面」と「販売価格」が同じ ¥${faceValue.toLocaleString()} です。1枚の額面にはセットの販売価格ではなく、金券1枚あたりの金額を設定してください。` };
+  }
+  // プレゼントは1枚・無料なので、額面だけあればよい
+  if (mode === "present") return { faceValue, ticketCount: 1, salePrice: 0 };
+  if (!Number.isInteger(ticketCount) || ticketCount <= 0) {
+    return { error: `${name}の「発行枚数」が設定されていません。設定 → 金券 で設定してください。` };
+  }
+  if (!Number.isInteger(salePrice) || salePrice < 0) {
+    return { error: `${name}の「販売価格」が設定されていません。設定 → 金券 で設定してください。` };
+  }
+  return { faceValue, ticketCount, salePrice };
+};
 
 // 数値入力欄の共通設定：スマホでテンキーを出し、上下矢印キー・ホイールで値が変わらないようにする。
 // （ブラウザ標準の上下矢印ボタン＝スピナーは、画面内の <style> で input[type=number] 全体に対して非表示にしている）
@@ -1332,7 +1364,7 @@ const handleAdminQrInput = async (value) => {
           store_id: currentStore.id,
           ticket_type: type,
           ticket_name: type === "purchase" ? "購入金券" : "プレゼント金券",
-          face_value: 1000,
+          face_value: GIFT_TICKET_DEFAULT_FACE_VALUE,
           issued_at: issuedDate,
           expires_at: expiresDate,
           status: "active",
@@ -1382,6 +1414,8 @@ const handleAdminQrInput = async (value) => {
     }
     const diff = newCount - activeCount;
     if (diff > 0) {
+      // 追加分は同じグループの既存の金券と同じ額面にする
+      const groupFaceValue = allTickets.find(t => t.face_value > 0)?.face_value || GIFT_TICKET_DEFAULT_FACE_VALUE;
       for (let i = 0; i < diff; i++) {
         await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
           method: "POST", headers,
@@ -1390,7 +1424,7 @@ const handleAdminQrInput = async (value) => {
             store_id: currentStore.id,
             ticket_type: newTicketType,
             ticket_name: newTicketType === "purchase" ? "購入金券" : "プレゼント金券",
-            face_value: 1000,
+            face_value: groupFaceValue,
             issued_at: newIssuedAt || null,
             expires_at: newExpiresAt || null,
             status: "active",
@@ -1422,29 +1456,6 @@ const handleAdminQrInput = async (value) => {
     await fetchGiftHistory();
   };
 
-  const issueGiftTicket = async (template) => {
-    if (!checkoutBooking?.customer_id) { alert("顧客情報がない場合は金券を発行できません"); return; }
-    const today = new Date();
-    const expires = new Date(today);
-    expires.setDate(expires.getDate() + (template.valid_days || 365));
-    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
-      method: "POST", headers,
-      body: JSON.stringify({
-        store_id: currentStore.id,
-        customer_id: checkoutBooking.customer_id,
-        ticket_name: template.name,
-        face_value: template.face_value,
-        remaining_value: template.face_value,
-        issued_at: formatDate(today),
-        expires_at: formatDate(expires),
-        status: "active",
-      }),
-    });
-    await fetchCustomerTickets(checkoutBooking?.customer_id);
-    const ticketItem = { type: "ticket_issue", name: `金券発行：${template.name}`, price: template.face_value, quantity: 1 };
-    setCheckoutItems(prev => [...prev, ticketItem]);
-  };
-
   const useGiftTicket = async (ticket, useAmount) => {
     const use = Math.min(useAmount, ticket.remaining_value, total);
     if (use <= 0) return;
@@ -1458,18 +1469,27 @@ const handleAdminQrInput = async (value) => {
   };
 
   const saveGiftTicketTemplate = async () => {
-    if (!editingTicketTemplate?.name || !editingTicketTemplate?.face_value) return;
-    if (editingTicketTemplate.id) {
-      await fetch(`${SUPABASE_URL}/rest/v1/gift_ticket_templates?id=eq.${editingTicketTemplate.id}`, {
-        method: "PATCH", headers,
-        body: JSON.stringify({ name: editingTicketTemplate.name, face_value: parseInt(editingTicketTemplate.face_value), valid_days: parseInt(editingTicketTemplate.valid_days) || 365, is_active: editingTicketTemplate.is_active }),
-      });
-    } else {
-      await fetch(`${SUPABASE_URL}/rest/v1/gift_ticket_templates`, {
-        method: "POST", headers,
-        body: JSON.stringify({ store_id: currentStore.id, name: editingTicketTemplate.name, face_value: parseInt(editingTicketTemplate.face_value), valid_days: parseInt(editingTicketTemplate.valid_days) || 365, is_active: true, sort_order: giftTicketTemplates.length + 1 }),
-      });
-    }
+    if (!editingTicketTemplate?.name) return;
+    // 販売価格・発行枚数・1枚の額面は別々の値として保存する
+    const values = {
+      name: editingTicketTemplate.name,
+      face_value: parseInt(editingTicketTemplate.face_value),
+      ticket_count: parseInt(editingTicketTemplate.ticket_count),
+      sale_price: parseInt(editingTicketTemplate.sale_price),
+    };
+    const spec = giftTicketTemplateSpec(values, "sell");
+    if (spec.error) { alert(spec.error); return; }
+    const valid_days = parseInt(editingTicketTemplate.valid_days) || 365;
+    const res = editingTicketTemplate.id
+      ? await fetch(`${SUPABASE_URL}/rest/v1/gift_ticket_templates?id=eq.${editingTicketTemplate.id}`, {
+          method: "PATCH", headers,
+          body: JSON.stringify({ ...values, valid_days, is_active: editingTicketTemplate.is_active }),
+        })
+      : await fetch(`${SUPABASE_URL}/rest/v1/gift_ticket_templates`, {
+          method: "POST", headers,
+          body: JSON.stringify({ store_id: currentStore.id, ...values, valid_days, is_active: true, sort_order: giftTicketTemplates.length + 1 }),
+        });
+    if (!res.ok) { alert("金券の保存に失敗しました"); return; }
     await fetchGiftTicketTemplates();
     setEditingTicketTemplate(null);
   };
@@ -1697,7 +1717,9 @@ const handleAdminQrInput = async (value) => {
     try {
       const template = giftTicketTemplates.find(t => t.id === giftForm.templateId);
       if (!template) return;
-      const count = giftModal.mode === 'sell' ? (template.ticket_count || 10) : 1;
+      const spec = giftTicketTemplateSpec(template, giftModal.mode === 'sell' ? 'sell' : 'present');
+      if (spec.error) { alert(spec.error); return; }
+      const count = spec.ticketCount;
       const today = new Date();
       const expires = new Date(today);
       expires.setFullYear(expires.getFullYear() + 1);
@@ -1711,7 +1733,7 @@ const handleAdminQrInput = async (value) => {
             ticket_type: giftModal.mode === 'sell' ? 'purchase' : 'present',
             purchase_group_id: groupId,
             ticket_name: template.name,
-            face_value: template.face_value,
+            face_value: spec.faceValue,
             issued_at: formatDate(today),
             expires_at: formatDate(expires),
             status: 'active',
@@ -2253,18 +2275,37 @@ const handleAdminQrInput = async (value) => {
     present: Math.max(0, ticketPayCounts.present - heldPresentTickets.length),
   };
 
+  // 金券払いの金額 = 実際に引き落とす金券の face_value（1枚の額面）の合計。
+  // 引き落とし（savePayment）と同じく、支払い行の順に保有金券を期限の近い順から割り当てる。
+  // 保有を超えた分（未登録の紙の金券）は額面が分からないため既定額面で数える。
+  const sumTicketFaceValues = (held, from, n) => {
+    let sum = 0;
+    for (let k = 0; k < n; k++) sum += held[from + k]?.face_value || GIFT_TICKET_DEFAULT_FACE_VALUE;
+    return sum;
+  };
+  const resolvedPaymentMethods = (() => {
+    const used = { purchase: 0, present: 0 };
+    return checkoutPaymentMethods.map(p => {
+      if (p.method !== "ticket") return p;
+      const purchase = p.purchaseCount || 0;
+      const present = p.presentCount || 0;
+      const amount = sumTicketFaceValues(heldPurchaseTickets, used.purchase, purchase) + sumTicketFaceValues(heldPresentTickets, used.present, present);
+      used.purchase += purchase;
+      used.present += present;
+      return { ...p, amount };
+    });
+  })();
+
   const changePaymentMethodAt = (idx, method) => setCheckoutPaymentMethods(prev => prev.map((p, i) => {
     if (i !== idx) return p;
-    // 金券は金額を直接入力させず、枚数 × 1,000円で自動計算する
+    // 金券は金額を直接入力させず、枚数から額面の合計を自動計算する（resolvedPaymentMethods）
     if (method === "ticket") return { method, amount: 0, purchaseCount: 0, presentCount: 0 };
     return { method, amount: p.method === "ticket" ? 0 : p.amount };
   }));
 
   const changeTicketCountAt = (idx, key, delta) => setCheckoutPaymentMethods(prev => prev.map((p, i) => {
     if (i !== idx) return p;
-    const next = { ...p, [key]: Math.min(99, Math.max(0, (p[key] || 0) + delta)) };
-    next.amount = ((next.purchaseCount || 0) + (next.presentCount || 0)) * GIFT_TICKET_UNIT_PRICE;
-    return next;
+    return { ...p, [key]: Math.min(99, Math.max(0, (p[key] || 0) + delta)) };
   }));
 
   const savePayment = async () => {
@@ -2293,7 +2334,7 @@ const handleAdminQrInput = async (value) => {
       for (const item of checkoutItems) {
         await fetch(`${SUPABASE_URL}/rest/v1/payment_items`, { method: "POST", headers, body: JSON.stringify({ payment_id: paymentId, item_type: item.type, item_name: item.name, price: item.price, quantity: item.quantity }) });
       }
-      for (const pm of checkoutPaymentMethods) {
+      for (const pm of resolvedPaymentMethods) {
         if (pm.amount > 0) {
           await fetch(`${SUPABASE_URL}/rest/v1/payment_methods`, { method: "POST", headers, body: JSON.stringify({ payment_id: paymentId, method: pm.method, amount: pm.amount }) });
         }
@@ -2359,7 +2400,7 @@ const handleAdminQrInput = async (value) => {
             ptExpire.setFullYear(ptExpire.getFullYear() + 1);
             await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
               method: "POST", headers,
-              body: JSON.stringify({ customer_id: checkoutBooking.customer_id, store_id: currentStore.id, ticket_type: "present", ticket_name: "1000円券（ポイント20P達成特典）", face_value: 1000, issued_at: ptToday, expires_at: formatDate(ptExpire), status: "active", notes: "ポイント20P達成特典" }),
+              body: JSON.stringify({ customer_id: checkoutBooking.customer_id, store_id: currentStore.id, ticket_type: "present", ticket_name: `${POINT_REWARD_TICKET_FACE_VALUE}円券（ポイント20P達成特典）`, face_value: POINT_REWARD_TICKET_FACE_VALUE, issued_at: ptToday, expires_at: formatDate(ptExpire), status: "active", notes: "ポイント20P達成特典" }),
             });
           }
         }
@@ -3528,14 +3569,23 @@ const handleAdminQrInput = async (value) => {
             <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 24 }}>
               {[
                 { label: "金券名", key: "name", placeholder: "1万円券・3万円券など", required: true },
-                { label: "額面金額（円）", key: "face_value", placeholder: "10000", type: "number" },
+                { label: "1枚の額面（円）", key: "face_value", placeholder: "1000", type: "number", required: true, hint: "金券1枚で使える金額。セットの販売価格ではありません" },
+                { label: "発行枚数（枚）", key: "ticket_count", placeholder: "10", type: "number", required: true, hint: "販売1回で発行する枚数。プレゼントは常に1枚です" },
+                { label: "販売価格（円）", key: "sale_price", placeholder: "5000", type: "number", required: true, hint: "お客様から受け取るセットの金額" },
                 { label: "有効期限（日間）", key: "valid_days", placeholder: "365", type: "number" },
               ].map(f => (
                 <div key={f.key}>
                   <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>{f.label}{f.required && <span style={{ color: "#e07070" }}> *</span>}</label>
-                  <input type={f.type || "text"} value={editingTicketTemplate[f.key] || ""} onChange={e => setEditingTicketTemplate({ ...editingTicketTemplate, [f.key]: e.target.value })} placeholder={f.placeholder} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+                  <input type={f.type || "text"} value={editingTicketTemplate[f.key] ?? ""} onChange={e => setEditingTicketTemplate({ ...editingTicketTemplate, [f.key]: e.target.value })} placeholder={f.placeholder} style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+                  {f.hint && <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>{f.hint}</div>}
                 </div>
               ))}
+              {parseInt(editingTicketTemplate.face_value) > 0 && parseInt(editingTicketTemplate.ticket_count) > 0 && (
+                <div style={{ fontSize: 12, color: "#3a5a3a", background: "#f5f2ee", borderRadius: 10, padding: "8px 12px" }}>
+                  ¥{parseInt(editingTicketTemplate.face_value).toLocaleString()}券 × {parseInt(editingTicketTemplate.ticket_count)}枚 = 合計 ¥{(parseInt(editingTicketTemplate.face_value) * parseInt(editingTicketTemplate.ticket_count)).toLocaleString()}分
+                  {parseInt(editingTicketTemplate.sale_price) >= 0 && <>／販売価格 ¥{parseInt(editingTicketTemplate.sale_price).toLocaleString()}</>}
+                </div>
+              )}
             </div>
             <button onClick={saveGiftTicketTemplate} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>保存</button>
           </div>
@@ -4090,7 +4140,8 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                     <div key={t.id} style={{ background: "white", borderRadius: 14, padding: "16px 20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div>
                         <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a" }}>🎫 {t.name}</div>
-                        <div style={{ fontSize: 12, color: "#888" }}>¥{t.face_value?.toLocaleString()} / 有効期限 {t.valid_days}日間</div>
+                        <div style={{ fontSize: 12, color: "#888" }}>¥{t.face_value?.toLocaleString()}券 × {t.ticket_count ?? "—"}枚 ／ 販売価格 {t.sale_price != null ? `¥${t.sale_price.toLocaleString()}` : "未設定"} ／ 有効期限 {t.valid_days}日間</div>
+                        {giftTicketTemplateSpec(t, "sell").error && <div style={{ fontSize: 11, color: "#e07070", marginTop: 2 }}>⚠️ {giftTicketTemplateSpec(t, "sell").error}</div>}
                       </div>
                       <div style={{ display: "flex", gap: 8 }}>
                         <button onClick={() => setEditingTicketTemplate(t)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, cursor: "pointer" }}>編集</button>
@@ -4416,7 +4467,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                   </div>
                   <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>支払い方法</div>
-                    {checkoutPaymentMethods.map((pm, idx) => {
+                    {resolvedPaymentMethods.map((pm, idx) => {
                       const isTicket = pm.method === "ticket";
                       const hasSharedTickets = customerTickets.some(t => t.customer_id !== checkoutBooking?.customer_id);
                       const ticketRows = [
@@ -4432,8 +4483,8 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                           </select>
                           <span style={{ fontSize: 13, color: "#888" }}>¥</span>
                           {isTicket ? (
-                            // 金券は枚数 × 1,000円の自動計算のため編集不可
-                            <div title="枚数 × 1,000円で自動計算" style={{ width: 90, padding: "8px", borderRadius: 10, border: "2px solid #e8ddd0", background: "#f5f2ee", color: "#3a5a3a", fontSize: 13, fontWeight: 700, textAlign: "right" }}>{(pm.amount || 0).toLocaleString()}</div>
+                            // 金券は使う金券の額面の合計で自動計算するため編集不可
+                            <div title="使う金券の額面の合計で自動計算" style={{ width: 90, padding: "8px", borderRadius: 10, border: "2px solid #e8ddd0", background: "#f5f2ee", color: "#3a5a3a", fontSize: 13, fontWeight: 700, textAlign: "right" }}>{(pm.amount || 0).toLocaleString()}</div>
                           ) : (
                             <input type="number" {...numericInputProps} value={pm.amount || ""} onChange={e => setCheckoutPaymentMethods(checkoutPaymentMethods.map((p, i) => i === idx ? { ...p, amount: parseInt(e.target.value) || 0 } : p))}
                               style={{ width: 90, padding: "8px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13, textAlign: "right" }} />
@@ -4461,7 +4512,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                               </div>
                             ))}
                             <div style={{ fontSize: 12, color: "#3a5a3a", textAlign: "right", marginTop: 4 }}>
-                              {(pm.purchaseCount || 0) + (pm.presentCount || 0)}枚 × ¥1,000 = <b>{formatPrice(pm.amount || 0)}</b>
+                              {(pm.purchaseCount || 0) + (pm.presentCount || 0)}枚（額面の合計）= <b>{formatPrice(pm.amount || 0)}</b>
                             </div>
                             {ticketRows.filter(r => ticketOverCounts[r.type] > 0).map(r => (
                               <div key={r.type} style={{ marginTop: 6, padding: "6px 10px", borderRadius: 8, background: "#fff4e0", border: "1px solid #f0c060", color: "#a06000", fontSize: 12, fontWeight: 700 }}>
@@ -4479,7 +4530,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                       ＋ 支払い方法を追加
                     </button>
                     {(() => {
-                      const paid = checkoutPaymentMethods.reduce((s, p) => s + p.amount, 0);
+                      const paid = resolvedPaymentMethods.reduce((s, p) => s + p.amount, 0);
                       const diff = paid - total;
                       if (paid <= 0) return null;
                       if (diff === 0) {
@@ -4597,14 +4648,17 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                             style={{ width: "100%", padding: "8px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13, background: "white", marginBottom: 8, boxSizing: "border-box" }}>
                             <option value="">金券を選択</option>
                             {giftTicketTemplates.filter(t => t.is_active).map(t => (
-                              <option key={t.id} value={t.id}>{t.name}（¥{t.face_value?.toLocaleString()}券×{t.ticket_count || 10}枚）</option>
+                              <option key={t.id} value={t.id}>{t.name}（¥{t.face_value?.toLocaleString()}券×{t.ticket_count ?? "—"}枚／販売価格 {t.sale_price != null ? `¥${t.sale_price.toLocaleString()}` : "未設定"}）</option>
                             ))}
                           </select>
                           <button onClick={async () => {
                             if (!checkoutSellTicketId) return;
                             const template = giftTicketTemplates.find(t => t.id === checkoutSellTicketId);
                             if (!template) return;
-                            const count = template.ticket_count || 10;
+                            // 1枚の額面（face_value に入れる）とセットの販売価格（会計明細に入れる）は別の値
+                            const spec = giftTicketTemplateSpec(template, "sell");
+                            if (spec.error) { alert(spec.error); return; }
+                            const count = spec.ticketCount;
                             const today = new Date();
                             const expires = new Date(today);
                             expires.setFullYear(expires.getFullYear() + 1);
@@ -4619,7 +4673,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                                   ticket_type: "purchase",
                                   purchase_group_id: groupId,
                                   ticket_name: template.name,
-                                  face_value: template.face_value,
+                                  face_value: spec.faceValue,
                                   issued_at: formatDate(today),
                                   expires_at: formatDate(expires),
                                   status: "active",
@@ -4632,7 +4686,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                             await fetchCustomerTickets(checkoutBooking.customer_id);
                             setCheckoutSellTicketId("");
                             // 合計に追加
-                            setCheckoutItems(prev => [...prev, { type: "gift", name: `金券販売 ${template.name}`, price: template.sale_price || template.face_value * count, quantity: 1 }]);
+                            setCheckoutItems(prev => [...prev, { type: "gift", name: `金券販売 ${template.name}`, price: spec.salePrice, quantity: 1 }]);
                             alert(`${template.name}を${count}枚発行しました`);
                           }} disabled={!checkoutSellTicketId}
                             style={{ width: "100%", padding: "9px", borderRadius: 10, border: "none", background: checkoutSellTicketId ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: checkoutSellTicketId ? "white" : "#bbb", fontSize: 13, fontWeight: 700, cursor: checkoutSellTicketId ? "pointer" : "not-allowed" }}>
@@ -4654,6 +4708,8 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                             if (!checkoutPresentTicketId) return;
                             const template = giftTicketTemplates.find(t => t.id === checkoutPresentTicketId);
                             if (!template) return;
+                            const spec = giftTicketTemplateSpec(template, "present");
+                            if (spec.error) { alert(spec.error); return; }
                             const today = new Date();
                             const expires = new Date(today);
                             expires.setFullYear(expires.getFullYear() + 1);
@@ -4666,7 +4722,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                                 ticket_type: "present",
                                 purchase_group_id: crypto.randomUUID(),
                                 ticket_name: template.name,
-                                face_value: template.face_value,
+                                face_value: spec.faceValue,
                                 issued_at: formatDate(today),
                                 expires_at: formatDate(expires),
                                 status: "active",
