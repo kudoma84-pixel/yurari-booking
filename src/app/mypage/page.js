@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import HomeScreenGuide from "../_lib/HomeScreenGuide";
 
 // マイページのデータはすべて /api/mypage/* を経由する（Supabase を直接呼ばない）。
 // 各APIはセッションCookieの顧客IDで本人のデータだけを扱う。
@@ -38,9 +39,6 @@ function MyPageInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("booking");
-  const [myMessages, setMyMessages] = useState([]);
-  const [myMessageText, setMyMessageText] = useState("");
-  const [messageSending, setMessageSending] = useState(false);
   const [editProfile, setEditProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({});
   const [cancelTarget, setCancelTarget] = useState(null);
@@ -189,22 +187,6 @@ function MyPageInner() {
     }
   };
 
-  // 送信ボタンとEnterキーの両方から呼ぶ（以前はEnter側が未定義の関数を呼んでエラーになっていた）
-  const sendMyMessage = async () => {
-    if (!myMessageText || messageSending || !customer?.line_user_id) return;
-    setMessageSending(true);
-    try {
-      const r = await api("messages", { method: "POST", body: JSON.stringify({ message: myMessageText }) });
-      if (!r.ok) { alert("メッセージの送信に失敗しました"); return; }
-      setMyMessageText("");
-      if (Array.isArray(r.data.messages)) setMyMessages(r.data.messages);
-    } catch (e) {
-      alert("メッセージの送信に失敗しました");
-    } finally {
-      setMessageSending(false);
-    }
-  };
-
   const markAllRead = async () => {
     const r = await api("notifications/read", { method: "POST", body: "{}" });
     if (!r.ok) return;
@@ -221,11 +203,6 @@ function MyPageInner() {
   const fetchTickets = async () => {
     const r = await api("tickets");
     if (r.ok) setTickets(Array.isArray(r.data.tickets) ? r.data.tickets : []);
-  };
-
-  const fetchMessages = async () => {
-    const r = await api("messages");
-    if (r.ok && Array.isArray(r.data.messages)) setMyMessages(r.data.messages);
   };
 
   const groupTicketsByExpiry = (tickets) => {
@@ -439,7 +416,7 @@ function MyPageInner() {
             { id: "notice", label: "🔔 通知", badge: unreadCount },
             { id: "ticket", label: "🎫 金券" },
             { id: "point", label: "🌟 ポイント" },
-            { id: "mymessage", label: "💬 メッセージ" },
+            { id: "mymessage", label: "💬 お問い合わせ" },
             { id: "notice_settings", label: "🔔 通知設定" },
                         { id: "profile", label: "⚙️ 設定" },
                       ].map(t => (
@@ -448,7 +425,6 @@ function MyPageInner() {
               if (t.id === "notice") markAllRead();
               if (t.id === "ticket" && customer) fetchTickets();
               if (t.id === "booking" && customer) fetchBookings();
-              if (t.id === "mymessage" && customer) fetchMessages();
               if (t.id === "qr") setQrLoaded(false);
             }}
               className="tab-btn" style={{ position: "relative", padding: "10px 20px", borderRadius: 20, border: "none", background: activeTab === t.id ? GREEN : "white", color: activeTab === t.id ? "white" : "#888", fontSize: 13, fontWeight: activeTab === t.id ? 700 : 400, cursor: "pointer", whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", overflow: "visible" }}>              {t.label}
@@ -589,6 +565,8 @@ function MyPageInner() {
                 💚 予約の確認やお知らせはLINEに届きます
               </div>
             ) : !(typeof navigator !== "undefined" && / Line\//i.test(navigator.userAgent)) && (
+            <>
+            <HomeScreenGuide compact />
             <div style={{ background: "white", borderRadius: 16, padding: "20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a", marginBottom: 8 }}>アプリへのプッシュ通知</div>
               <div style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>予約リマインドをアプリに通知します</div>
@@ -620,6 +598,7 @@ function MyPageInner() {
                 🔔 プッシュ通知を許可する
               </button>
             </div>
+            </>
             )}
 
             {/* 通知方法 */}
@@ -665,23 +644,36 @@ function MyPageInner() {
         )}
 
         {activeTab === "mymessage" && (
-          <div style={{ display: "flex", flexDirection: "column", height: 500 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 12 }}>💬 メッセージ</div>
-            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
-              {myMessages.length === 0 && <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", marginTop: 40 }}>メッセージはありません</div>}
-              {myMessages.map(m => (
-                <div key={m.id} style={{ display: "flex", justifyContent: m.direction === "inbound" ? "flex-end" : "flex-start" }}>
-                  <div style={{ maxWidth: "75%", padding: "10px 14px", borderRadius: m.direction === "inbound" ? "16px 16px 4px 16px" : "16px 16px 16px 4px", background: m.direction === "inbound" ? GREEN : "#f0e8d8", color: m.direction === "inbound" ? "white" : "#3a5a3a", fontSize: 13 }}>
-                    {m.message}
-                    <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4, textAlign: "right" }}>{new Date(m.created_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
-                  </div>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 12 }}>💬 お問い合わせ</div>
+            {customer?.line_user_id ? (
+              <div style={{ background: "white", borderRadius: 16, padding: "20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+                <div style={{ fontSize: 13, color: "#555", lineHeight: 1.7, marginBottom: 16 }}>
+                  ご質問・ご相談は、癒楽里の公式LINEのトークでお気軽にお送りください。スタッフが順次お返事します。
                 </div>
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input value={myMessageText} onChange={e => setMyMessageText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") sendMyMessage(); }} placeholder="メッセージを入力..." style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 13 }} />
-              <button onClick={sendMyMessage} disabled={messageSending} style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: GREEN, color: "white", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: messageSending ? 0.6 : 1 }}>送信</button>
-            </div>
+                <a href={LINE_TALK_URL} style={{ display: "block", textAlign: "center", padding: "14px", borderRadius: 12, background: "#06C755", color: "white", fontSize: 15, fontWeight: 700, textDecoration: "none" }}>
+                  LINEで問い合わせる
+                </a>
+                <div style={{ fontSize: 12, color: "#999", marginTop: 12, lineHeight: 1.6 }}>
+                  お急ぎの場合はお電話でもどうぞ。南浦和院 <a href="tel:0487628333" style={{ color: GREEN }}>048-762-8333</a>／戸田院 <a href="tel:0482873318" style={{ color: GREEN }}>048-287-3318</a>
+                </div>
+              </div>
+            ) : (
+              <div style={{ background: "white", borderRadius: 16, padding: "20px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
+                <div style={{ fontSize: 13, color: "#555", lineHeight: 1.7, marginBottom: 16 }}>
+                  ご質問・ご相談は、お電話でお気軽にお問い合わせください。
+                </div>
+                <a href="tel:0487628333" style={{ display: "block", textAlign: "center", padding: "14px", borderRadius: 12, background: GREEN, color: "white", fontSize: 15, fontWeight: 700, textDecoration: "none", marginBottom: 10 }}>
+                  📞 南浦和院に電話する（048-762-8333）
+                </a>
+                <a href="tel:0482873318" style={{ display: "block", textAlign: "center", padding: "14px", borderRadius: 12, background: "#E8742A", color: "white", fontSize: 15, fontWeight: 700, textDecoration: "none" }}>
+                  📞 戸田院に電話する（048-287-3318）
+                </a>
+                <div style={{ fontSize: 12, color: "#999", marginTop: 16, lineHeight: 1.6 }}>
+                  LINEでのやり取りをご希望の方は、公式LINEを友だち追加したうえで、「🔔 通知設定」タブの「リマインドの通知方法」で「LINE通知」を選ぶとLINEと連携できます。
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -780,6 +772,8 @@ function MyPageInner() {
     </div>
   );
 }
+
+const LINE_TALK_URL = "https://line.me/R/oaMessage/@fdm5378y/";
 
 export default function MyPage() {
   return (

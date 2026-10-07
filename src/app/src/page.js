@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, Suspense } from "react";
 import { signIn, useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { canStaffHandleCourse } from "../_lib/staff-eligibility";
+import HomeScreenGuide from "../_lib/HomeScreenGuide";
 
 // 予約フォームのデータはすべて /api/booking-form/* などのサーバーAPIを経由する（Supabase を直接呼ばない）。
 // 本人確認はサーバー側で行う（電話番号の一致／検証済みLINEユーザーID／マイページのセッション）。
@@ -681,7 +682,7 @@ function AppInner() {
             body: JSON.stringify({
               to: profile.email,
               subject: "ご予約確定のお知らせ｜整体院 癒楽里",
-              html: "<div style='font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;'><h2 style='color:#3a5a3a;'>ご予約確定のお知らせ</h2><p>" + profile.name + " 様</p><p>ご予約が確定しました。</p><div style='background:#f9f6f2;border-radius:8px;padding:16px;margin:20px 0;'><table style='width:100%;border-collapse:collapse;'><tr><td style='padding:6px 0;color:#7a9a7a;width:120px;'>予約番号</td><td style='padding:6px 0;'>" + num + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>店舗</td><td style='padding:6px 0;'>整体院 癒楽里 " + storeName + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>日時</td><td style='padding:6px 0;'>" + formatDate(date) + " " + time + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>コース</td><td style='padding:6px 0;'>" + course.name + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>担当</td><td style='padding:6px 0;'>" + staff.name + "</td></tr></table></div><p>ご来院をお待ちしております。</p><p style='color:#aaa;font-size:12px;'>整体院 癒楽里</p></div>",
+              html: "<div style='font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;'><h2 style='color:#3a5a3a;'>ご予約確定のお知らせ</h2><p>" + profile.name + " 様</p><p>ご予約が確定しました。</p><div style='background:#f9f6f2;border-radius:8px;padding:16px;margin:20px 0;'><table style='width:100%;border-collapse:collapse;'><tr><td style='padding:6px 0;color:#7a9a7a;width:120px;'>予約番号</td><td style='padding:6px 0;'>" + num + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>店舗</td><td style='padding:6px 0;'>整体院 癒楽里 " + storeName + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>日時</td><td style='padding:6px 0;'>" + formatDate(date) + " " + time + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>コース</td><td style='padding:6px 0;'>" + course.name + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>担当</td><td style='padding:6px 0;'>" + staff.name + "</td></tr></table></div><p>ご来院をお待ちしております。</p><div style='background:#f0f8f4;border-radius:8px;padding:14px 16px;margin:20px 0;font-size:13px;color:#555;'>📱 スマホのホーム画面に「癒楽里」のアイコンを置くと、予約・マイページがアプリのようにすぐ開けます。<br><a href='https://yurari-booking.vercel.app/app-guide' style='color:#3a5a3a;font-weight:bold;'>追加のしかたはこちら</a></div><p style='color:#aaa;font-size:12px;'>整体院 癒楽里</p></div>",
             }),
           });
         } catch (mailErr) {
@@ -1048,18 +1049,7 @@ function AppInner() {
               )}
             </div>
           )}
-          {!isLineLinked && (
-          <div style={{ background: "#f0f8f4", borderRadius: 16, padding: "20px", textAlign: "left" }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 12 }}>📱 アプリとして使うと便利です</div>
-            <div style={{ fontSize: 13, color: "#555", lineHeight: 2 }}>
-              <div>① Safariの共有ボタン（□↑）をタップ</div>
-              <div>② 「ホーム画面に追加」を選択</div>
-              <div>③ 追加したアイコンからマイページを開く</div>
-              <div>④ 通知設定でプッシュ通知を許可する</div>
-            </div>
-            <div style={{ fontSize: 11, color: "#aaa", marginTop: 8 }}>※ ホーム画面追加でリマインド通知が届きます</div>
-          </div>
-          )}
+          {!isLineLinked && <HomeScreenGuide />}
         </div>
       </div>
     );

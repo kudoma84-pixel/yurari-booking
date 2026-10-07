@@ -1113,16 +1113,11 @@ const handleAdminQrInput = async (value) => {
       });
       // マイページ通知
       if (changeBookingModal.customer_id) {
-        await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
-          method: "POST", headers,
-          body: JSON.stringify({
-            customer_id: changeBookingModal.customer_id,
-            store_id: currentStore.id,
-            title: "予約変更のお知らせ",
-            body: f.booking_date + " " + f.booking_time + " " + (course?.name || "") + "（" + (staff?.name || "") + "）に変更されました。",
-            is_read: false,
-            sent_via: "system",
-          }),
+        await notifyCustomerOfBooking({
+          customerId: changeBookingModal.customer_id,
+          storeId: currentStore.id,
+          title: "予約変更のお知らせ",
+          body: "ご予約を " + f.booking_date + " " + f.booking_time + " " + (course?.name || "") + "（担当：" + (staff?.name || "") + "）に変更しました。",
         });
       }
       // 予約変更通知（モーダルをクリアする前に参照を保存）
@@ -1705,16 +1700,11 @@ const handleAdminQrInput = async (value) => {
         return;
       }
       if (customerId) {
-        await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
-          method: "POST", headers,
-          body: JSON.stringify({
-            customer_id: customerId,
-            store_id: targetStoreId,
-            title: "ご予約確定のお知らせ",
-            body: bookingDate + " " + directBookingModal.time + " " + (course?.name || "") + "（" + (staff?.name || "") + "）",
-            is_read: false,
-            sent_via: "system",
-          }),
+        await notifyCustomerOfBooking({
+          customerId,
+          storeId: targetStoreId,
+          title: "ご予約確定のお知らせ",
+          body: "ご予約を承りました。\n" + bookingDate + " " + directBookingModal.time + " " + (course?.name || "") + "（担当：" + (staff?.name || "") + "）",
         });
       }
     }
@@ -1866,6 +1856,43 @@ const handleAdminQrInput = async (value) => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/notifications?store_id=eq.${currentStore.id}&order=created_at.desc&limit=50`, { headers });
     const data = await res.json();
     setNotifications(Array.isArray(data) ? data : []);
+  };
+
+  // お客様への通知：マイページの「お知らせ」に残し、連絡方法（LINE／メール）に合わせて送る
+  const notifyCustomerOfBooking = async ({ customerId, storeId, title, body }) => {
+    if (!customerId) return;
+    try {
+      const cRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}&select=id,name,email,notification_method,line_user_id`, { headers });
+      const rows = await cRes.json();
+      const c = Array.isArray(rows) ? rows[0] : null;
+      const method = c?.notification_method || "none";
+      await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
+        method: "POST", headers,
+        body: JSON.stringify({ customer_id: customerId, store_id: storeId, title, body, is_read: false, sent_via: method === "none" ? "system" : method }),
+      });
+      if (!c) return;
+      const storeName = storeId === "toda" ? "戸田院" : "南浦和院";
+      const tel = storeId === "toda" ? "048-287-3318" : "048-762-8333";
+      const text = `【${title}】\n\n${c.name || ""} 様\n${body}\n\nご不明な点は${storeName}（${tel}）までご連絡ください。\n整体院 癒楽里 ${storeName}`;
+      if (method === "line" && c.line_user_id) {
+        await fetch("/api/send-line", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: c.line_user_id, messages: [{ type: "text", text }] }),
+        });
+      } else if (method === "email" && c.email) {
+        const esc = (v) => String(v).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+        await fetch("/api/send-email", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: c.email,
+            subject: `${title}｜整体院 癒楽里`,
+            html: `<div style='font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;'><h2 style='color:#3a5a3a;'>${esc(title)}</h2><p>${esc(c.name || "")} 様</p><p>${esc(body)}</p><p>ご不明な点は${storeName}（${tel}）までご連絡ください。</p><p style='color:#aaa;font-size:12px;'>整体院 癒楽里 ${storeName}</p></div>`,
+          }),
+        });
+      }
+    } catch (e) {
+      console.error("お客様への通知に失敗しました:", e);
+    }
   };
 
   const sendNotification = async () => {
@@ -2599,16 +2626,11 @@ const handleAdminQrInput = async (value) => {
     if (status === "cancelled") {
       const booking = bookings.find(b => b.id === id);
       if (booking?.customer_id) {
-        await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
-          method: "POST", headers,
-          body: JSON.stringify({
-            customer_id: booking.customer_id,
-            store_id: currentStore.id,
-            title: "予約キャンセルのお知らせ",
-            body: booking.booking_date + " " + booking.booking_time + " " + booking.course_name + "のご予約がキャンセルされました。",
-            is_read: false,
-            sent_via: "system",
-          }),
+        await notifyCustomerOfBooking({
+          customerId: booking.customer_id,
+          storeId: currentStore.id,
+          title: "予約キャンセルのお知らせ",
+          body: booking.booking_date + " " + booking.booking_time + " " + (booking.course_name || "") + "のご予約をキャンセルしました。",
         });
       }
     }
