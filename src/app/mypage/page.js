@@ -95,13 +95,17 @@ function MyPageInner() {
     // LINEアプリ内で開かれた場合は、LINEアカウントで自動ログインを試す。
     // （連携済みのお客様だけ。未連携ならこれまでどおりコード入力の画面のまま）
     (async () => {
+      const inLine = /\bLine\//i.test(navigator.userAgent) && params.get('liff') !== '1';
+      // LINEアプリ内なら、セッション確認と並行して LIFF の読み込み・初期化を始めておく
+      const liffReady = inLine
+        ? import('@line/liff').then(async (m) => { const liff = m.default; await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID_MYPAGE }); return liff; })
+        : null;
+      liffReady?.catch(() => {});
       if (await loadMyCustomer().catch(() => false)) return;
-      if (params.get('liff') === '1') return; // LINE連携の処理中は上の連携フローに任せる
-      if (!/\bLine\//i.test(navigator.userAgent)) return;
+      if (!inLine) return; // LINE連携の処理中（?liff=1）やブラウザでは何もしない
       setLineChecking(true);
       try {
-        const liff = (await import('@line/liff')).default;
-        await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID_MYPAGE });
+        const liff = await liffReady;
         if (!liff.isLoggedIn()) return;
         const r = await api("line-login", { method: "POST", body: JSON.stringify({ accessToken: liff.getAccessToken() }) });
         if (r.ok) await loadMyCustomer();

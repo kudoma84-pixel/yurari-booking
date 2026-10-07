@@ -36,13 +36,18 @@ export async function POST(request) {
   }
 
   try {
-    const verifyRes = await fetch("https://api.line.me/oauth2/v2.1/verify?access_token=" + encodeURIComponent(accessToken), { cache: "no-store" });
-    const verify = await verifyRes.json().catch(() => ({}));
+    // トークンの検証とプロフィール取得は並行して行う（どちらも満たさなければ失敗）
+    const [verifyRes, profileRes] = await Promise.all([
+      fetch("https://api.line.me/oauth2/v2.1/verify?access_token=" + encodeURIComponent(accessToken), { cache: "no-store" }),
+      fetch("https://api.line.me/v2/profile", { headers: { Authorization: "Bearer " + accessToken }, cache: "no-store" }),
+    ]);
+    const [verify, profile] = await Promise.all([
+      verifyRes.json().catch(() => ({})),
+      profileRes.json().catch(() => ({})),
+    ]);
     if (!verifyRes.ok || !(verify.expires_in > 0) || !allowed.includes(String(verify.client_id))) {
       return NextResponse.json({ error: "LINEの認証に失敗しました" }, { status: 401 });
     }
-    const profileRes = await fetch("https://api.line.me/v2/profile", { headers: { Authorization: "Bearer " + accessToken }, cache: "no-store" });
-    const profile = await profileRes.json().catch(() => ({}));
     if (!profileRes.ok || !profile.userId) {
       return NextResponse.json({ error: "LINEの認証に失敗しました" }, { status: 401 });
     }
