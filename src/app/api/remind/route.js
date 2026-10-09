@@ -8,6 +8,7 @@ import {
   checkCronSecret,
   jstDateString,
   sendPushToCustomer,
+  contactChannel,
 } from "../_lib/server";
 import { runFollowups } from "../_lib/followup";
 
@@ -73,7 +74,8 @@ export async function GET(request) {
         url: "/mypage",
       });
 
-      if (customer.notification_method === "line" && customer.line_user_id) {
+      const channel = contactChannel(customer);
+      if (channel === "line") {
         const res = await fetch("https://api.line.me/v2/bot/message/push", {
           method: "POST",
           headers: {
@@ -87,7 +89,7 @@ export async function GET(request) {
         });
         if (!res.ok) throw new Error(`LINE ${res.status}: ${await res.text()}`);
         sent++;
-      } else if (customer.notification_method === "email" && customer.email) {
+      } else if (channel === "email") {
         await resend.emails.send({
           from: "癒楽里 <noreply@seitai-yurari.com>",
           to: customer.email,

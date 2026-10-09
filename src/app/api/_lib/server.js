@@ -14,6 +14,16 @@ export const sbHeaders = {
   "Content-Type": "application/json",
 };
 
+// お客様へ実際に届ける手段を決める。
+// 連絡方法が「LINE」でもLINE未連携（line_user_id なし）の方は、メールアドレスがあればメールで届ける。
+// （CSV取り込みで連絡方法が一律「LINE」になった未連携の方に、何も届かない状態を防ぐため）
+export function contactChannel(c) {
+  if (!c || c.notification_method === "none") return null;
+  if (c.notification_method === "line" && c.line_user_id) return "line";
+  if (c.email) return "email";
+  return null;
+}
+
 // PostgREST のフィルタ値は必ずこれを通す（記号によるフィルタ注入を防ぐ）
 export const q = (v) => encodeURIComponent(String(v ?? ""));
 

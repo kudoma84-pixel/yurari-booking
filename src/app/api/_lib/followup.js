@@ -8,7 +8,7 @@
 //   ・followup_logs テーブルが無いときも送らない（二重送信を防げないため）。
 //   ・通知方法が「なし」のお客様には送らない。
 import { Resend } from "resend";
-import { SUPABASE_URL, sbHeaders, sbSelect, q, jstDateString } from "./server";
+import { SUPABASE_URL, sbHeaders, sbSelect, q, jstDateString, contactChannel } from "./server";
 
 const BOOKING_URL = "https://liff.line.me/2010179815-wwzNljOX";
 const UPCOMING_STATUSES = "(pending,confirmed,received,treatment_done)";
@@ -114,11 +114,7 @@ export async function findFollowupTargets() {
 
   // 通知手段のない方は除く
   return targets.map((t) => {
-    const c = t.customer || {};
-    let channel = null;
-    if (c.notification_method === "line" && c.line_user_id) channel = "line";
-    else if (c.notification_method === "email" && c.email) channel = "email";
-    return { ...t, channel };
+    return { ...t, channel: contactChannel(t.customer) };
   });
 }
 

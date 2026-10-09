@@ -1865,7 +1865,10 @@ const handleAdminQrInput = async (value) => {
       const cRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}&select=id,name,email,notification_method,line_user_id`, { headers });
       const rows = await cRes.json();
       const c = Array.isArray(rows) ? rows[0] : null;
-      const method = c?.notification_method || "none";
+      // LINE未連携の方はメールアドレスがあればメールで届ける（/api/_lib/server.js の contactChannel と同じ考え方）
+      const method = !c || c.notification_method === "none" ? "none"
+        : (c.notification_method === "line" && c.line_user_id) ? "line"
+        : c.email ? "email" : "none";
       await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
         method: "POST", headers,
         body: JSON.stringify({ customer_id: customerId, store_id: storeId, title, body, is_read: false, sent_via: method === "none" ? "system" : method }),
@@ -1874,12 +1877,12 @@ const handleAdminQrInput = async (value) => {
       const storeName = storeId === "toda" ? "戸田院" : "南浦和院";
       const tel = storeId === "toda" ? "048-287-3318" : "048-762-8333";
       const text = `【${title}】\n\n${c.name || ""} 様\n${body}\n\nご不明な点は${storeName}（${tel}）までご連絡ください。\n整体院 癒楽里 ${storeName}`;
-      if (method === "line" && c.line_user_id) {
+      if (method === "line") {
         await fetch("/api/send-line", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ to: c.line_user_id, messages: [{ type: "text", text }] }),
         });
-      } else if (method === "email" && c.email) {
+      } else if (method === "email") {
         const esc = (v) => String(v).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
         await fetch("/api/send-email", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -1902,7 +1905,7 @@ const handleAdminQrInput = async (value) => {
       // 対象顧客を取得
       let targetCustomers = [];
       if (notifyTarget === "all") {
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?select=id,name,email,notification_method`, { headers });
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?select=id,name,email,notification_method,line_user_id`, { headers });
         targetCustomers = await res.json();
       } else if (notifyTarget === "individual" && notifyCustomerId) {
         const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${notifyCustomerId}&select=id,name,email,notification_method,line_user_id`, { headers });
@@ -1924,7 +1927,9 @@ const handleAdminQrInput = async (value) => {
         });
         // LINE送信
         console.log("customer:", customer.notification_method, customer.line_user_id);
-        if (customer.notification_method === "line") {
+        const viaLine = customer.notification_method === "line" && customer.line_user_id;
+        const viaEmail = !viaLine && customer.notification_method !== "none" && customer.email;
+        if (viaLine) {
           const lineUserId = customer.line_user_id;
           console.log("lineUserId:", lineUserId);
           if (lineUserId) {
@@ -1939,7 +1944,7 @@ const handleAdminQrInput = async (value) => {
           }
         }
         // メール送信
-        if (customer.notification_method === "email" && customer.email) {
+        if (viaEmail) {
           await fetch("/api/send-email", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
