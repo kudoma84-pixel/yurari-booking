@@ -239,6 +239,7 @@ export default function AdminPage() {
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [notifications, setNotifications] = useState([]);
   const [giftModal, setGiftModal] = useState(null); // { customer, mode: 'sell' or 'present' }
+  const [isIssuingGiftTicket, setIsIssuingGiftTicket] = useState(false); // 会計画面の金券販売・プレゼントの二重押し防止
   const [draggedBooking, setDraggedBooking] = useState(null);
   const [dragOverCell, setDragOverCell] = useState(null);
   const [stagedBookings, setStagedBookings] = useState([]);
@@ -1313,6 +1314,41 @@ const handleAdminQrInput = async (value) => {
     }
   };
 
+  // 金券の発行（全部発行できたか、1枚も発行しなかったかのどちらか）。
+  // rows は同じ purchase_group_id を持つ発行行の配列。1回の POST でまとめて作るので
+  // PostgREST では1トランザクションになり、「10枚のうち一部だけ発行」は起きない。
+  // 作れた行数が要求と合わない・通信エラーで結果が分からないときは、purchase_group_id で
+  // 作りかけの分を削除してから失敗を返す。削除できたか確認できなければ cleanupFailed を立てる。
+  // 戻り値: { ok: true, tickets } または { ok: false, cleanupFailed }
+  const issueGiftTicketsAllOrNothing = async (rows) => {
+    const groupId = rows[0]?.purchase_group_id;
+    if (!groupId || rows.some(r => r.purchase_group_id !== groupId)) throw new Error("issueGiftTicketsAllOrNothing: rows must share one purchase_group_id");
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, { method: "POST", headers, body: JSON.stringify(rows) });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length === rows.length) return { ok: true, tickets: data };
+        console.error("[gift_tickets] 発行枚数が一致しません:", rows.length, Array.isArray(data) ? data.length : data);
+      } else {
+        console.error("[gift_tickets] 発行に失敗:", res.status, await res.text());
+      }
+    } catch (e) {
+      console.error("[gift_tickets] 発行に失敗:", e);
+    }
+    let cleanupFailed = true;
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?purchase_group_id=eq.${groupId}`, { method: "DELETE", headers });
+      const checkRes = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?purchase_group_id=eq.${groupId}&select=id`, { headers });
+      const left = checkRes.ok ? await checkRes.json() : null;
+      cleanupFailed = !Array.isArray(left) || left.length > 0;
+    } catch (e) {
+      console.error("[gift_tickets] 作りかけの金券の削除に失敗:", e);
+    }
+    return { ok: false, cleanupFailed };
+  };
+  const giftIssueCleanupNote = (customerName) =>
+    `\n\n※作りかけの金券が残っている可能性があります。金券の履歴で${customerName || "このお客様"}様の金券を確認してください。`;
+
   const logGiftTicketAction = async (action, customerId, beforeState, afterState) => {
     try {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_ticket_logs`, {
@@ -1744,21 +1780,21 @@ const handleAdminQrInput = async (value) => {
       const expires = new Date(today);
       expires.setFullYear(expires.getFullYear() + 1);
       const groupId = crypto.randomUUID();
-      for (let i = 0; i < count; i++) {
-        await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
-          method: "POST", headers,
-          body: JSON.stringify({
-            store_id: currentStore.id,
-            customer_id: giftSelectedCustomer.id,
-            ticket_type: giftModal.mode === 'sell' ? 'purchase' : 'present',
-            purchase_group_id: groupId,
-            ticket_name: template.name,
-            face_value: spec.faceValue,
-            issued_at: formatDate(today),
-            expires_at: formatDate(expires),
-            status: 'active',
-          }),
-        });
+      const row = {
+        store_id: currentStore.id,
+        customer_id: giftSelectedCustomer.id,
+        ticket_type: giftModal.mode === 'sell' ? 'purchase' : 'present',
+        purchase_group_id: groupId,
+        ticket_name: template.name,
+        face_value: spec.faceValue,
+        issued_at: formatDate(today),
+        expires_at: formatDate(expires),
+        status: 'active',
+      };
+      const result = await issueGiftTicketsAllOrNothing(Array.from({ length: count }, () => ({ ...row })));
+      if (!result.ok) {
+        alert(`⚠️ 金券の発行に失敗しました。\n\n${template.name}は1枚も発行されていません。もう一度お試しください。${result.cleanupFailed ? giftIssueCleanupNote(giftSelectedCustomer.name) : ""}`);
+        return;
       }
       setGiftDone(true);
       setTimeout(() => { setGiftModal(null); setGiftDone(false); setGiftSelectedCustomer(null); setGiftForm({}); setGiftCustomerSearch(""); setGiftCustomerResult(null); }, 2000);
@@ -2386,6 +2422,24 @@ const handleAdminQrInput = async (value) => {
     }
     setIsSavingPayment(true);
     try {
+    // 金券販売の明細があるのに金券がそろっていない会計は確定させない（明細だけ残って金券が無い状態を作らない）。
+    // 確認できなかった（通信エラー等）ときも確定させない。
+    for (const item of checkoutItems.filter(i => i.ticketGroupId)) {
+      let found = null;
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?purchase_group_id=eq.${item.ticketGroupId}&select=id`, { headers });
+        const data = res.ok ? await res.json() : null;
+        if (Array.isArray(data)) found = data.length;
+      } catch (e) {
+        console.error("[gift_tickets] 販売した金券の確認に失敗:", e);
+      }
+      if (found !== item.ticketCount) {
+        alert(found === null
+          ? `⚠️ ${item.name}の金券を確認できませんでした。会計は確定していません。\n\n通信状態を確認して、もう一度「会計を確定する」を押してください。`
+          : `⚠️ ${item.name}の金券が${item.ticketCount}枚中${found}枚しか見つかりません。会計は確定していません。\n\n金券の履歴でこのお客様の金券を確認・整理し、この明細を削除してから金券の販売をやり直してください。`);
+        return;
+      }
+    }
     const paymentRes = await fetch(`${SUPABASE_URL}/rest/v1/payments`, {
       method: "POST", headers,
       body: JSON.stringify({ store_id: currentStore.id, customer_id: checkoutBooking?.customer_id || null, booking_id: checkoutBooking?.id || null, sales_date: checkoutSalesDate || checkoutBooking?.booking_date || jstToday(), subtotal, discount: checkoutDiscount, discount_reason: checkoutDiscountReason, total, payment_method: checkoutPaymentMethods.map(p => p.method).join(","), payment_status: "paid", notes: checkoutNote }),
@@ -2460,28 +2514,25 @@ const handleAdminQrInput = async (value) => {
           const ptExpire = new Date();
           ptExpire.setFullYear(ptExpire.getFullYear() + 1);
           const beforeState = await captureGiftTicketState(checkoutBooking.customer_id);
-          const rewardRes = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
-            method: "POST", headers,
-            body: JSON.stringify({
-              customer_id: checkoutBooking.customer_id,
-              store_id: currentStore.id,
-              ticket_type: "present",
-              purchase_group_id: crypto.randomUUID(),
-              ticket_name: `${POINT_REWARD_TICKET_FACE_VALUE}円券（ポイント20P達成特典）`,
-              face_value: POINT_REWARD_TICKET_FACE_VALUE,
-              issued_at: ptToday,
-              expires_at: formatDate(ptExpire),
-              status: "active",
-              booking_id: checkoutBooking.id,
-              checkout_action: POINT_REWARD_CHECKOUT_ACTION,
-              notes: checkoutIssueNotes(POINT_REWARD_CHECKOUT_ACTION, checkoutBooking.id),
-            }),
-          });
-          if (rewardRes.ok) {
+          // 会計そのものはこの時点で確定済みなので、特典の発行に失敗しても会計は止めず、手動発行を促す
+          const reward = await issueGiftTicketsAllOrNothing([{
+            customer_id: checkoutBooking.customer_id,
+            store_id: currentStore.id,
+            ticket_type: "present",
+            purchase_group_id: crypto.randomUUID(),
+            ticket_name: `${POINT_REWARD_TICKET_FACE_VALUE}円券（ポイント20P達成特典）`,
+            face_value: POINT_REWARD_TICKET_FACE_VALUE,
+            issued_at: ptToday,
+            expires_at: formatDate(ptExpire),
+            status: "active",
+            booking_id: checkoutBooking.id,
+            checkout_action: POINT_REWARD_CHECKOUT_ACTION,
+            notes: checkoutIssueNotes(POINT_REWARD_CHECKOUT_ACTION, checkoutBooking.id),
+          }]);
+          if (reward.ok) {
             await logGiftTicketAction("point_reward", checkoutBooking.customer_id, beforeState, await captureGiftTicketState(checkoutBooking.customer_id));
           } else {
-            console.error("[point_reward] 特典金券の発行に失敗:", rewardRes.status, await rewardRes.text());
-            alert(`${newPoints}P達成の特典金券を発行できませんでした。お手数ですが、金券を手動で1枚プレゼントしてください。`);
+            alert(`⚠️ ${newPoints}P達成の特典金券を発行できませんでした（会計は確定済みです）。\n\nお手数ですが、金券を手動で1枚プレゼントしてください。${reward.cleanupFailed ? giftIssueCleanupNote(checkoutBooking.customers?.name) : ""}`);
           }
         }
       }
@@ -4738,33 +4789,40 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                             const expires = new Date(today);
                             expires.setFullYear(expires.getFullYear() + 1);
                             const groupId = crypto.randomUUID();
-                            const beforeState = await captureGiftTicketState(checkoutBooking.customer_id);
-                            for (let i = 0; i < count; i++) {
-                              await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
-                                method: "POST", headers,
-                                body: JSON.stringify({
-                                  store_id: currentStore.id,
-                                  customer_id: checkoutBooking.customer_id,
-                                  ticket_type: "purchase",
-                                  purchase_group_id: groupId,
-                                  ticket_name: template.name,
-                                  face_value: spec.faceValue,
-                                  issued_at: formatDate(today),
-                                  expires_at: formatDate(expires),
-                                  status: "active",
-                                  booking_id: checkoutBooking.id,
-                                  checkout_action: "sold_at_checkout",
-                                  notes: checkoutIssueNotes("sold_at_checkout", checkoutBooking.id),
-                                }),
-                              });
+                            setIsIssuingGiftTicket(true);
+                            try {
+                              const beforeState = await captureGiftTicketState(checkoutBooking.customer_id);
+                              const row = {
+                                store_id: currentStore.id,
+                                customer_id: checkoutBooking.customer_id,
+                                ticket_type: "purchase",
+                                purchase_group_id: groupId,
+                                ticket_name: template.name,
+                                face_value: spec.faceValue,
+                                issued_at: formatDate(today),
+                                expires_at: formatDate(expires),
+                                status: "active",
+                                booking_id: checkoutBooking.id,
+                                checkout_action: "sold_at_checkout",
+                                notes: checkoutIssueNotes("sold_at_checkout", checkoutBooking.id),
+                              };
+                              // 全枚数を1回で発行する。1枚でも欠けたら1枚も残さず、会計明細にも追加しない
+                              const result = await issueGiftTicketsAllOrNothing(Array.from({ length: count }, () => ({ ...row })));
+                              if (!result.ok) {
+                                await fetchCustomerTickets(checkoutBooking.customer_id);
+                                alert(`⚠️ 金券の発行に失敗しました。会計は確定していません。\n\n${template.name}は1枚も発行されておらず、会計の明細にも追加していません。\n通信状態を確認して、もう一度「販売して発行」を押してください。${result.cleanupFailed ? giftIssueCleanupNote(checkoutBooking.customers?.name) : ""}`);
+                                return;
+                              }
+                              await logGiftTicketAction("sell", checkoutBooking.customer_id, beforeState, await captureGiftTicketState(checkoutBooking.customer_id));
+                              await fetchCustomerTickets(checkoutBooking.customer_id);
+                              setCheckoutSellTicketId("");
+                              // 合計に追加。会計確定時（savePayment）に、この発行グループの金券が全枚数そろっているかを再確認する
+                              setCheckoutItems(prev => [...prev, { type: "gift", name: `金券販売 ${template.name}`, price: spec.salePrice, quantity: 1, ticketGroupId: groupId, ticketCount: count }]);
+                              alert(`${template.name}を${count}枚発行しました`);
+                            } finally {
+                              setIsIssuingGiftTicket(false);
                             }
-                            await logGiftTicketAction("sell", checkoutBooking.customer_id, beforeState, await captureGiftTicketState(checkoutBooking.customer_id));
-                            await fetchCustomerTickets(checkoutBooking.customer_id);
-                            setCheckoutSellTicketId("");
-                            // 合計に追加
-                            setCheckoutItems(prev => [...prev, { type: "gift", name: `金券販売 ${template.name}`, price: spec.salePrice, quantity: 1 }]);
-                            alert(`${template.name}を${count}枚発行しました`);
-                          }} disabled={!checkoutSellTicketId}
+                          }} disabled={!checkoutSellTicketId || isIssuingGiftTicket}
                             style={{ width: "100%", padding: "9px", borderRadius: 10, border: "none", background: checkoutSellTicketId ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: checkoutSellTicketId ? "white" : "#bbb", fontSize: 13, fontWeight: 700, cursor: checkoutSellTicketId ? "pointer" : "not-allowed" }}>
                             💳 販売して発行
                           </button>
@@ -4789,10 +4847,10 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                             const today = new Date();
                             const expires = new Date(today);
                             expires.setFullYear(expires.getFullYear() + 1);
-                            const beforeState = await captureGiftTicketState(checkoutBooking.customer_id);
-                            await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets`, {
-                              method: "POST", headers,
-                              body: JSON.stringify({
+                            setIsIssuingGiftTicket(true);
+                            try {
+                              const beforeState = await captureGiftTicketState(checkoutBooking.customer_id);
+                              const result = await issueGiftTicketsAllOrNothing([{
                                 store_id: currentStore.id,
                                 customer_id: checkoutBooking.customer_id,
                                 ticket_type: "present",
@@ -4805,13 +4863,20 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                                 booking_id: checkoutBooking.id,
                                 checkout_action: "gifted_at_checkout",
                                 notes: checkoutIssueNotes("gifted_at_checkout", checkoutBooking.id),
-                              }),
-                            });
-                            await logGiftTicketAction("gift", checkoutBooking.customer_id, beforeState, await captureGiftTicketState(checkoutBooking.customer_id));
-                            await fetchCustomerTickets(checkoutBooking.customer_id);
-                            setCheckoutPresentTicketId("");
-                            alert(`${template.name}を1枚プレゼントしました`);
-                          }} disabled={!checkoutPresentTicketId}
+                              }]);
+                              if (!result.ok) {
+                                await fetchCustomerTickets(checkoutBooking.customer_id);
+                                alert(`⚠️ 金券のプレゼントに失敗しました。\n\n${template.name}は発行されていません。\n通信状態を確認して、もう一度「プレゼントとして発行」を押してください。${result.cleanupFailed ? giftIssueCleanupNote(checkoutBooking.customers?.name) : ""}`);
+                                return;
+                              }
+                              await logGiftTicketAction("gift", checkoutBooking.customer_id, beforeState, await captureGiftTicketState(checkoutBooking.customer_id));
+                              await fetchCustomerTickets(checkoutBooking.customer_id);
+                              setCheckoutPresentTicketId("");
+                              alert(`${template.name}を1枚プレゼントしました`);
+                            } finally {
+                              setIsIssuingGiftTicket(false);
+                            }
+                          }} disabled={!checkoutPresentTicketId || isIssuingGiftTicket}
                             style={{ width: "100%", padding: "9px", borderRadius: 10, border: "none", background: checkoutPresentTicketId ? "linear-gradient(135deg, #e0a040, #c07020)" : "#e8ddd0", color: checkoutPresentTicketId ? "white" : "#bbb", fontSize: 13, fontWeight: 700, cursor: checkoutPresentTicketId ? "pointer" : "not-allowed" }}>
                             🎁 プレゼントとして発行
                           </button>
