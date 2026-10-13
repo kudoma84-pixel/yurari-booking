@@ -1605,7 +1605,7 @@ const handleAdminQrInput = async (value) => {
     if (!customerId && f.customer_name) {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/customers`, {
         method: "POST", headers: { ...headers, Prefer: "return=representation" },
-        body: JSON.stringify({ name: f.customer_name, kana: f.customer_kana || "", tel: f.tel || "", email: f.email || "" }),
+        body: JSON.stringify({ name: f.customer_name, kana: f.customer_kana || "", tel: f.tel || "", email: f.email || "", ...(f.email ? { notification_method: "email" } : {}) }),
       });
       const data = await res.json();
       if (!Array.isArray(data) || !data[0]?.id) {
@@ -4337,7 +4337,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                             }
                             await fetch(`${SUPABASE_URL}/rest/v1/customers`, {
                               method: "POST", headers,
-                              body: JSON.stringify({ name: r.name, kana: r.kana, tel: r.tel, email: r.email, first_visit: r.first_visit || null, customer_number: r.customer_number }),
+                              body: JSON.stringify({ name: r.name, kana: r.kana, tel: r.tel, email: r.email, first_visit: r.first_visit || null, customer_number: r.customer_number, ...(r.email ? { notification_method: "email" } : {}) }),
                             });
                             success++;
                             setImportProgress((i + 1) / importData.length * 100);
