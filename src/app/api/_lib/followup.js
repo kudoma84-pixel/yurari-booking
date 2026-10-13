@@ -4,7 +4,7 @@
 //   day45          : 最終来院から45日後、次の予約がない方 … 再見料（2か月以上あいた場合 +2,000円）の前のご案内
 //
 // 安全装置
-//   ・FOLLOWUP_ENABLED=1 のときだけ実際に送る。それ以外は対象者の一覧を返すだけ（ドライラン）。
+//   ・2026-10-13 から本番送信を開始（オーナー承認）。止めたいときは環境変数 FOLLOWUP_ENABLED=0 にして再公開すると、対象者の記録だけ（ドライラン）に戻る。
 //   ・followup_logs テーブルが無いときも送らない（二重送信を防げないため）。
 //   ・通知方法が「なし」のお客様には送らない。
 import { Resend } from "resend";
@@ -156,7 +156,7 @@ async function recordSent(t) {
 
 export async function runFollowups() {
   const targets = await findFollowupTargets();
-  const enabled = process.env.FOLLOWUP_ENABLED === "1";
+  const enabled = process.env.FOLLOWUP_ENABLED !== "0";
 
   let logsReady = true;
   try {
@@ -179,7 +179,7 @@ export async function runFollowups() {
     if (logsReady) for (const t of targets) await recordDryRun(t);
     return {
       dryRun: true,
-      reason: !logsReady ? "followup_logs テーブルがありません（sql/2026-10-followup-logs.sql を実行してください）" : "FOLLOWUP_ENABLED が 1 ではありません",
+      reason: !logsReady ? "followup_logs テーブルがありません（sql/2026-10-followup-logs.sql を実行してください）" : "FOLLOWUP_ENABLED=0 のため停止中です",
       targets: summary,
     };
   }
