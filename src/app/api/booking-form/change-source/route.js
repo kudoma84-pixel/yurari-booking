@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   requireServiceHeaders, sbFetch, mypageCustomer, verifiedLineUserId, pickFormCustomer, isSafeId,
 } from "../../_lib/booking-auth";
+import { canCustomerModify, fetchDeadlineSettings, deadlinePassedBody } from "../../_lib/modify-deadline";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export async function GET(request) {
   if (!isSafeId(bookingId)) return NextResponse.json({ error: "id が不正です" }, { status: 400 });
 
   try {
-    const rows = await sbFetch(s.headers, `bookings?id=eq.${bookingId}&select=id,customer_id,status,customers(*)`);
+    const rows = await sbFetch(s.headers, `bookings?id=eq.${bookingId}&select=id,customer_id,store_id,status,booking_date,created_at,customers(*)`);
     const booking = Array.isArray(rows) ? rows[0] : null;
     if (!booking || !booking.customers) return NextResponse.json({ error: "予約が見つかりません" }, { status: 404 });
     const owner = booking.customers;
@@ -28,6 +29,11 @@ export async function GET(request) {
       return NextResponse.json({ error: "この予約を変更する権限がありません" }, { status: 403 });
     }
     if (owner.is_deleted === true) return NextResponse.json({ error: "予約が見つかりません" }, { status: 404 });
+    // 受付締切を過ぎた予約は、変更画面に入る時点で断る（登録時は booking-create でも判定する）
+    const settings = await fetchDeadlineSettings(s.headers, [booking.store_id]);
+    if (!canCustomerModify(booking, settings[booking.store_id])) {
+      return NextResponse.json(deadlinePassedBody(), { status: 403 });
+    }
     return NextResponse.json({ booking: { id: booking.id, status: booking.status }, customer: pickFormCustomer(owner) }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     console.error("[booking-form/change-source]", e.message);

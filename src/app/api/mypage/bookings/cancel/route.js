@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { jstDateString } from "../../../_lib/server";
 import { requireMypageSession, forbidUnlessOwner, sbFetch } from "../../../_lib/mypage-auth";
+import { canCustomerModify, fetchDeadlineSettings, deadlinePassedBody } from "../../../_lib/modify-deadline";
 
 // 予約のキャンセル。予約が本人のものであることをサーバー側で確認してから更新する。
 export async function POST(request) {
@@ -20,7 +21,7 @@ export async function POST(request) {
 
   try {
     const rows = await sbFetch(headers,
-      `bookings?id=eq.${encodeURIComponent(bookingId)}&select=id,customer_id,store_id,status,booking_date,booking_time,course_name`);
+      `bookings?id=eq.${encodeURIComponent(bookingId)}&select=id,customer_id,store_id,status,booking_date,booking_time,course_name,created_at`);
     const booking = Array.isArray(rows) ? rows[0] : null;
     if (!booking) return NextResponse.json({ error: "予約が見つかりません" }, { status: 404 });
 
@@ -31,6 +32,12 @@ export async function POST(request) {
     // 画面でキャンセルボタンを出す条件（今日以降・キャンセル済み/会計済みでない）と同じ
     if (booking.status === "cancelled" || booking.status === "completed" || booking.booking_date < jstDateString()) {
       return NextResponse.json({ error: "この予約はキャンセルできません" }, { status: 409 });
+    }
+
+    // 受付締切（施術日の前日の設定時刻）。古い画面のままの端末や直接の呼び出しもここで止める。
+    const settings = await fetchDeadlineSettings(headers, [booking.store_id]);
+    if (!canCustomerModify(booking, settings[booking.store_id])) {
+      return NextResponse.json(deadlinePassedBody(), { status: 403 });
     }
 
     await sbFetch(headers, `bookings?id=eq.${encodeURIComponent(booking.id)}&customer_id=eq.${encodeURIComponent(customer.id)}`, {

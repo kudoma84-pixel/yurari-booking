@@ -3,6 +3,7 @@ import {
   requireServiceHeaders, sbFetch, verifiedLineUserId, mypageCustomer, digits, isSafeId,
 } from "../_lib/booking-auth";
 import { canStaffHandleCourse } from "../../_lib/staff-eligibility";
+import { canCustomerModify, fetchDeadlineSettings, deadlinePassedBody } from "../_lib/modify-deadline";
 
 // 顧客向け予約フォームからの予約登録。
 // 登録の直前に「customer_id が、フォームで確定した顧客本人か」をサーバー側で再検証する。
@@ -127,6 +128,25 @@ export async function POST(request) {
   } catch (e) {
     console.error("[booking-create] 担当スタッフの確認に失敗", e.message);
     return fail(500, "予約内容の確認に失敗しました", log);
+  }
+
+  // ── 予約変更の受付締切（新しい予約を登録する前に判定し、過ぎていれば何も登録しない） ──
+  // 変更画面を締切前に開いたまま締切後に確定した場合や、直接の呼び出しもここで止める。
+  if (change_booking_id) {
+    try {
+      const src = await sbFetch(headers, `bookings?id=eq.${encodeURIComponent(change_booking_id)}&select=id,store_id,booking_date,created_at`);
+      const orig = Array.isArray(src) ? src[0] : null;
+      if (orig) {
+        const settings = await fetchDeadlineSettings(headers, [orig.store_id]);
+        if (!canCustomerModify(orig, settings[orig.store_id])) {
+          console.error("[booking-create] 登録拒否", JSON.stringify({ status: 403, reason: "change_deadline_passed", ...log }));
+          return NextResponse.json(deadlinePassedBody(), { status: 403 });
+        }
+      }
+    } catch (e) {
+      console.error("[booking-create] 変更の受付締切の確認に失敗", e.message);
+      return fail(500, "予約内容の確認に失敗しました", log);
+    }
   }
 
   // ── 予約の登録 ─────────────────────────────

@@ -24,6 +24,13 @@ const LOGO_URL = "https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp
 
 const DAYS_JP = ["日","月","火","水","木","金","土"];
 
+// 予約の店舗の電話番号（お問い合わせタブの番号と同じ）。店舗名の出し分けは一覧の表示（toda 以外は南浦和）に合わせる。
+const STORE_TEL = {
+  toda: { name: "戸田院", tel: "0482873318", label: "048-287-3318" },
+  minamiurawa: { name: "南浦和院", tel: "0487628333", label: "048-762-8333" },
+};
+const storeTel = (storeId) => storeId === "toda" ? STORE_TEL.toda : STORE_TEL.minamiurawa;
+
 // 日本時間の「今日」をYYYY-MM-DDで返す。
 // toISOString() はUTC基準のため 0:00〜8:59 に前日を返してしまう。日付判定は必ずこれを使う。
 const jstToday = () => new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -220,6 +227,11 @@ function MyPageInner() {
     const r = await api("bookings/cancel", { method: "POST", body: JSON.stringify({ bookingId }) });
     if (!r.ok) {
       alert(r.data.error || "キャンセルに失敗しました");
+      // 画面を開いたまま受付締切を過ぎた場合は、一覧を取り直してボタンを電話案内に切り替える
+      if (r.data.code === "deadline_passed") {
+        setCancelTarget(null);
+        await fetchBookings();
+      }
       return;
     }
     await fetchBookings();
@@ -449,7 +461,17 @@ function MyPageInner() {
                     <div style={{ fontSize: 14, color: DARK, marginBottom: 2 }}>📅 {formatDate(b.booking_date)} {b.booking_time}〜</div>
                     <div style={{ fontSize: 13, color: "#888", marginBottom: 2 }}>🏥 {b.store_id === "toda" ? "戸田院" : "南浦和本院"}</div>
                     <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>👤 {b.staff_name}</div>
-                    {b.status !== "cancelled" && b.status !== "completed" && (
+                    {b.status !== "cancelled" && b.status !== "completed" && b.can_modify === false && (
+                      // 受付締切（施術日の前日の設定時刻）を過ぎた予約は、ボタンを出さず電話を案内する
+                      <div style={{ marginTop: 4, padding: "12px 14px", borderRadius: 12, background: "#f9f6f2", fontSize: 13, color: DARK, lineHeight: 1.7 }}>
+                        変更・キャンセルはお電話にてご連絡ください
+                        <a href={"tel:" + storeTel(b.store_id).tel}
+                          style={{ display: "block", marginTop: 8, padding: "12px", borderRadius: 12, background: GREEN, color: "white", fontSize: 14, fontWeight: 700, textAlign: "center", textDecoration: "none" }}>
+                          📞 {storeTel(b.store_id).name}に電話する（{storeTel(b.store_id).label}）
+                        </a>
+                      </div>
+                    )}
+                    {b.status !== "cancelled" && b.status !== "completed" && b.can_modify !== false && (
                       <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
                         <a href={"/src?change=" + b.id}
                           style={{ flex: 2, padding: "12px", borderRadius: 12, border: "none", background: GREEN, color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer", textAlign: "center", textDecoration: "none" }}>

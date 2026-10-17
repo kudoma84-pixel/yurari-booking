@@ -339,7 +339,9 @@ function AppInner() {
         const r = await api("booking-form/change-source?id=" + encodeURIComponent(changeBookingId));
         if (!r.ok) {
           console.error("[予約変更] 元の予約を取得できませんでした", r.status);
-          alert(r.status === 403
+          alert(r.data?.code === "deadline_passed"
+            ? r.data.error // 変更の受付締切を過ぎている
+            : r.status === 403
             ? "ご本人確認ができませんでした。マイページにログインしてから「予約を変更する」を押してください。"
             : "変更元の予約が見つかりませんでした。");
           // 顧客が確定しないまま予約画面に残さない（予約変更はマイページから始まる）
@@ -663,7 +665,9 @@ function AppInner() {
       // 予約が保存できていないのに「完了」と表示しないよう、ここで必ず検証する
       if (!createRes.ok || !booking1Id) {
         console.error("予約の登録に失敗:", createRes.status, createData);
-        setError(createRes.status === 409
+        setError(createData?.code === "deadline_passed"
+          ? createData.error // 変更の受付締切を過ぎている
+          : createRes.status === 409
           ? "お客様情報が確認できなかったため、予約を登録できませんでした。お手数ですが最初からやり直してください。"
           : createRes.status === 422 && createData?.error
             ? createData.error // 担当スタッフがメニューを担当できない

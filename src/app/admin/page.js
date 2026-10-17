@@ -203,6 +203,9 @@ export default function AdminPage() {
   const [storeSettings, setStoreSettings] = useState(null);
   const [editingSettings, setEditingSettings] = useState(false);
   const [leadTime, setLeadTime] = useState(60);
+  // お客様側のキャンセル・変更の受付締切（施術日の前日の時刻 "HH:MM"、空欄＝制限なし）と予約直後の猶予（分）
+  const [cancelDeadlineTime, setCancelDeadlineTime] = useState("");
+  const [cancelGraceMinutes, setCancelGraceMinutes] = useState("");
   const [giftTicketTemplates, setGiftTicketTemplates] = useState([]);
   const [customerTickets, setCustomerTickets] = useState([]);
   const [allCustomerTickets, setAllCustomerTickets] = useState({});
@@ -1229,7 +1232,12 @@ const handleAdminQrInput = async (value) => {
   const fetchStoreSettings = async () => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/store_settings?store_id=eq.${currentStore.id}`, { headers });
     const data = await res.json();
-    if (data[0]) { setStoreSettings(data[0]); setLeadTime(data[0].same_day_lead_time); }
+    if (data[0]) {
+      setStoreSettings(data[0]);
+      setLeadTime(data[0].same_day_lead_time);
+      setCancelDeadlineTime(data[0].cancel_deadline_time ? String(data[0].cancel_deadline_time).slice(0, 5) : "");
+      setCancelGraceMinutes(data[0].cancel_grace_minutes != null ? String(data[0].cancel_grace_minutes) : "");
+    }
   };
 
   const fetchGiftTicketTemplates = async () => {
@@ -1563,6 +1571,31 @@ const handleAdminQrInput = async (value) => {
     await fetchStoreSettings();
     setEditingSettings(false);
     alert("保存しました");
+  };
+
+  // キャンセル・変更の受付締切は両院共通の運用のため、両店舗のレコードへ同じ値を書く。
+  // （列は店舗ごとにあるので、将来分けるときは入力欄を2組にして店舗ごとに保存すればよい）
+  const saveCancelDeadline = async () => {
+    const time = cancelDeadlineTime.trim();
+    if (time && !/^\d{2}:\d{2}$/.test(time)) { alert("受付締切の時刻を正しく入力してください"); return; }
+    const graceText = String(cancelGraceMinutes).trim();
+    if (graceText && !/^\d+$/.test(graceText)) { alert("予約直後の猶予は0以上の整数（分）で入力してください"); return; }
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/store_settings?store_id=in.(${STORES.map(s => s.id).join(",")})`, {
+      method: "PATCH", headers: { ...headers, Prefer: "return=representation" },
+      body: JSON.stringify({
+        cancel_deadline_time: time ? time + ":00" : null,
+        cancel_grace_minutes: graceText ? parseInt(graceText, 10) : null,
+        updated_at: new Date().toISOString(),
+      }),
+    });
+    const rows = await res.json().catch(() => null);
+    if (!res.ok) { alert("保存に失敗しました"); return; }
+    await fetchStoreSettings();
+    if (!Array.isArray(rows) || rows.length !== STORES.length) {
+      alert(`保存しましたが、${STORES.length}院のうち${Array.isArray(rows) ? rows.length : 0}院分しか更新できませんでした。店舗設定のレコードを確認してください。`);
+      return;
+    }
+    alert("両院に保存しました");
   };
 
   const searchCustomerByNumber = async (query) => {
@@ -4250,6 +4283,33 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                     現在の設定：<strong>予約時刻の{leadTime}分前</strong>まで受付
                   </div>
                   <button onClick={saveStoreSettings} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>保存する</button>
+                </div>
+
+                <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginTop: 20 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 4 }}>お客様側のキャンセル・変更（両院共通）</div>
+                  <div style={{ fontSize: 12, color: "#aaa", marginBottom: 20 }}>マイページからの操作の締切です。管理画面からの操作はいつでもできます。保存すると両院に同じ値が入ります。</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a", marginBottom: 6 }}>キャンセル・変更の受付締切</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 14, color: "#555" }}>施術日の前日</span>
+                    <input type="time" value={cancelDeadlineTime} onChange={e => setCancelDeadlineTime(e.target.value)}
+                      style={{ padding: "10px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 15 }} />
+                    <span style={{ fontSize: 14, color: "#555" }}>まで</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#aaa", marginBottom: 18 }}>空欄にすると締切なし（いつでもお客様側で操作できます）</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a", marginBottom: 6 }}>予約直後の猶予</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 14, color: "#555" }}>予約してから</span>
+                    <input type="number" min="0" step="1" value={cancelGraceMinutes} onChange={e => setCancelGraceMinutes(e.target.value)}
+                      style={{ width: 90, padding: "10px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 15 }} />
+                    <span style={{ fontSize: 14, color: "#555" }}>分以内</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#aaa", marginBottom: 20 }}>締切を過ぎていても、予約してからこの時間内なら操作できます（押し間違いの救済）</div>
+                  <div style={{ fontSize: 13, color: "#7a9a7a", marginBottom: 20, background: "#f9f6f2", borderRadius: 10, padding: "10px 14px" }}>
+                    現在の設定：{cancelDeadlineTime
+                      ? <><strong>施術日の前日{cancelDeadlineTime}</strong>まで受付{Number(cancelGraceMinutes) > 0 ? `（予約後${cancelGraceMinutes}分以内は締切後も可）` : ""}</>
+                      : <strong>締切なし</strong>}
+                  </div>
+                  <button onClick={saveCancelDeadline} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>両院に保存する</button>
                 </div>
               </div>
             )}
