@@ -1,7 +1,4 @@
-import { Resend } from 'resend';
-import { isKnownCustomerEmail } from "../_lib/server";
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+import { isKnownCustomerEmail, sendEmail } from "../_lib/server";
 
 export async function POST(request) {
   let payload;
@@ -27,15 +24,11 @@ export async function POST(request) {
   }
 
   try {
-    const data = await resend.emails.send({
-      from: '癒楽里 <noreply@seitai-yurari.com>',
-      to,
-      subject,
-      html,
-    });
+    // 送信エラーは sendEmail が例外にする（以前は失敗しても success: true を返していた）
+    const data = await sendEmail({ to, subject, html });
     return Response.json({ success: true, data });
   } catch (error) {
-    console.error("[send-email] 送信失敗", error);
+    console.error("[send-email] 送信失敗", error.message);
     return Response.json({ success: false, error: "送信に失敗しました" }, { status: 500 });
   }
 }

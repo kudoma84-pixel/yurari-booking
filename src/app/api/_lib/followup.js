@@ -7,8 +7,10 @@
 //   ・2026-10-13 から本番送信を開始（オーナー承認）。止めたいときは環境変数 FOLLOWUP_ENABLED=0 にして再公開すると、対象者の記録だけ（ドライラン）に戻る。
 //   ・followup_logs テーブルが無いときも送らない（二重送信を防げないため）。
 //   ・通知方法が「なし」のお客様には送らない。
-import { Resend } from "resend";
-import { SUPABASE_URL, sbHeaders, sbSelect, q, jstDateString, contactChannel } from "./server";
+//   ・送信に失敗した分は followup_logs の channel を line_failed / email_failed にする（送信済みに見せない）。
+//
+// 実行：外部の cron サービスから /api/followup を毎日1回呼ぶ（/api/remind からは呼ばない）。
+import { SUPABASE_URL, sbHeaders, sbSelect, q, jstDateString, contactChannel, sendEmail } from "./server";
 
 const BOOKING_URL = "https://liff.line.me/2010179815-wwzNljOX";
 const UPCOMING_STATUSES = "(pending,confirmed,received,treatment_done)";
@@ -120,17 +122,27 @@ export async function findFollowupTargets() {
 
 async function alreadySent(t) {
   const rows = await sbSelect(
-    `followup_logs?customer_id=eq.${q(t.customerId)}&kind=eq.${q(t.kind)}&visit_date=eq.${q(t.visitDate)}&channel=neq.dry_run&select=id&limit=1`
+    `followup_logs?customer_id=eq.${q(t.customerId)}&kind=eq.${q(t.kind)}&visit_date=eq.${q(t.visitDate)}&channel=not.in.${RETRYABLE_CHANNELS}&select=id&limit=1`
   );
   return rows.length > 0;
 }
 
-// 試運転の記録（channel = 'dry_run'）。本番送信のときはこの行を消してから記録し直す。
-async function deleteDryRunRow(t) {
+// 送信済みとみなさない記録：試運転（dry_run）と送信失敗（line_failed / email_failed）。
+// 本番送信のときはこれらの行を消してから記録し直す（失敗した分は、同じ日にもう一度実行すれば再送される）。
+const RETRYABLE_CHANNELS = "(dry_run,line_failed,email_failed)";
+async function deleteRetryableRow(t) {
   await fetch(
-    `${SUPABASE_URL}/rest/v1/followup_logs?customer_id=eq.${q(t.customerId)}&kind=eq.${q(t.kind)}&visit_date=eq.${q(t.visitDate)}&channel=eq.dry_run`,
+    `${SUPABASE_URL}/rest/v1/followup_logs?customer_id=eq.${q(t.customerId)}&kind=eq.${q(t.kind)}&visit_date=eq.${q(t.visitDate)}&channel=in.${RETRYABLE_CHANNELS}`,
     { method: "DELETE", headers: sbHeaders }
   ).catch(() => {});
+}
+
+// 送信に失敗した記録を残す（送れていないのに送信済みに見えないように）
+async function markFailed(t) {
+  await fetch(
+    `${SUPABASE_URL}/rest/v1/followup_logs?customer_id=eq.${q(t.customerId)}&kind=eq.${q(t.kind)}&visit_date=eq.${q(t.visitDate)}&channel=eq.${q(t.channel)}`,
+    { method: "PATCH", headers: { ...sbHeaders, Prefer: "return=minimal" }, body: JSON.stringify({ channel: t.channel + "_failed" }) }
+  ).catch((e) => console.error("[followup] 送信失敗の記録に失敗", t.customerId, e.message));
 }
 
 async function recordDryRun(t) {
@@ -143,7 +155,7 @@ async function recordDryRun(t) {
 }
 
 async function recordSent(t) {
-  await deleteDryRunRow(t);
+  await deleteRetryableRow(t);
   const res = await fetch(`${SUPABASE_URL}/rest/v1/followup_logs`, {
     method: "POST",
     headers: { ...sbHeaders, Prefer: "return=minimal" },
@@ -184,15 +196,16 @@ export async function runFollowups() {
     };
   }
 
-  const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
   let sent = 0, skipped = 0, failed = 0;
 
   for (const t of targets) {
     if (!t.channel) { skipped++; continue; }
+    let recorded = false;
     try {
       if (await alreadySent(t)) { skipped++; continue; }
       // 先に記録してから送る（同時実行で二重に送らないため）
       if (!(await recordSent(t))) { skipped++; continue; }
+      recorded = true;
       let text = buildMessage(t.kind, { name: t.customer?.name, storeId: t.storeId, visitDate: t.visitDate });
       if (t.channel === "email") {
         text = text.replace("このトークでお気軽にご相談ください。", "お電話（南浦和院 048-762-8333／戸田院 048-287-3318）でお気軽にご相談ください。");
@@ -204,9 +217,9 @@ export async function runFollowups() {
           body: JSON.stringify({ to: t.customer.line_user_id, messages: [{ type: "text", text }] }),
         });
         if (!res.ok) throw new Error(`LINE ${res.status}: ${await res.text()}`);
-      } else if (t.channel === "email" && resend) {
-        await resend.emails.send({
-          from: "癒楽里 <noreply@seitai-yurari.com>",
+      } else if (t.channel === "email") {
+        // APIキー未設定・送信エラーは sendEmail が例外にする（以前は送れていなくても送信済みになっていた）
+        await sendEmail({
           to: t.customer.email,
           subject: "整体院 癒楽里からのご案内",
           html: "<div style='font-family:sans-serif;padding:20px;line-height:1.7'>" + text.replace(/\n/g, "<br>") + "</div>",
@@ -216,6 +229,7 @@ export async function runFollowups() {
     } catch (e) {
       failed++;
       console.error("[followup] 配信失敗", t.kind, t.customerId, e.message);
+      if (recorded) await markFailed(t);
     }
   }
   return { dryRun: false, sent, skipped, failed, targets: summary };

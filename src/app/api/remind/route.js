@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { Resend } from "resend";
 import {
   SUPABASE_URL,
   sbHeaders,
@@ -9,10 +8,13 @@ import {
   jstDateString,
   sendPushToCustomer,
   contactChannel,
+  sendEmail,
 } from "../_lib/server";
-import { runFollowups } from "../_lib/followup";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// 当日（?type=today）・前日（?type=tomorrow）のリマインド配信。外部の cron サービスから毎日呼ばれる。
+// 来院後フォローはここでは送らない（/api/followup を別に cron で呼ぶ）。
+// 以前はこの最後でフォローも送っていたが、2026-10-14 以降の毎朝の実行ではフォローが1件も送られていなかった
+// （リマインドを送り終えたあと、フォローまで到達していなかったとみられる）。
 
 export async function GET(request) {
   const auth = checkCronSecret(request);
@@ -90,8 +92,7 @@ export async function GET(request) {
         if (!res.ok) throw new Error(`LINE ${res.status}: ${await res.text()}`);
         sent++;
       } else if (channel === "email") {
-        await resend.emails.send({
-          from: "癒楽里 <noreply@seitai-yurari.com>",
+        await sendEmail({
           to: customer.email,
           subject: timeLabel + "のご予約リマインド｜整体院 癒楽里",
           html:
@@ -114,17 +115,5 @@ export async function GET(request) {
     }
   }
 
-  // 当日分のリマインドの後に、来院日起点のフォロー配信も行う（毎朝1回）。
-  // 失敗してもリマインドの結果には影響させない。
-  let followup = null;
-  if (!isTomorrow) {
-    try {
-      followup = await runFollowups();
-    } catch (e) {
-      console.error("[remind] フォロー配信でエラー", e);
-      followup = { error: "followup failed" };
-    }
-  }
-
-  return NextResponse.json({ success: true, date: dateStr, sent, failed, idempotent, followup });
+  return NextResponse.json({ success: true, date: dateStr, sent, failed, idempotent });
 }
