@@ -26,9 +26,19 @@ function addMonthsLabel(dateStr, months, minusDays = 0) {
   return `${target.getUTCMonth() + 1}月${target.getUTCDate()}日`;
 }
 
-export function buildMessage(kind, { name, storeId, visitDate }) {
+export function buildMessage(kind, { name, storeId, visitDate, late = false }) {
   const who = name ? `${name}様\n` : "";
   if (kind === "first_next_day") {
+    // late = 休院日で配信が止まり、来院の翌日に送れなかった場合（「先日は」の文面にする）
+    if (late) {
+      return (
+        `${who}先日は整体院 癒楽里（${storeLabel(storeId)}）にお越しいただき、ありがとうございました。その後、お体の調子はいかがですか？\n\n` +
+        "施術後しばらくは、お水を多めに飲み、ぬるめのお湯で20分程度入浴されると、体がなじみやすくなります。\n\n" +
+        "整えた状態を体に覚えてもらうには、最初のうちは間をあけすぎないことが大切です。次回のご予約はこちらから👇\n" +
+        `${BOOKING_URL}\n\n` +
+        "気になることがあれば、このトークでお気軽にご相談ください。"
+      );
+    }
     return (
       `${who}昨日は整体院 癒楽里（${storeLabel(storeId)}）にお越しいただき、ありがとうございました。\n\n` +
       "施術後1〜2日は、体がだるく感じたり眠くなったりすることがあります。お水を多めに飲んで、ゆっくりお過ごしください。\n" +
@@ -72,45 +82,56 @@ async function idsWithAny(path) {
 
 const inList = (ids) => `(${ids.map((id) => q(id)).join(",")})`;
 
+// 休院日（日・月など）は朝の配信が動かないため、その間に来た「送る日」を取りこぼさないよう、
+// 過去 LOOKBACK_DAYS 日分までさかのぼって対象を拾う。二重送信は followup_logs（お客様×種類×来院日）で防ぐ。
+const LOOKBACK_DAYS = 3;
+
 // 対象者を洗い出す（送信はしない）
 export async function findFollowupTargets() {
   const today = jstDateString(0);
-  const yesterday = jstDateString(-1);
-  const d21 = jstDateString(-21);
-  const d45 = jstDateString(-45);
   const targets = [];
 
-  // 1) 初回来院の翌日
-  const ys = (await completedVisits(`booking_date=eq.${q(yesterday)}`)).filter((b) => b.customer_id);
-  if (ys.length) {
-    const ids = [...new Set(ys.map((b) => String(b.customer_id)))];
-    const before = await idsWithAny(
-      `bookings?status=eq.completed&booking_date=lt.${q(yesterday)}&customer_id=in.${inList(ids)}&select=customer_id`
-    );
-    for (const b of ys) {
-      if (before.has(String(b.customer_id))) continue;
-      if (targets.some((t) => t.customerId === String(b.customer_id) && t.kind === "first_next_day")) continue;
-      targets.push({ kind: "first_next_day", customerId: String(b.customer_id), visitDate: yesterday, storeId: b.store_id, customer: b.customers });
-    }
-  }
+  for (let o = 0; o < LOOKBACK_DAYS; o++) {
+    const firstDate = jstDateString(-1 - o);
 
-  // 2) 21日後 / 45日後（その日以降に来院も予約もない方）
-  for (const [kind, date] of [["day21", d21], ["day45", d45]]) {
-    const rows = (await completedVisits(`booking_date=eq.${q(date)}`)).filter((b) => b.customer_id);
-    if (!rows.length) continue;
-    const ids = [...new Set(rows.map((b) => String(b.customer_id)))];
-    const later = await idsWithAny(
-      `bookings?status=eq.completed&booking_date=gt.${q(date)}&customer_id=in.${inList(ids)}&select=customer_id`
-    );
-    const upcoming = await idsWithAny(
-      `bookings?status=in.${UPCOMING_STATUSES}&booking_date=gte.${q(today)}&customer_id=in.${inList(ids)}&select=customer_id`
-    );
-    const seen = new Set();
-    for (const b of rows) {
-      const id = String(b.customer_id);
-      if (later.has(id) || upcoming.has(id) || seen.has(id)) continue;
-      seen.add(id);
-      targets.push({ kind, customerId: id, visitDate: date, storeId: b.store_id, customer: b.customers });
+    // 1) 初回来院の翌日（さかのぼった分は、その後に来院済みなら送らない）
+    const ys = (await completedVisits(`booking_date=eq.${q(firstDate)}`)).filter((b) => b.customer_id);
+    if (ys.length) {
+      const ids = [...new Set(ys.map((b) => String(b.customer_id)))];
+      const before = await idsWithAny(
+        `bookings?status=eq.completed&booking_date=lt.${q(firstDate)}&customer_id=in.${inList(ids)}&select=customer_id`
+      );
+      const after = o > 0
+        ? await idsWithAny(`bookings?status=eq.completed&booking_date=gt.${q(firstDate)}&customer_id=in.${inList(ids)}&select=customer_id`)
+        : new Set();
+      for (const b of ys) {
+        const id = String(b.customer_id);
+        if (before.has(id) || after.has(id)) continue;
+        if (targets.some((t) => t.customerId === id && t.kind === "first_next_day")) continue;
+        targets.push({ kind: "first_next_day", customerId: id, visitDate: firstDate, storeId: b.store_id, customer: b.customers, late: o > 0 });
+      }
+    }
+
+    // 2) 21日後 / 45日後（その日以降に来院も予約もない方）
+    for (const [kind, days] of [["day21", 21], ["day45", 45]]) {
+      const date = jstDateString(-days - o);
+      const rows = (await completedVisits(`booking_date=eq.${q(date)}`)).filter((b) => b.customer_id);
+      if (!rows.length) continue;
+      const ids = [...new Set(rows.map((b) => String(b.customer_id)))];
+      const later = await idsWithAny(
+        `bookings?status=eq.completed&booking_date=gt.${q(date)}&customer_id=in.${inList(ids)}&select=customer_id`
+      );
+      const upcoming = await idsWithAny(
+        `bookings?status=in.${UPCOMING_STATUSES}&booking_date=gte.${q(today)}&customer_id=in.${inList(ids)}&select=customer_id`
+      );
+      const seen = new Set();
+      for (const b of rows) {
+        const id = String(b.customer_id);
+        if (later.has(id) || upcoming.has(id) || seen.has(id)) continue;
+        if (targets.some((t) => t.customerId === id && t.kind === kind)) continue;
+        seen.add(id);
+        targets.push({ kind, customerId: id, visitDate: date, storeId: b.store_id, customer: b.customers });
+      }
     }
   }
 
@@ -206,7 +227,7 @@ export async function runFollowups() {
       // 先に記録してから送る（同時実行で二重に送らないため）
       if (!(await recordSent(t))) { skipped++; continue; }
       recorded = true;
-      let text = buildMessage(t.kind, { name: t.customer?.name, storeId: t.storeId, visitDate: t.visitDate });
+      let text = buildMessage(t.kind, { name: t.customer?.name, storeId: t.storeId, visitDate: t.visitDate, late: t.late });
       if (t.channel === "email") {
         text = text.replace("このトークでお気軽にご相談ください。", "お電話（南浦和院 048-762-8333／戸田院 048-287-3318）でお気軽にご相談ください。");
       }
