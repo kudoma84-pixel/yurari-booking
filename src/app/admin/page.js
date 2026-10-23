@@ -188,6 +188,7 @@ export default function AdminPage() {
   const [checkoutResult, setCheckoutResult] = useState(null);
   const [todayBookings, setTodayBookings] = useState([]);
   const [staffMembers, setStaffMembers] = useState([]);
+  const [staffLoadError, setStaffLoadError] = useState(null);
   const [subStaffMembers, setSubStaffMembers] = useState([]);
   const [subBookings, setSubBookings] = useState([]);
   const [subShifts, setSubShifts] = useState([]);
@@ -1077,6 +1078,29 @@ const handleAdminQrInput = async (value) => {
     }
   };
 
+  // 管理画面から予約を入れる・変更するときのシフト確認（予約変更の日時はカレンダー外で自由に選べるため）。
+  // 担当のシフトが無い・受付時間外・休院日なら、理由を見せて確認する。指名なし（"any"）は対象外。登録してよければ true
+  const confirmShiftForBooking = async (storeId, date, staffId, time) => {
+    if (!staffId || staffId === "any" || !date || !time) return true;
+    let rows;
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${storeId}&work_date=eq.${date}&staff_id=in.(${staffId},closed)`, { headers });
+      if (!res.ok) throw new Error(`shifts ${res.status}`);
+      rows = await res.json();
+    } catch (e) {
+      console.error("シフトの確認に失敗しました", e);
+      return window.confirm("担当スタッフのシフトを確認できませんでした。\nこのまま登録しますか？");
+    }
+    const list = Array.isArray(rows) ? rows : [];
+    const closed = list.some(r => r.staff_id === "closed");
+    const shift = list.find(r => r.staff_id === staffId);
+    if (!closed && isWithinShift(shift, time)) return true;
+    const reason = closed ? "休院日です"
+      : !shift ? "担当スタッフのシフトがありません"
+      : `担当スタッフのシフト（${hhmm(shift.start_time)}〜${hhmm(shift.end_time)}）の受付時間外です`;
+    return window.confirm(`⚠ ${date} ${time} は${reason}。\nこのままだと施術できない予約になります。\n\nシフトを確認のうえ、それでも登録する場合のみ OK を押してください。`);
+  };
+
   const saveChangeBooking = async () => {
     if (isSavingChangeBooking) return;
     const f = changeBookingForm;
@@ -1087,6 +1111,7 @@ const handleAdminQrInput = async (value) => {
       const s = staffMembers.find(s => s.id === f.staff_id);
       if (!canStaffHandleCourse(s, c)) { alert("選択した担当スタッフはこのメニューを担当できません。担当スタッフを選び直してください。"); return; }
     }
+    if (!(await confirmShiftForBooking(currentStore.id, f.booking_date, f.staff_id, f.booking_time))) return;
     setIsSavingChangeBooking(true);
     try {
       const course = courseMenus.find(c => c.id === f.course_id);
@@ -1207,10 +1232,22 @@ const handleAdminQrInput = async (value) => {
     setProducts(Array.isArray(data) ? data : []);
   };
 
+  // 以前はタブを開いたときの1回しか取得せず、その1回が失敗（通信エラー・Supabaseのエラー応答）すると
+  // スタッフが空のまま戻らず、カレンダーのメイン院の行が黙って0件になっていた。
+  // 失敗時は前の一覧を残してエラーを記録し、カレンダーの自動更新（20秒ごと）でも取り直す。
   const fetchStaffMembers = async () => {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/staff_members?store_id=eq.${currentStore.id}&order=sort_order.asc`, { headers });
-    const data = await res.json();
-    setStaffMembers(Array.isArray(data) ? data : []);
+    const storeId = currentStore?.id;
+    if (!storeId) return;
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/staff_members?store_id=eq.${storeId}&order=sort_order.asc`, { headers, cache: "no-store" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !Array.isArray(data)) throw new Error(`staff_members ${res.status} ${JSON.stringify(data)?.slice(0, 200)}`);
+      setStaffMembers(data);
+      setStaffLoadError(null);
+    } catch (e) {
+      console.error("[管理画面] スタッフの取得に失敗しました", storeId, e);
+      setStaffLoadError(e.message || String(e));
+    }
   };
 
   const fetchCourseMenus = async () => {
@@ -1633,6 +1670,7 @@ const handleAdminQrInput = async (value) => {
       const c = courseMenus.find(c => c.id === f.course_id);
       const s = targetStaffPool.find(s => s.id === f.staff_id);
       if (!canStaffHandleCourse(s, c)) { alert("選択した担当スタッフはこのメニューを担当できません。担当スタッフを選び直してください。"); return; }
+      if (!(await confirmShiftForBooking(targetStoreId, formatDate(directBookingModal.date), f.staff_id, directBookingModal.time))) return;
     }
     setIsSavingDirectBooking(true);
     let customerId = f.customer_id;
@@ -2202,7 +2240,7 @@ const handleAdminQrInput = async (value) => {
     if (!loggedIn || !currentStore) return;
     // 現在のタブに応じた再取得（ポーリングと画面復帰の両方から呼ぶ）
     const refreshCurrentTab = () => {
-      if (tab === "calendar" && selectedDate && !dragActiveRef.current) { fetchAll(selectedDate); fetchSubAll(selectedDate); }
+      if (tab === "calendar" && selectedDate && !dragActiveRef.current) { fetchStaffMembers(); fetchAll(selectedDate); fetchSubAll(selectedDate); }
       if (tab === "checkin") fetchTodayReceived();
       if (tab === "bookings") fetchBookings(selectedDate || new Date());
       fetchAdminNotifications();
@@ -2587,6 +2625,7 @@ const handleAdminQrInput = async (value) => {
     if (!res.ok) throw new Error(`予約の取得に失敗しました（${res.status}）`);
     const data = await res.json();
     return (Array.isArray(data) ? data : []).filter(b => {
+      if (!b.staff_id || b.staff_id === "any") return false; // 指名なしはシフト判定の対象外
       const next = newShiftOf(b.booking_date, b.staff_id);
       return next !== undefined && !isWithinShift(next, b.booking_time);
     });
@@ -2876,7 +2915,8 @@ const handleAdminQrInput = async (value) => {
         if (b) { shown.add(b.id); skipUntil = idx + bookingSpan(b); }
       });
     }
-    return list.filter(b => b.status !== "cancelled" && !shown.has(b.id));
+    // 物販のみ（担当なし・登録時に会計済み）は予約ではないので除く
+    return list.filter(b => b.status !== "cancelled" && !shown.has(b.id) && !(!b.staff_id && b.course_name === "物販"));
   };
   // シフト外の予約を目立たせる枠線（シフト削除・短縮の前に入った予約に気づけるように）
   const OUTSIDE_SHIFT_STYLE = { outline: "3px solid #d32f2f", outlineOffset: -3 };
@@ -5214,10 +5254,10 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                     if (hidden.length === 0) return null;
                     return (
                       <div style={{ background: "#fdecea", border: "2px solid #d32f2f", borderRadius: 12, padding: "12px 16px", marginBottom: 12 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "#d32f2f", marginBottom: 6 }}>⚠ カレンダーの枠に表示できない予約が{hidden.length}件あります（担当スタッフ・時刻をご確認ください）</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#d32f2f", marginBottom: 6 }}>⚠ カレンダーの枠に表示できない予約が{hidden.length}件あります（指名なし、または担当スタッフ・時刻をご確認ください）</div>
                         {hidden.map(({ b, storeName, main }) => (
                           <div key={b.id} onClick={main ? () => setSelectedBooking(b) : undefined} style={{ fontSize: 12, color: "#3a3a3a", padding: "2px 0", cursor: main ? "pointer" : "default" }}>
-                            {b.booking_time} {b.customers?.name || "予約"}様 / {b.course_name || ""} / 担当：{b.staff_name || b.staff_id || "未設定"}（{storeName}）
+                            {b.booking_time} {b.customers?.name || "予約"}様 / {b.course_name || ""} / 担当：{b.staff_id === "any" ? "指名なし" : (b.staff_name || b.staff_id || "未設定")}（{storeName}）
                           </div>
                         ))}
                       </div>
@@ -5243,6 +5283,16 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                             <div style={{ position: "sticky", left: 16, display: "inline-block", fontSize: 12, fontWeight: 700, color: "#3a5a3a" }}>🏥 {currentStore.name}（メイン）</div>
                           </td>
                         </tr>
+                        {/* スタッフが0件のまま黙って空にしない（その日の予約が一切見えなくなるため） */}
+                        {staffList.length === 0 && (
+                          <tr><td colSpan={timeSlots.length + 1} style={{ padding: "12px 16px", background: "#fdecea", borderTop: "2px solid #d32f2f", borderBottom: "2px solid #d32f2f" }}>
+                            <div style={{ position: "sticky", left: 16, display: "inline-block", fontSize: 13, fontWeight: 700, color: "#d32f2f" }}>
+                              ⚠ {currentStore.name}のスタッフを表示できません。予約が見えていない可能性があります。
+                              <button onClick={() => { fetchStaffMembers(); if (selectedDate) { fetchAll(selectedDate); fetchSubAll(selectedDate); } }} style={{ marginLeft: 12, padding: "4px 12px", borderRadius: 8, border: "2px solid #d32f2f", background: "white", color: "#d32f2f", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>再読み込み</button>
+                              <div style={{ fontSize: 11, fontWeight: 400, color: "#a33", marginTop: 4 }}>直らない場合はログアウトしてログインし直してください。{staffLoadError ? `（エラー：${staffLoadError.slice(0, 120)}）` : staffMembers.length > 0 ? "（在籍中のスタッフが0人です）" : ""}</div>
+                            </div>
+                          </td></tr>
+                        )}
                         {staffList.map(s => (
                           <tr key={s.id} style={{ borderTop: "1px solid #f0ebe4" }}>
                             <td style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, color: isOnShift(s.id) ? "#3a5a3a" : "#ccc", position: "sticky", left: 0, background: "white", zIndex: 1, minWidth: 100 }}>{s.name}{!isOnShift(s.id) ? <div style={{ fontSize: 10, color: "#ccc" }}>休み</div> : shiftLabel(shifts, s.id) && <div style={{ fontSize: 10, color: "#aaa", fontWeight: 400 }}>{shiftLabel(shifts, s.id)}</div>}{bookings.some(b => b.staff_id === s.id && b.status !== "cancelled" && !isOnShiftAt(s.id, b.booking_time)) && <div style={{ fontSize: 10, color: "#d32f2f", fontWeight: 700 }}>⚠シフト外の予約あり</div>}</td>

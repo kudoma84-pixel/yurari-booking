@@ -204,6 +204,7 @@ function AppInner() {
   const [staffShiftDates, setStaffShiftDates] = useState({});
   // 受付時間（start_time〜end_time）の判定用：期間内のシフトと在籍中スタッフのID（指名なし用）
   const [shiftRows, setShiftRows] = useState({ shifts: [], activeIds: [] });
+  const shiftReqRef = useRef(0);
   const [bookedSlots, setBookedSlots] = useState([]);
   const [bookedSlots2, setBookedSlots2] = useState([]);
   const [showAddEsthe, setShowAddEsthe] = useState(false);
@@ -437,8 +438,13 @@ function AppInner() {
     const toMonth = maxDate.getMonth();
     const toDay = new Date(toYear, toMonth + 1, 0).getDate();
     const to = toYear + "-" + String(toMonth+1).padStart(2,"0") + "-" + String(toDay).padStart(2,"0");
+    // 取得し直す間は前のスタッフの出勤日・受付時間を使わせない（選び直した直後に前のスタッフの出勤日を押せないように）。
+    // 古い応答が後から届いても上書きしない。
+    const reqId = ++shiftReqRef.current;
+    setStaffShiftDates({}); setShiftRows({ shifts: [], activeIds: [] });
     const r = await api("booking-form/shifts?store_id=" + encodeURIComponent(storeId)
       + "&from=" + from + "&to=" + to);
+    if (reqId !== shiftReqRef.current) return;
     const shifts = r.ok && Array.isArray(r.data.shifts) ? r.data.shifts : [];
     setShiftRows({ shifts, activeIds: r.ok && Array.isArray(r.data.active_staff_ids) ? r.data.active_staff_ids : [] });
 
@@ -771,12 +777,12 @@ function AppInner() {
   };
 
   // 担当スタッフが選択日の t に受付時間内か（シフトの start_time〜end_time。end_time は最終受付時刻）。
-  // 指名なしは在籍中スタッフの誰か1人でも受付時間内ならOK。
+  // 指名なし（"any"）は担当が決まっていないため対象外（booking-create と同じ）。
   const isOnShiftAt = (staffId, t) => {
     if (!date || !staffId) return false;
+    if (staffId === "any") return true;
     const d = formatDate(date);
-    const ids = staffId === "any" ? shiftRows.activeIds : [staffId];
-    return shiftRows.shifts.some(s => s.work_date === d && ids.includes(s.staff_id) && isWithinShift(s, t));
+    return shiftRows.shifts.some(s => s.work_date === d && s.staff_id === staffId && isWithinShift(s, t));
   };
 
   const isSlotDisabled = (t) => {

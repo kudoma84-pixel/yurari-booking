@@ -134,7 +134,10 @@ export async function POST(request) {
   // ── 担当スタッフのシフト（受付時間）の検証 ─────────────
   // 画面でも絞っているが、シフト変更前に開いた画面や直接の呼び出しから受付時間外の予約が入らないようにする。
   // 開始時刻が start_time〜end_time（end_time は最終受付時刻）に入っていること、休院日でないことを全件確認する。
-  const slots = bookings.map((b) => ({ store_id: b?.store_id, staff_id: b?.staff_id, date: b?.booking_date, time: b?.booking_time }));
+  // 指名なし（staff_id = "any"）は担当が決まっていないため対象外。
+  const slots = bookings
+    .map((b) => ({ store_id: b?.store_id, staff_id: b?.staff_id, date: b?.booking_date, time: b?.booking_time }))
+    .filter((x) => x.staff_id !== "any");
   if (slots.some((x) => typeof x.store_id !== "string" || !isSafeId(x.store_id) || !isDate(x.date)
     || typeof x.time !== "string" || !/^\d{2}:\d{2}(:\d{2})?$/.test(x.time))) {
     return fail(400, "予約内容が不正です", { ...log, reason: "date_or_time_invalid" });
@@ -143,7 +146,7 @@ export async function POST(request) {
     const storeIds = [...new Set(slots.map((x) => x.store_id))].join(",");
     const dates = [...new Set(slots.map((x) => x.date))].join(",");
     const staffIds = [...new Set([...slots.map((x) => x.staff_id), "closed"])].join(",");
-    const shiftRows = await sbFetch(headers, `shifts?store_id=in.(${storeIds})&work_date=in.(${dates})&staff_id=in.(${staffIds})&select=store_id,staff_id,work_date,start_time,end_time`);
+    const shiftRows = slots.length === 0 ? [] : await sbFetch(headers, `shifts?store_id=in.(${storeIds})&work_date=in.(${dates})&staff_id=in.(${staffIds})&select=store_id,staff_id,work_date,start_time,end_time`);
     const rows = Array.isArray(shiftRows) ? shiftRows : [];
     for (const x of slots) {
       const sameDay = rows.filter((r) => String(r.store_id) === x.store_id && r.work_date === x.date);
