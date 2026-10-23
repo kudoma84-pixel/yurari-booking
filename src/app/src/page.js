@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, Suspense } from "react";
 import { signIn, useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { canStaffHandleCourse } from "../_lib/staff-eligibility";
+import { isWithinShift } from "../_lib/shift-hours";
 import HomeScreenGuide from "../_lib/HomeScreenGuide";
 
 // 予約フォームのデータはすべて /api/booking-form/* などのサーバーAPIを経由する（Supabase を直接呼ばない）。
@@ -201,6 +202,8 @@ function AppInner() {
   const [sameDayLeadTime, setSameDayLeadTime] = useState(60);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [staffShiftDates, setStaffShiftDates] = useState({});
+  // 受付時間（start_time〜end_time）の判定用：期間内のシフトと在籍中スタッフのID（指名なし用）
+  const [shiftRows, setShiftRows] = useState({ shifts: [], activeIds: [] });
   const [bookedSlots, setBookedSlots] = useState([]);
   const [bookedSlots2, setBookedSlots2] = useState([]);
   const [showAddEsthe, setShowAddEsthe] = useState(false);
@@ -437,6 +440,7 @@ function AppInner() {
     const r = await api("booking-form/shifts?store_id=" + encodeURIComponent(storeId)
       + "&from=" + from + "&to=" + to);
     const shifts = r.ok && Array.isArray(r.data.shifts) ? r.data.shifts : [];
+    setShiftRows({ shifts, activeIds: r.ok && Array.isArray(r.data.active_staff_ids) ? r.data.active_staff_ids : [] });
 
     const shiftDatesOf = (id) => {
       const dateMap = {};
@@ -670,7 +674,7 @@ function AppInner() {
           : createRes.status === 409
           ? "お客様情報が確認できなかったため、予約を登録できませんでした。お手数ですが最初からやり直してください。"
           : createRes.status === 422 && createData?.error
-            ? createData.error // 担当スタッフがメニューを担当できない
+            ? createData.error // 担当スタッフがメニューを担当できない・受付時間外
             : "予約の登録に失敗しました。通信状態をご確認のうえ、もう一度お試しください。");
         setLoading(false);
         return;
@@ -732,7 +736,7 @@ function AppInner() {
     setProfile({ name: "", kana: "", zipcode: "", address: "", tel: "", birthYear: "", birthMonth: "", birthDay: "", birthday: "", email: "", firstVisit: "初めて", notes: "" });
     setBookingNum(""); setError(""); setExistingCustomer(null);
     customerMatchRef.current = null;
-    setStaffShiftDates({});
+    setStaffShiftDates({}); setShiftRows({ shifts: [], activeIds: [] });
   };
 
   // 「別の予約をする」用：確定済みの顧客（existingCustomer・profile・通知方法）は残し、予約内容だけ初期化する。
@@ -745,7 +749,7 @@ function AppInner() {
     setStaff(null); setStaff2(null); setDate(null); setTime(null);
     setProfile(p => ({ ...p, notes: "" }));
     setBookingNum(""); setError("");
-    setStaffShiftDates({});
+    setStaffShiftDates({}); setShiftRows({ shifts: [], activeIds: [] });
     setScreen(existingCustomer ? "booking" : "top");
   };
 
@@ -764,6 +768,15 @@ function AppInner() {
       return year + "-" + String(month).padStart(2,"0") + "-" + String(day).padStart(2,"0");
     }
     return "";
+  };
+
+  // 担当スタッフが選択日の t に受付時間内か（シフトの start_time〜end_time。end_time は最終受付時刻）。
+  // 指名なしは在籍中スタッフの誰か1人でも受付時間内ならOK。
+  const isOnShiftAt = (staffId, t) => {
+    if (!date || !staffId) return false;
+    const d = formatDate(date);
+    const ids = staffId === "any" ? shiftRows.activeIds : [staffId];
+    return shiftRows.shifts.some(s => s.work_date === d && ids.includes(s.staff_id) && isWithinShift(s, t));
   };
 
   const isSlotDisabled = (t) => {
@@ -1327,7 +1340,10 @@ function AppInner() {
                     const slotsNeeded2 = course2 ? (parseInt((course2.duration || "30分").replace(/[^0-9]/g, "")) || 30) / 30 : 0;
                     const secondFree = Array.from({ length: slotsNeeded2 }, (_, i) => TIME_SLOTS[startIdx + Math.ceil(slotsNeeded) + i])
                       .every(slot => !slot || !bookedSlots2.includes(slot));
-                    const disabled = isSlotDisabled(t) || bookedSlots.includes(t) || !hasEnoughSlots || !secondFree;
+                    // 開始時刻が担当のシフトの受付時間内か（連続予約は2件目の開始時刻が2件目の担当の受付時間内か）
+                    const inShift = isOnShiftAt(staff.id, t)
+                      && (!course2 || !staff2 || isOnShiftAt(staff2.id, addMinutesToTime(t, durationMin)));
+                    const disabled = !inShift || isSlotDisabled(t) || bookedSlots.includes(t) || !hasEnoughSlots || !secondFree;
                     return (
                       <div key={t} onClick={() => !disabled && setTime(t)} style={{ background: isSelected ? GREEN : disabled ? "#f0f0f0" : "white", border: "2px solid " + (isSelected ? GREEN : disabled ? "#ddd" : "#e8ddd0"), borderRadius: 10, padding: "8px 14px", cursor: disabled ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, color: isSelected ? "white" : disabled ? "#bbb" : DARK }}>
                         {t}

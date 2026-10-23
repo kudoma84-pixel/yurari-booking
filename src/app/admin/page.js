@@ -2,6 +2,7 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
 import { canStaffHandleCourse } from "../_lib/staff-eligibility";
+import { isWithinShift, hhmm } from "../_lib/shift-hours";
 
 const SUPABASE_URL = "https://pbjekdzmvjqhqbbrzbfk.supabase.co";
 const SUPABASE_KEY = "sb_publishable_I_98PawL-eNS__SZa0DlPA_80VwFUZc";
@@ -532,7 +533,7 @@ const handleAdminQrInput = async (value) => {
     const targetBookings = targetStoreId === subStoreId ? subBookings : bookings;
     const matched = targetStaffList.find(s => s.name === booking.staff_name);
     const matchedAvailable = matched
-      && targetShifts.some(sh => sh.staff_id === matched.id)
+      && targetShifts.some(sh => sh.staff_id === matched.id && isWithinShift(sh, targetTime))
       && !targetBookings.some(b => b.id !== booking.id && b.staff_id === matched.id && b.booking_time === targetTime && b.status !== "cancelled");
     if (matchedAvailable) {
       executeCrossStoreMove(booking, targetStoreId, matched, targetTime);
@@ -548,8 +549,8 @@ const handleAdminQrInput = async (value) => {
     const targetBookings = isTargetSub ? subBookings : bookings;
     const targetStoreName = STORES.find(s => s.id === targetStoreId)?.name || "";
     const dateStr = formatDate(selectedDate);
-    if (!targetShifts.some(sh => sh.staff_id === targetStaff.id)) {
-      alert(`${targetStaff.name}さんは${dateStr}に${targetStoreName}へ出勤していないため移動できません`);
+    if (!targetShifts.some(sh => sh.staff_id === targetStaff.id && isWithinShift(sh, targetTime))) {
+      alert(`${targetStaff.name}さんは${dateStr} ${targetTime}に${targetStoreName}のシフト（受付時間）に入っていないため移動できません`);
       return;
     }
     if (targetBookings.some(b => b.id !== booking.id && b.staff_id === targetStaff.id && b.booking_time === targetTime && b.status !== "cancelled")) {
@@ -2579,12 +2580,48 @@ const handleAdminQrInput = async (value) => {
     }
   };
 
+  // シフトの変更でシフト外になる予約を洗い出す（施術前の予約のみ）。
+  // newShiftOf(date, staffId) は変更後のシフト（休みなら null）を返す。予約データ自体は変更しない。
+  const findBookingsOutsideNewShifts = async (from, to, newShiftOf) => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=gte.${from}&booking_date=lte.${to}&status=in.(confirmed,received,treatment_done)&select=id,booking_date,booking_time,staff_id,staff_name,course_name,customers(name)&order=booking_date.asc,booking_time.asc`, { headers });
+    if (!res.ok) throw new Error(`予約の取得に失敗しました（${res.status}）`);
+    const data = await res.json();
+    return (Array.isArray(data) ? data : []).filter(b => {
+      const next = newShiftOf(b.booking_date, b.staff_id);
+      return next !== undefined && !isWithinShift(next, b.booking_time);
+    });
+  };
+  // シフト外になる予約があれば一覧を見せて確認する。保存してよければ true
+  const confirmBookingsOutsideShift = (affected) => {
+    if (affected.length === 0) return true;
+    const lines = affected.slice(0, 20).map(b => `・${b.booking_date} ${b.booking_time} ${b.customers?.name || "予約"}様（担当：${b.staff_name || b.staff_id}）${b.course_name || ""}`);
+    if (affected.length > 20) lines.push(`ほか${affected.length - 20}件`);
+    return window.confirm(`この変更で${affected.length}件の予約がシフト外になります。\n\n${lines.join("\n")}\n\n予約はそのまま残ります（自動でキャンセル・移動はされません）。\nこのまま保存しますか？`);
+  };
+
   const saveShift = async (staffId, date, startTime, endTime, type) => {
     if (isSavingShift) return;
     setIsSavingShift(true);
     try {
       const existing = monthShifts.find(s => s.staff_id === staffId && s.work_date === date);
       const existingClosed = monthShifts.find(s => s.staff_id === "closed" && s.work_date === date);
+      // 短縮・休み・休院でシフト外になる予約があれば、保存前に確認する（undefined はその予約に影響しない変更）
+      if ((type === "休み" && existing) || (type === "休院" && !existingClosed) || type === "出勤") {
+        let affected;
+        try {
+          affected = await findBookingsOutsideNewShifts(date, date, (d, sid) =>
+            type === "休院" ? null
+            : sid !== staffId ? undefined
+            : type === "休み" ? null
+            : { start_time: startTime, end_time: endTime });
+        } catch (e) {
+          // 確認できないまま保存すると気づけないため、保存しない
+          console.error("シフト外になる予約の確認に失敗しました", e);
+          alert("予約の確認に失敗したため、シフトを保存しませんでした。通信状態をご確認のうえ、もう一度お試しください。");
+          return;
+        }
+        if (!confirmBookingsOutsideShift(affected)) return;
+      }
       if (type === "休み") {
         await fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&staff_id=eq.${staffId}&work_date=eq.${date}`, { method: "DELETE", headers });
       } else if (type === "休院") {
@@ -2632,6 +2669,19 @@ const handleAdminQrInput = async (value) => {
       const start = new Date(startDate + "T00:00:00");
       const end = new Date(endDate + "T00:00:00");
       const planData = plan.plan_data || {};
+      // 上書きでシフト外になる予約があれば、適用前に確認する（プランで出勤にしていない曜日は変更しない）
+      let affected;
+      try {
+        affected = await findBookingsOutsideNewShifts(startDate, endDate, (date, sid) => {
+          const dayData = planData[sid]?.[new Date(date + "T00:00:00").getDay()];
+          return dayData?.enabled ? { start_time: dayData.start || "10:00", end_time: dayData.end || "19:30" } : undefined;
+        });
+      } catch (e) {
+        console.error("シフト外になる予約の確認に失敗しました", e);
+        alert("予約の確認に失敗したため、プランを適用しませんでした。通信状態をご確認のうえ、もう一度お試しください。");
+        return;
+      }
+      if (!confirmBookingsOutsideShift(affected)) return;
       const d = new Date(start);
       while (d <= end) {
         const dayOfWeek = d.getDay();
@@ -2797,6 +2847,11 @@ const handleAdminQrInput = async (value) => {
   const isBlocked = (staffId, time) => blocks.some(b => (b.staff_id === staffId || b.staff_id === "all") && (b.block_time === time || b.block_time === time + ":00"));
   const getBlock = (staffId, time) => blocks.find(b => (b.staff_id === staffId || b.staff_id === "all") && (b.block_time === time || b.block_time === time + ":00"));
   const isOnShift = (staffId) => { if (shifts.length === 0) return false; return shifts.some(s => s.staff_id === staffId); };
+  // その時刻がシフトの受付時間内か（start_time〜end_time。end_time は最終受付時刻）。空き枠「＋」・ドロップ先・シフト外の警告に使う。
+  // 拡張枠（9:00・9:30・20:00・20:30 の「追加」）はその日だけ開ける枠なので、出勤しているスタッフなら時間外でも受付時間内とみなす
+  const isExtOpen = (time) => ["09:00","09:30","20:00","20:30"].includes(time) && isSlotExtended(time);
+  const isOnShiftAt = (staffId, time) => shifts.some(s => s.staff_id === staffId && (isWithinShift(s, time) || isExtOpen(time)));
+  const shiftLabel = (list, staffId) => { const sh = list.find(s => s.staff_id === staffId); return sh && (sh.start_time || sh.end_time) ? `${hhmm(sh.start_time)}〜${hhmm(sh.end_time)}` : ""; };
   const staffList = staffMembers.filter(s => s.is_active);
 
   // サブ院用のセル判定
@@ -2804,7 +2859,28 @@ const handleAdminQrInput = async (value) => {
   const isSubBlocked = (staffId, time) => subBlocks.some(b => (b.staff_id === staffId || b.staff_id === "all") && (b.block_time === time || b.block_time === time + ":00"));
   const getSubBlock = (staffId, time) => subBlocks.find(b => (b.staff_id === staffId || b.staff_id === "all") && (b.block_time === time || b.block_time === time + ":00"));
   const isSubOnShift = (staffId) => { if (subShifts.length === 0) return false; return subShifts.some(s => s.staff_id === staffId); };
+  const isSubOnShiftAt = (staffId, time) => subShifts.some(s => s.staff_id === staffId && (isWithinShift(s, time) || isExtOpen(time)));
   const subStaffList = subStaffMembers.filter(s => s.is_active);
+
+  // 予約の所要時間（30分単位の列数）。カレンダーの colSpan と、表示できていない予約の洗い出しで共通
+  const bookingSpan = (booking) => Math.max(1, Math.round((parseInt((booking.course_duration || booking.course_name?.match(/(\d+)分/)?.[1] || "30")) || 30) / 30));
+  // カレンダーの枠に載らない予約（スタッフが非在籍・時刻の列がない・前の予約の枠と重なっている等）。
+  // シフトの有無に関係なく予約は必ず見えるようにするため、枠に出せないものは一覧で別に出す。
+  const unplacedBookings = (list, staffs) => {
+    const shown = new Set();
+    for (const s of staffs) {
+      let skipUntil = -1;
+      timeSlots.forEach((time, idx) => {
+        if (idx < skipUntil) return;
+        const b = list.find(x => x.staff_id === s.id && x.booking_time === time && x.status !== "cancelled");
+        if (b) { shown.add(b.id); skipUntil = idx + bookingSpan(b); }
+      });
+    }
+    return list.filter(b => b.status !== "cancelled" && !shown.has(b.id));
+  };
+  // シフト外の予約を目立たせる枠線（シフト削除・短縮の前に入った予約に気づけるように）
+  const OUTSIDE_SHIFT_STYLE = { outline: "3px solid #d32f2f", outlineOffset: -3 };
+  const OutsideShiftTag = () => <div style={{ background: "#d32f2f", color: "white", borderRadius: 4, padding: "0 4px", fontSize: 9, fontWeight: 700, marginTop: 2 }}>⚠シフト外</div>;
 
   const ShiftPopover = ({ staffId, staffName, date, shift, closed }) => {
     const [startTime, setStartTime] = useState(shift?.start_time?.slice(0,5) || "10:00");
@@ -5128,7 +5204,25 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                     </div>
                   </div>
                 </div>
-                {loading ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div> : (
+                {loading ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div> : (<>
+                  {(() => {
+                    // 枠に載らない予約（非在籍スタッフ担当・時刻の列がない・前の予約と重なる等）も見落とさないよう一覧で出す
+                    const hidden = [
+                      ...unplacedBookings(bookings, staffList).map(b => ({ b, storeName: currentStore.name, main: true })),
+                      ...unplacedBookings(subBookings, subStaffList).map(b => ({ b, storeName: subStoreName, main: false })),
+                    ];
+                    if (hidden.length === 0) return null;
+                    return (
+                      <div style={{ background: "#fdecea", border: "2px solid #d32f2f", borderRadius: 12, padding: "12px 16px", marginBottom: 12 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#d32f2f", marginBottom: 6 }}>⚠ カレンダーの枠に表示できない予約が{hidden.length}件あります（担当スタッフ・時刻をご確認ください）</div>
+                        {hidden.map(({ b, storeName, main }) => (
+                          <div key={b.id} onClick={main ? () => setSelectedBooking(b) : undefined} style={{ fontSize: 12, color: "#3a3a3a", padding: "2px 0", cursor: main ? "pointer" : "default" }}>
+                            {b.booking_time} {b.customers?.name || "予約"}様 / {b.course_name || ""} / 担当：{b.staff_name || b.staff_id || "未設定"}（{storeName}）
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                   <div style={{ background: "white", borderRadius: 16, overflow: "auto", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
                     <table style={{ borderCollapse: "collapse", minWidth: "100%" }}>
                       <thead>
@@ -5151,7 +5245,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                         </tr>
                         {staffList.map(s => (
                           <tr key={s.id} style={{ borderTop: "1px solid #f0ebe4" }}>
-                            <td style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, color: isOnShift(s.id) ? "#3a5a3a" : "#ccc", position: "sticky", left: 0, background: "white", zIndex: 1, minWidth: 100 }}>{s.name}{!isOnShift(s.id) && <div style={{ fontSize: 10, color: "#ccc" }}>休み</div>}</td>
+                            <td style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, color: isOnShift(s.id) ? "#3a5a3a" : "#ccc", position: "sticky", left: 0, background: "white", zIndex: 1, minWidth: 100 }}>{s.name}{!isOnShift(s.id) ? <div style={{ fontSize: 10, color: "#ccc" }}>休み</div> : shiftLabel(shifts, s.id) && <div style={{ fontSize: 10, color: "#aaa", fontWeight: 400 }}>{shiftLabel(shifts, s.id)}</div>}{bookings.some(b => b.staff_id === s.id && b.status !== "cancelled" && !isOnShiftAt(s.id, b.booking_time)) && <div style={{ fontSize: 10, color: "#d32f2f", fontWeight: 700 }}>⚠シフト外の予約あり</div>}</td>
                             {(() => {
                               const cells = [];
                               const skipSlots = new Set();
@@ -5160,14 +5254,13 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                                 const isBreak = BREAK_SLOTS.includes(time);
                                 const booking = getBookingForCell(s.id, time);
                                 const blocked = isBlocked(s.id, time);
-                                const onShift = isOnShift(s.id);
+                                const onShift = isOnShiftAt(s.id, time);
                                 const isExt = ["09:00","09:30","20:00","20:30"].includes(time) && isSlotExtended(time);
 
                                 // 予約の所要時間からcolSpanを計算（横軸＝時間列に展開）
                                 let colSpan = 1;
                                 if (booking && booking.status !== "cancelled") {
-                                  const durationMin = parseInt((booking.course_duration || booking.course_name?.match(/(\d+)分/)?.[1] || "30")) || 30;
-                                  colSpan = Math.max(1, Math.round(durationMin / 30));
+                                  colSpan = bookingSpan(booking);
                                   // colSpanで占有する後続の時間列をスキップ登録
                                   const startIdx = timeSlots.indexOf(time);
                                   for (let i = 1; i < colSpan; i++) {
@@ -5179,9 +5272,11 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                                 const isDragOver = isDroppable && dragOverCell?.staffId === s.id && dragOverCell?.time === time;
                                 const cellBg = isDragOver ? "#d4f0dc" : (BREAK_SLOTS.includes(time) && !isSlotBreakReleased(time)) ? "#fdf5f0" : isExt ? "#f0f8f4" : "white";
                                 cells.push(
-                                  <td key={time} colSpan={colSpan} draggable={!!(booking && booking.status !== "cancelled")} onDragStart={booking && booking.status !== "cancelled" ? (e => { e.dataTransfer.effectAllowed = 'move'; setDraggedBooking(booking); }) : undefined} onDragEnd={booking && booking.status !== "cancelled" ? (() => { setDraggedBooking(null); setDragOverCell(null); }) : undefined} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: cellBg, minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden", cursor: booking && booking.status !== "cancelled" ? "grab" : "default" }} onDragOver={isDroppable ? (e => { e.preventDefault(); setDragOverCell({ staffId: s.id, time }); }) : undefined} onDragLeave={isDroppable ? (() => setDragOverCell(null)) : undefined} onDrop={isDroppable ? (e => { e.preventDefault(); if (draggedBooking && draggedBooking.store_id && draggedBooking.store_id !== currentStore.id) { dropBookingCrossStore(currentStore.id, time); } else { dropBooking(s.id, time); } }) : undefined}>                                    {isBreak && !isSlotBreakReleased(time) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
+                                  <td key={time} colSpan={colSpan} draggable={!!(booking && booking.status !== "cancelled")} onDragStart={booking && booking.status !== "cancelled" ? (e => { e.dataTransfer.effectAllowed = 'move'; setDraggedBooking(booking); }) : undefined} onDragEnd={booking && booking.status !== "cancelled" ? (() => { setDraggedBooking(null); setDragOverCell(null); }) : undefined} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: cellBg, minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden", cursor: booking && booking.status !== "cancelled" ? "grab" : "default" }} onDragOver={isDroppable ? (e => { e.preventDefault(); setDragOverCell({ staffId: s.id, time }); }) : undefined} onDragLeave={isDroppable ? (() => setDragOverCell(null)) : undefined} onDrop={isDroppable ? (e => { e.preventDefault(); if (draggedBooking && draggedBooking.store_id && draggedBooking.store_id !== currentStore.id) { dropBookingCrossStore(currentStore.id, time); } else { dropBooking(s.id, time); } }) : undefined}>                                    {/* 予約はシフト・休憩に関係なく必ず表示する（シフト外は赤枠で警告） */}
+                                    {booking && booking.status !== "cancelled" ? <div onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "grab", lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 1, ...(!onShift ? OUTSIDE_SHIFT_STYLE : {}) }}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div>{!onShift && <OutsideShiftTag />}{renderTicketMarks(booking.customer_id)}</div>
+                                    : isBreak && !isSlotBreakReleased(time) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
                                     : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
-                                    : booking && booking.status !== "cancelled" ? <div onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "grab", lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 1 }}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div>{renderTicketMarks(booking.customer_id)}</div>                                    : blocked ? (() => { const blk = getBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, cursor: "pointer", lineHeight: 1.3 }} onClick={() => { if (window.confirm("ブロックを解除しますか？")) toggleBlock(s.id, time); }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()                                    : <div onClick={() => setBlockModal({ staffId: s.id, time })} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}                                  </td>
+                                    : blocked ? (() => { const blk = getBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, cursor: "pointer", lineHeight: 1.3 }} onClick={() => { if (window.confirm("ブロックを解除しますか？")) toggleBlock(s.id, time); }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()                                    : <div onClick={() => setBlockModal({ staffId: s.id, time })} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}                                  </td>
                                 );
                               });
                               return cells;
@@ -5199,7 +5294,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                         )}
                         {subStaffList.map(s => (
                           <tr key={`sub-${s.id}`} style={{ borderTop: "1px solid #f0ebe4" }}>
-                            <td style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, color: isSubOnShift(s.id) ? "#4a6a8a" : "#ccc", position: "sticky", left: 0, background: "#fafbfd", zIndex: 1, minWidth: 100 }}>{s.name}{!isSubOnShift(s.id) && <div style={{ fontSize: 10, color: "#ccc" }}>休み</div>}</td>
+                            <td style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, color: isSubOnShift(s.id) ? "#4a6a8a" : "#ccc", position: "sticky", left: 0, background: "#fafbfd", zIndex: 1, minWidth: 100 }}>{s.name}{!isSubOnShift(s.id) ? <div style={{ fontSize: 10, color: "#ccc" }}>休み</div> : shiftLabel(subShifts, s.id) && <div style={{ fontSize: 10, color: "#aaa", fontWeight: 400 }}>{shiftLabel(subShifts, s.id)}</div>}{subBookings.some(b => b.staff_id === s.id && b.status !== "cancelled" && !isSubOnShiftAt(s.id, b.booking_time)) && <div style={{ fontSize: 10, color: "#d32f2f", fontWeight: 700 }}>⚠シフト外の予約あり</div>}</td>
                             {(() => {
                               const cells = [];
                               const skipSlots = new Set();
@@ -5208,12 +5303,11 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                                 const isBreak = BREAK_SLOTS.includes(time);
                                 const booking = getSubBookingForCell(s.id, time);
                                 const blocked = isSubBlocked(s.id, time);
-                                const onShift = isSubOnShift(s.id);
+                                const onShift = isSubOnShiftAt(s.id, time);
 
                                 let colSpan = 1;
                                 if (booking) {
-                                  const durationMin = parseInt((booking.course_duration || booking.course_name?.match(/(\d+)分/)?.[1] || "30")) || 30;
-                                  colSpan = Math.max(1, Math.round(durationMin / 30));
+                                  colSpan = bookingSpan(booking);
                                   const startIdx = timeSlots.indexOf(time);
                                   for (let i = 1; i < colSpan; i++) {
                                     if (timeSlots[startIdx + i]) skipSlots.add(timeSlots[startIdx + i]);
@@ -5225,7 +5319,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                                 const isDragOver = isDroppable && dragOverCell?.staffId === s.id && dragOverCell?.time === time;
                                 cells.push(
                                   <td key={time} colSpan={colSpan} draggable={!!booking} onDragStart={booking ? (e => { e.dataTransfer.effectAllowed = 'move'; setDraggedBooking(booking); }) : undefined} onDragEnd={booking ? (() => { setDraggedBooking(null); setDragOverCell(null); }) : undefined} onDragOver={isDroppable ? (e => { e.preventDefault(); setDragOverCell({ staffId: s.id, time }); }) : undefined} onDragLeave={isDroppable ? (() => setDragOverCell(null)) : undefined} onDrop={isDroppable ? (e => { e.preventDefault(); dropBookingCrossStore(subStoreId, time); }) : undefined} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: isDragOver ? "#d4f0dc" : "#fafbfd", minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden", cursor: booking ? "grab" : "default" }}>
-                                    {booking ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 0.85 }} title={`${booking.customers?.name || "予約"} ${booking.course_name || ""} ${booking.booking_time}`}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div>{renderTicketMarks(booking.customer_id)}</div>
+                                    {booking ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 0.85, ...(!onShift ? OUTSIDE_SHIFT_STYLE : {}) }} title={`${booking.customers?.name || "予約"} ${booking.course_name || ""} ${booking.booking_time}`}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div>{!onShift && <OutsideShiftTag />}{renderTicketMarks(booking.customer_id)}</div>
                                     : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
                                     : blocked ? (() => { const blk = getSubBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, lineHeight: 1.3 }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()
                                     : (isBreak && !isSlotBreakReleased(time)) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
@@ -5240,7 +5334,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                       </tbody>
                     </table>
                   </div>
-                )}
+                </>)}
               </div>
             )}
             {!selectedDate && <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#aaa", fontSize: 14 }}>← 日付を選択してください</div>}

@@ -3,8 +3,8 @@ import { requireServiceHeaders, sbFetch, isSafeId, isDate, pickFields } from "..
 
 export const dynamic = "force-dynamic";
 
-// カレンダーの出勤日判定に使うのは「誰が（staff_id。休院日は "closed"）いつ（work_date）出勤か」だけ。
-const SHIFT_FIELDS = ["staff_id", "work_date"];
+// 出勤日・受付時間の判定に使うのは「誰が（staff_id。休院日は "closed"）いつ（work_date）何時から何時まで（start_time〜end_time）」だけ。
+const SHIFT_FIELDS = ["staff_id", "work_date", "start_time", "end_time"];
 
 // カレンダーの出勤日判定の材料：期間内のシフトと、在籍中スタッフのID（指名なし用）。
 export async function GET(request) {
