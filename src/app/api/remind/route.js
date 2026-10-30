@@ -69,12 +69,13 @@ export async function GET(request) {
         booking.staff_name + "\n店舗：" + storeName + "\n\nご来院をお待ちしております。\n整体院 癒楽里";
 
       // プッシュ通知（通知方法に関わらず送信）— HTTP経由ではなく直接呼ぶ
+      // アプリ通知の失敗で、LINE・メールのリマインドまで止まらないようにする
       await sendPushToCustomer({
         customer_id: booking.customer_id,
         title: "整体院 癒楽里",
         body: timeLabel + " " + booking.booking_time + "より「" + booking.course_name + "」のご予約があります。",
         url: "/mypage",
-      });
+      }).catch((e) => console.error("[remind] アプリ通知に失敗（LINE・メールは続行）", booking.id, e.message));
 
       const channel = contactChannel(customer);
       if (channel === "line") {
