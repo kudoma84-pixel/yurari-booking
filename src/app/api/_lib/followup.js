@@ -14,6 +14,8 @@ import { SUPABASE_URL, sbHeaders, sbSelect, q, jstDateString, contactChannel, se
 
 const BOOKING_URL = "https://liff.line.me/2010179815-wwzNljOX";
 const UPCOMING_STATUSES = "(pending,confirmed,received,treatment_done)";
+// 「来院」として数える会計済の記録。管理画面の「物販のみ」（course_name=物販）は施術の来院ではないので除く
+const VISIT = `status=eq.completed&or=(course_name.is.null,course_name.neq.${encodeURIComponent("物販")})`;
 
 const storeLabel = (storeId) => (storeId === "toda" ? "戸田院" : "南浦和院");
 
@@ -70,7 +72,7 @@ export function buildMessage(kind, { name, storeId, visitDate, late = false }) {
 // 会計済の来院記録を取得
 async function completedVisits(filter) {
   return sbSelect(
-    `bookings?status=eq.completed&${filter}` +
+    `bookings?${VISIT}&${filter}` +
       `&select=customer_id,booking_date,store_id,customers(id,name,line_user_id,email,notification_method)`
   );
 }
@@ -99,10 +101,10 @@ export async function findFollowupTargets() {
     if (ys.length) {
       const ids = [...new Set(ys.map((b) => String(b.customer_id)))];
       const before = await idsWithAny(
-        `bookings?status=eq.completed&booking_date=lt.${q(firstDate)}&customer_id=in.${inList(ids)}&select=customer_id`
+        `bookings?${VISIT}&booking_date=lt.${q(firstDate)}&customer_id=in.${inList(ids)}&select=customer_id`
       );
       const after = o > 0
-        ? await idsWithAny(`bookings?status=eq.completed&booking_date=gt.${q(firstDate)}&customer_id=in.${inList(ids)}&select=customer_id`)
+        ? await idsWithAny(`bookings?${VISIT}&booking_date=gt.${q(firstDate)}&customer_id=in.${inList(ids)}&select=customer_id`)
         : new Set();
       for (const b of ys) {
         const id = String(b.customer_id);
@@ -119,7 +121,7 @@ export async function findFollowupTargets() {
       if (!rows.length) continue;
       const ids = [...new Set(rows.map((b) => String(b.customer_id)))];
       const later = await idsWithAny(
-        `bookings?status=eq.completed&booking_date=gt.${q(date)}&customer_id=in.${inList(ids)}&select=customer_id`
+        `bookings?${VISIT}&booking_date=gt.${q(date)}&customer_id=in.${inList(ids)}&select=customer_id`
       );
       const upcoming = await idsWithAny(
         `bookings?status=in.${UPCOMING_STATUSES}&booking_date=gte.${q(today)}&customer_id=in.${inList(ids)}&select=customer_id`
