@@ -124,6 +124,11 @@ const numericInputProps = {
   onWheel: e => e.currentTarget.blur(),
 };
 
+// 顧客番号（customers.customer_number は文字列。先頭0を保つため数値に変換しない）。
+// 未設定は NULL と空文字 '' の2通りがあるため、trim して空なら未設定として扱う。
+const customerNumberOf = (customer) => String(customer?.customer_number || "").trim();
+const customerNumberTitle = (customer) => `顧客番号 ${customerNumberOf(customer) || "未設定"}`;
+
 export default function AdminPage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [currentStore, setCurrentStore] = useState(null);
@@ -191,6 +196,12 @@ export default function AdminPage() {
   const [staffLoadError, setStaffLoadError] = useState(null);
   const [subStaffMembers, setSubStaffMembers] = useState([]);
   const [subBookings, setSubBookings] = useState([]);
+  // 予約の取得失敗（メイン院・サブ院）。失敗しても黙って空にせず、カレンダーに赤い帯を出すために使う
+  const [bookingLoadError, setBookingLoadError] = useState(null);
+  const [subBookingLoadError, setSubBookingLoadError] = useState(null);
+  // いま画面に出している予約一覧が「どの院のどの日」のものか。失敗時に前の一覧を残してよいかの判定に使う
+  const bookingsKeyRef = useRef("");
+  const subBookingsKeyRef = useRef("");
   const [subShifts, setSubShifts] = useState([]);
   const [subBlocks, setSubBlocks] = useState([]);
   const [directBookingStore, setDirectBookingStore] = useState(null);
@@ -390,12 +401,28 @@ const handleAdminQrInput = async (value) => {
     if (!date) return;
     if (!silent) setLoading(true);
     const d = formatDate(date);
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${d}&select=*,customers(name,tel,kana,email,line_user_id)`, { headers });
-    const data = await res.json();
-    const list = Array.isArray(data) ? data : [];
-    setBookings(list);
-    if (!silent) setLoading(false);
-    return list;
+    const key = `${currentStore.id}_${d}`;
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${d}&select=*,customers(name,tel,kana,email,line_user_id,customer_number)`, { headers, cache: "no-store" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !Array.isArray(data)) throw new Error(`bookings ${res.status} ${JSON.stringify(data)?.slice(0, 200)}`);
+      bookingsKeyRef.current = key;
+      setBookings(data);
+      setBookingLoadError(null);
+      return data;
+    } catch (e) {
+      // 以前は失敗すると予約を [] で上書きし、「その日は空いている」ように見えていた。
+      // 同じ院・同じ日の一覧なら前のものを残す。日付や院を切り替えた直後の失敗では、前日の予約を出さないよう空にする。
+      console.error("[管理画面] 予約の取得に失敗しました", key, e);
+      setBookingLoadError(e.message || String(e));
+      // 前の一覧を残すときは null を返す（呼び出し側の金券マークの取り直しは行わず、前の表示のままにする）
+      if (bookingsKeyRef.current === key) return null;
+      bookingsKeyRef.current = key;
+      setBookings([]);
+      return [];
+    } finally {
+      if (!silent) setLoading(false);
+    }
   };
 
   const fetchCompletedBookings = async (dateStr) => {
@@ -2185,18 +2212,54 @@ const handleAdminQrInput = async (value) => {
   const fetchSubAll = async (date) => {
     if (!date || !subStoreId) return;
     const d = formatDate(date);
-    const [staffRes, bookRes, shiftRes, blockRes] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/staff_members?store_id=eq.${subStoreId}&order=sort_order.asc`, { headers }),
-      fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${subStoreId}&booking_date=eq.${d}&select=*,customers(name,tel,kana,email,line_user_id)`, { headers }),
-      fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${subStoreId}&work_date=eq.${d}`, { headers }),
-      fetch(`${SUPABASE_URL}/rest/v1/blocks?store_id=eq.${subStoreId}&block_date=eq.${d}`, { headers }),
+    const key = `${subStoreId}_${d}`;
+    // 1つの通信エラーで全部が止まらないよう、それぞれ失敗を null として受ける
+    const get = (url) => fetch(url, { headers, cache: "no-store" })
+      .then(async res => ({ ok: res.ok, status: res.status, data: await res.json().catch(() => null) }))
+      .catch(e => ({ ok: false, status: 0, data: null, error: e }));
+    const [staffR, bookR, shiftR, blockR] = await Promise.all([
+      get(`${SUPABASE_URL}/rest/v1/staff_members?store_id=eq.${subStoreId}&order=sort_order.asc`),
+      get(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${subStoreId}&booking_date=eq.${d}&select=*,customers(name,tel,kana,email,line_user_id,customer_number)`),
+      get(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${subStoreId}&work_date=eq.${d}`),
+      get(`${SUPABASE_URL}/rest/v1/blocks?store_id=eq.${subStoreId}&block_date=eq.${d}`),
     ]);
-    const [staffData, bookData, shiftData, blockData] = await Promise.all([staffRes.json(), bookRes.json(), shiftRes.json(), blockRes.json()]);
-    setSubStaffMembers(Array.isArray(staffData) ? staffData : []);
-    setSubBookings(Array.isArray(bookData) ? bookData : []);
-    setSubShifts(Array.isArray(shiftData) ? shiftData : []);
-    setSubBlocks(Array.isArray(blockData) ? blockData : []);
-    if (Array.isArray(bookData)) fetchBookingTicketInfo(bookData.map(b => b.customer_id));
+    // スタッフ・シフト・ブロックは従来どおり（通信自体が失敗したときだけ前の値を残す）
+    if (!staffR.error) setSubStaffMembers(Array.isArray(staffR.data) ? staffR.data : []);
+    if (!shiftR.error) setSubShifts(Array.isArray(shiftR.data) ? shiftR.data : []);
+    if (!blockR.error) setSubBlocks(Array.isArray(blockR.data) ? blockR.data : []);
+    // 予約は失敗しても黙って空にしない（メイン院の fetchBookings と同じ扱い）
+    if (bookR.ok && Array.isArray(bookR.data)) {
+      subBookingsKeyRef.current = key;
+      setSubBookings(bookR.data);
+      setSubBookingLoadError(null);
+      fetchBookingTicketInfo(bookR.data.map(b => b.customer_id));
+    } else {
+      const msg = bookR.error ? (bookR.error.message || String(bookR.error)) : `bookings ${bookR.status} ${JSON.stringify(bookR.data)?.slice(0, 200)}`;
+      console.error("[管理画面] サブ院の予約の取得に失敗しました", key, msg);
+      setSubBookingLoadError(msg);
+      if (subBookingsKeyRef.current !== key) {
+        subBookingsKeyRef.current = key;
+        setSubBookings([]);
+      }
+    }
+  };
+
+  // 予約の取得に失敗したときの赤い帯（カレンダー・予約一覧の上に出す）。includeSub=false なら本院分だけ見る
+  const renderBookingLoadError = (includeSub = true) => {
+    const errors = [
+      bookingLoadError && { store: currentStore?.name, msg: bookingLoadError },
+      includeSub && subStoreId && subBookingLoadError && { store: subStoreName, msg: subBookingLoadError },
+    ].filter(Boolean);
+    if (errors.length === 0) return null;
+    return (
+      <div style={{ background: "#fdecea", border: "2px solid #d32f2f", borderRadius: 12, padding: "12px 16px", marginBottom: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#d32f2f" }}>
+          ⚠ {errors.map(e => e.store).join("・")}の予約を読み込めませんでした。表示中の予約が最新でない、または予約が見えていない可能性があります。
+          <button onClick={() => { const d = selectedDate || new Date(); if (includeSub) { fetchAll(d); fetchSubAll(d); } else { fetchBookings(d); } }} style={{ marginLeft: 12, padding: "4px 12px", borderRadius: 8, border: "2px solid #d32f2f", background: "white", color: "#d32f2f", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>再読み込み</button>
+        </div>
+        <div style={{ fontSize: 11, color: "#a33", marginTop: 4 }}>20秒ごとに自動で取り直します。直らない場合は通信状態を確認し、ログアウトしてログインし直してください。（エラー：{errors.map(e => e.msg.slice(0, 120)).join(" / ")}）</div>
+      </div>
+    );
   };
 
   // 予約カード内に出す金券マーク。購入歴・支給歴がまったくない顧客には何も出さない。
@@ -3204,7 +3267,11 @@ const handleAdminQrInput = async (value) => {
                 <div key={i} style={{ display: "flex", borderBottom: "1px solid #f0ebe4", paddingBottom: 8 }}>
                   <div style={{ fontSize: 12, color: "#7a9a7a", fontWeight: 700, width: 80, flexShrink: 0 }}>{row.label}</div>
                   {row.isName && selectedBooking.customer_id ? (
+                    <div>
+                    {/* 顧客番号は氏名の上に小さく出す。未設定（NULL・空文字）でも行は消さず「未設定」を薄く出す */}
+                    <div style={{ fontSize: 11, color: "#888", marginBottom: 2 }}>顧客番号 {customerNumberOf(selectedBooking.customers) || <span style={{ color: "#bbb" }}>未設定</span>}</div>
                     <div onClick={() => { const cid = selectedBooking.customer_id; setSelectedBooking(null); setCustomerTickets([]); fetchCustomerHistory(cid); fetchCustomerTickets(cid); fetch(SUPABASE_URL + "/rest/v1/customers?id=eq." + cid + "&select=*", { headers }).then(r => r.json()).then(d => { if (d && d[0]) { setSelectedCustomer(d[0]); fetchShareGroupMembers(d[0]); } }); }} style={{ fontSize: 13, color: "#5a9e7a", fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>{row.value} →</div>
+                    </div>
                   ) : (
                     <div style={{ fontSize: 13, color: "#3a5a3a" }}>{row.value}</div>
                   )}
@@ -5245,6 +5312,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                   </div>
                 </div>
                 {loading ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div> : (<>
+                  {renderBookingLoadError(true)}
                   {(() => {
                     // 枠に載らない予約（非在籍スタッフ担当・時刻の列がない・前の予約と重なる等）も見落とさないよう一覧で出す
                     const hidden = [
@@ -5323,7 +5391,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                                 const cellBg = isDragOver ? "#d4f0dc" : (BREAK_SLOTS.includes(time) && !isSlotBreakReleased(time)) ? "#fdf5f0" : isExt ? "#f0f8f4" : "white";
                                 cells.push(
                                   <td key={time} colSpan={colSpan} draggable={!!(booking && booking.status !== "cancelled")} onDragStart={booking && booking.status !== "cancelled" ? (e => { e.dataTransfer.effectAllowed = 'move'; setDraggedBooking(booking); }) : undefined} onDragEnd={booking && booking.status !== "cancelled" ? (() => { setDraggedBooking(null); setDragOverCell(null); }) : undefined} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: cellBg, minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden", cursor: booking && booking.status !== "cancelled" ? "grab" : "default" }} onDragOver={isDroppable ? (e => { e.preventDefault(); setDragOverCell({ staffId: s.id, time }); }) : undefined} onDragLeave={isDroppable ? (() => setDragOverCell(null)) : undefined} onDrop={isDroppable ? (e => { e.preventDefault(); if (draggedBooking && draggedBooking.store_id && draggedBooking.store_id !== currentStore.id) { dropBookingCrossStore(currentStore.id, time); } else { dropBooking(s.id, time); } }) : undefined}>                                    {/* 予約はシフト・休憩に関係なく必ず表示する（シフト外は赤枠で警告） */}
-                                    {booking && booking.status !== "cancelled" ? <div onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "grab", lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 1, ...(!onShift ? OUTSIDE_SHIFT_STYLE : {}) }}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div>{!onShift && <OutsideShiftTag />}{renderTicketMarks(booking.customer_id)}</div>
+                                    {booking && booking.status !== "cancelled" ? <div onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "grab", lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 1, ...(!onShift ? OUTSIDE_SHIFT_STYLE : {}) }}><div title={booking.customer_id ? customerNumberTitle(booking.customers) : undefined}>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div>{!onShift && <OutsideShiftTag />}{renderTicketMarks(booking.customer_id)}</div>
                                     : isBreak && !isSlotBreakReleased(time) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
                                     : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
                                     : blocked ? (() => { const blk = getBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, cursor: "pointer", lineHeight: 1.3 }} onClick={() => { if (window.confirm("ブロックを解除しますか？")) toggleBlock(s.id, time); }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()                                    : <div onClick={() => setBlockModal({ staffId: s.id, time })} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}                                  </td>
@@ -5369,7 +5437,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                                 const isDragOver = isDroppable && dragOverCell?.staffId === s.id && dragOverCell?.time === time;
                                 cells.push(
                                   <td key={time} colSpan={colSpan} draggable={!!booking} onDragStart={booking ? (e => { e.dataTransfer.effectAllowed = 'move'; setDraggedBooking(booking); }) : undefined} onDragEnd={booking ? (() => { setDraggedBooking(null); setDragOverCell(null); }) : undefined} onDragOver={isDroppable ? (e => { e.preventDefault(); setDragOverCell({ staffId: s.id, time }); }) : undefined} onDragLeave={isDroppable ? (() => setDragOverCell(null)) : undefined} onDrop={isDroppable ? (e => { e.preventDefault(); dropBookingCrossStore(subStoreId, time); }) : undefined} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: isDragOver ? "#d4f0dc" : "#fafbfd", minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden", cursor: booking ? "grab" : "default" }}>
-                                    {booking ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 0.85, ...(!onShift ? OUTSIDE_SHIFT_STYLE : {}) }} title={`${booking.customers?.name || "予約"} ${booking.course_name || ""} ${booking.booking_time}`}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div>{!onShift && <OutsideShiftTag />}{renderTicketMarks(booking.customer_id)}</div>
+                                    {booking ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 0.85, ...(!onShift ? OUTSIDE_SHIFT_STYLE : {}) }} title={`${booking.customers?.name || "予約"} ${booking.course_name || ""} ${booking.booking_time}`}><div title={booking.customer_id ? customerNumberTitle(booking.customers) : undefined}>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div>{!onShift && <OutsideShiftTag />}{renderTicketMarks(booking.customer_id)}</div>
                                     : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
                                     : blocked ? (() => { const blk = getSubBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, lineHeight: 1.3 }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()
                                     : (isBreak && !isSlotBreakReleased(time)) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
@@ -5513,9 +5581,10 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
             <div style={{ marginBottom: 16 }}>
               <input type="date" value={selectedDate ? formatDate(selectedDate) : formatDate(new Date())} onChange={e => { const d = new Date(e.target.value + "T00:00:00"); setSelectedDate(d); fetchBookings(d); }} style={{ padding: "10px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: "#3a5a3a" }} />
             </div>
+            {renderBookingLoadError(false)}
             {loading ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div> : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {bookings.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#aaa", background: "white", borderRadius: 16 }}>予約がありません</div>}
+                {bookings.length === 0 && !bookingLoadError && <div style={{ textAlign: "center", padding: 40, color: "#aaa", background: "white", borderRadius: 16 }}>予約がありません</div>}
                 {bookings.map(b => (
                   <div key={b.id} style={{ background: "white", borderRadius: 16, padding: "20px 24px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", cursor: "pointer" }} onClick={() => setSelectedBooking(b)}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
