@@ -69,6 +69,51 @@ const salesDateRangeFilter = (startDate, endDate) => {
   return `or=(and(sales_date.gte.${startDate},sales_date.lte.${endDate}),and(sales_date.is.null,created_at.gte.${utcStart},created_at.lte.${utcEnd}))`;
 };
 
+// ── 全件取得 ──────────────────────────────
+// PostgREST は1回の取得を既定で1,000件までに打ち切る。件数が1,000件を超えうる取得はこれを使う。
+// ・url の order には一意な列（id）を必ず含め、select にも id を含めること（分割の境目で重複・欠落させないため）
+// ・Content-Range の総件数と照合し、揃わなければ null を返す。一部だけの配列は返さない
+// ・例外は投げない（失敗も null）。呼び出し側は null のとき一覧を差し替えずにエラーを出すこと
+const fetchAllRows = async (url, headers, label = "fetchAllRows") => {
+  const STEP = 1000;
+  let all = [];
+  let offset = 0;
+  let total = null;
+  try {
+    while (true) {
+      const res = await fetch(url, {
+        headers: {
+          ...headers,
+          "Prefer": "count=exact",
+          "Range-Unit": "items",
+          "Range": `${offset}-${offset + STEP - 1}`,
+        },
+      });
+      if (!res.ok) { console.error(`[${label}] 取得に失敗`, res.status); return null; }
+      const data = await res.json();
+      if (!Array.isArray(data)) { console.error(`[${label}] 応答が配列でない`, data); return null; }
+      // Content-Range: "0-999/1345" の総件数を控えておき、最後に件数が揃ったか確かめる
+      const m = (res.headers.get("Content-Range") || "").match(/\/(\d+)$/);
+      if (m) total = Number(m[1]);
+      all = all.concat(data);
+      if (data.length === 0 || (total !== null ? all.length >= total : data.length < STEP)) break;
+      offset += data.length;
+      if (offset > 50000) { console.error(`[${label}] 件数が多すぎる`); return null; }  // 無限ループ防止
+    }
+  } catch (e) {
+    console.error(`[${label}] 取得に失敗`, e);
+    return null;
+  }
+  // 取得中に行が追加・削除されると境目で1件ずれて重複しうるので、id で重複を除いてから件数を照合する
+  const seen = new Set();
+  all = all.filter(r => (seen.has(r.id) ? false : (seen.add(r.id), true)));
+  if (total !== null && all.length !== total) {
+    console.error(`[${label}] 件数が合わない`, { got: all.length, total });
+    return null;
+  }
+  return all;
+};
+
 // 金券の会計は金額ではなく枚数で指定し、金額は引き落とす金券の face_value（1枚の額面）の合計で求める。
 // face_value が分からない金券（未登録の紙の金券・額面の記録がない古いデータ）だけこの既定額面で数える。
 const GIFT_TICKET_DEFAULT_FACE_VALUE = 1000;
@@ -275,6 +320,9 @@ export default function AdminPage() {
   const [giftDone, setGiftDone] = useState(false);
   const [giftHistory, setGiftHistory] = useState([]);
   const [giftHistoryError, setGiftHistoryError] = useState(false);
+  // 顧客一覧・保有金券数の取得に失敗したとき（一覧は前のまま残し、顧客一覧の先頭に帯を出す）
+  const [customersError, setCustomersError] = useState(false);
+  const [customerTicketsError, setCustomerTicketsError] = useState(false);
   const [expandedGiftCustomer, setExpandedGiftCustomer] = useState(null);
   const [notifyTarget, setNotifyTarget] = useState("all"); // all / individual
   const [notifyCustomerId, setNotifyCustomerId] = useState("");
@@ -703,9 +751,12 @@ const handleAdminQrInput = async (value) => {
   };
 
   const findDuplicates = async () => {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?is_deleted=eq.false&select=id,name,tel,email,line_user_id,customer_number,points`, { headers });
-    const data = await res.json();
-    if (!Array.isArray(data)) return;
+    // 全顧客を分割取得する（1,000人目以降の顧客どうしの重複も見つけるため）
+    const data = await fetchAllRows(`${SUPABASE_URL}/rest/v1/customers?is_deleted=eq.false&select=id,name,tel,email,line_user_id,customer_number,points&order=id.asc`, headers, "findDuplicates");
+    if (data === null) {
+      alert("顧客の読み込みに失敗したため、重複検出を中止しました。ページを再読み込みしてからもう一度お試しください。");
+      return;
+    }
     const groups = {};
     const normalizeName = (name) => name
       .replace(/[\s　]+/g, "")
@@ -885,19 +936,24 @@ const handleAdminQrInput = async (value) => {
       const pyEnd = `${pyMonthStr}-${String(pyLastDay).padStart(2,'0')}`;
 
       // 並列フェッチ（payments は売上計上日 sales_date 基準）
+      // 予約・会計は6ヶ月分で1,000件を超えうるので全件を分割取得する。
+      // 1つでも読み込めなければ、少なく出た数字を見せないよう月報を出さずに止める
       const [bookingsRaw, paymentsRaw, pyPayRaw, pyBookRaw, shiftsRaw] = await Promise.all([
-        fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=gte.${h6Start}&booking_date=lte.${h6End}&select=id,customer_id,staff_id,staff_name,booking_date,status&order=booking_date.asc`, { headers }).then(r => r.json()),
-        fetch(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&${salesDateRangeFilter(h6Start, h6End)}&select=id,booking_id,total,created_at,sales_date`, { headers }).then(r => r.json()),
-        fetch(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&${salesDateRangeFilter(pyStart, pyEnd)}&select=total`, { headers }).then(r => r.json()),
-        fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=gte.${pyStart}&booking_date=lte.${pyEnd}&select=id,status,staff_name`, { headers }).then(r => r.json()),
-        fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&work_date=gte.${curStart}&work_date=lte.${curEnd}&select=staff_id,work_date`, { headers }).then(r => r.json()),
+        fetchAllRows(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=gte.${h6Start}&booking_date=lte.${h6End}&select=id,customer_id,staff_id,staff_name,booking_date,status&order=booking_date.asc,id.asc`, headers, "monthly:bookings"),
+        fetchAllRows(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&${salesDateRangeFilter(h6Start, h6End)}&select=id,booking_id,total,created_at,sales_date&order=id.asc`, headers, "monthly:payments"),
+        fetchAllRows(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&${salesDateRangeFilter(pyStart, pyEnd)}&select=id,total&order=id.asc`, headers, "monthly:pyPayments"),
+        fetchAllRows(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=gte.${pyStart}&booking_date=lte.${pyEnd}&select=id,status,staff_name&order=id.asc`, headers, "monthly:pyBookings"),
+        fetchAllRows(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&work_date=gte.${curStart}&work_date=lte.${curEnd}&select=id,staff_id,work_date&order=id.asc`, headers, "monthly:shifts"),
       ]);
+      if ([bookingsRaw, paymentsRaw, pyPayRaw, pyBookRaw, shiftsRaw].some(r => r === null)) {
+        throw new Error("予約・会計・シフトのいずれかを読み込めませんでした。ページを再読み込みしてください");
+      }
 
-      const allBookings = Array.isArray(bookingsRaw) ? bookingsRaw : [];
-      const allPayments = Array.isArray(paymentsRaw) ? paymentsRaw : [];
-      const pyPayments = Array.isArray(pyPayRaw) ? pyPayRaw : [];
-      const pyBookings = Array.isArray(pyBookRaw) ? pyBookRaw : [];
-      const shiftsData = Array.isArray(shiftsRaw) ? shiftsRaw : [];
+      const allBookings = bookingsRaw;
+      const allPayments = paymentsRaw;
+      const pyPayments = pyPayRaw;
+      const pyBookings = pyBookRaw;
+      const shiftsData = shiftsRaw;
 
       const validBookings = allBookings.filter(b => b.status !== 'cancelled');
 
@@ -911,7 +967,8 @@ const handleAdminQrInput = async (value) => {
       for (let i = 0; i < payIds.length; i += 100) {
         const chunk = payIds.slice(i, i+100);
         const raw = await fetch(`${SUPABASE_URL}/rest/v1/payment_items?payment_id=in.(${chunk.join(',')})&select=payment_id,item_type,item_name,price,quantity`, { headers }).then(r => r.json());
-        if (Array.isArray(raw)) allItems = allItems.concat(raw);
+        if (!Array.isArray(raw)) throw new Error("会計の明細を読み込めませんでした。ページを再読み込みしてください");
+        allItems = allItems.concat(raw);
       }
 
       // 顧客のfirst_visit（100件ごとチャンク）
@@ -920,7 +977,8 @@ const handleAdminQrInput = async (value) => {
       for (let i = 0; i < custIds.length; i += 100) {
         const chunk = custIds.slice(i, i+100);
         const raw = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=in.(${chunk.join(',')})&select=id,first_visit`, { headers }).then(r => r.json());
-        if (Array.isArray(raw)) raw.forEach(c => { custMap[c.id] = c; });
+        if (!Array.isArray(raw)) throw new Error("顧客の初回来店日を読み込めませんでした。ページを再読み込みしてください");
+        raw.forEach(c => { custMap[c.id] = c; });
       }
 
       // 初回来店月マップ（customers.first_visitを優先、なければ6ヶ月データの最古）
@@ -1070,11 +1128,20 @@ const handleAdminQrInput = async (value) => {
     }
   };
 
+  // 顧客は1,000人を超えるので全件を分割取得する（以前は limit=1000 で古い顧客が一覧にも絞り込みにも出なかった）。
+  // 失敗時は一覧を差し替えずに帯を出す（空や一部だけの一覧で「顧客がいない」と誤認させない）。
+  const fetchCustomersList = async (isDeleted) => {
+    return await fetchAllRows(`${SUPABASE_URL}/rest/v1/customers?is_deleted=eq.${isDeleted}&order=created_at.desc,id.desc`, headers, "customers");
+  };
   const fetchCustomers = async () => {
     setLoading(true);
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?is_deleted=eq.false&order=created_at.desc&limit=1000`, { headers });
-    const data = await res.json();
-    setCustomers(Array.isArray(data) ? data : []);
+    const rows = await fetchCustomersList(false);
+    if (rows === null) {
+      setCustomersError(true);
+    } else {
+      setCustomersError(false);
+      setCustomers(rows);
+    }
     setLoading(false);
   };
 
@@ -1471,9 +1538,10 @@ const handleAdminQrInput = async (value) => {
   const fetchAllCustomerTickets = async () => {
     if (!currentStore?.id) return;
     const today = formatDate(new Date());
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?status=eq.active&expires_at=gte.${today}&select=customer_id,ticket_type`, { headers });
-    const data = await res.json();
-    if (!Array.isArray(data)) return;
+    // 有効な金券は増え続けるので全件を分割取得する。失敗時は前の集計を残して帯を出す
+    const data = await fetchAllRows(`${SUPABASE_URL}/rest/v1/gift_tickets?status=eq.active&expires_at=gte.${today}&select=id,customer_id,ticket_type&order=id.asc`, headers, "allCustomerTickets");
+    if (data === null) { setCustomerTicketsError(true); return; }
+    setCustomerTicketsError(false);
     const map = {};
     data.forEach(t => {
       if (!map[t.customer_id]) map[t.customer_id] = { purchase: 0, present: 0 };
@@ -1994,48 +2062,11 @@ const handleAdminQrInput = async (value) => {
   // 呼び出し元に try/catch が無いので、ここからは例外を投げない。
   // 失敗時は一覧を差し替えずにエラー帯を出す（空や一部だけの一覧で「残高が無い」と誤認させない）。
   const fetchGiftHistory = async () => {
-    const STEP = 1000;
     // id を第2キーにして並びを固定し、分割の境目で重複・欠落が起きないようにする
-    const base = `${SUPABASE_URL}/rest/v1/gift_tickets?order=issued_at.desc,id.desc&select=*,customers(name,kana,customer_number)`;
-    let all = [];
-    let offset = 0;
-    let total = null;
-    try {
-      while (true) {
-        const res = await fetch(base, {
-          headers: {
-            ...headers,
-            "Prefer": "count=exact",
-            "Range-Unit": "items",
-            "Range": `${offset}-${offset + STEP - 1}`,
-          },
-        });
-        if (!res.ok) { setGiftHistoryError(true); return; }
-        const data = await res.json();
-        if (!Array.isArray(data)) { setGiftHistoryError(true); return; }
-        // Content-Range: "0-999/1345" の総件数を控えておき、最後に件数が揃ったか確かめる
-        const m = (res.headers.get("Content-Range") || "").match(/\/(\d+)$/);
-        if (m) total = Number(m[1]);
-        all = all.concat(data);
-        if (data.length === 0 || (total !== null ? all.length >= total : data.length < STEP)) break;
-        offset += data.length;
-        if (offset > 50000) { setGiftHistoryError(true); return; }  // 無限ループ防止
-      }
-    } catch (e) {
-      console.error("[gifts] 金券一覧の取得に失敗", e);
-      setGiftHistoryError(true);
-      return;
-    }
-    // 取得中に金券が発行・削除されると境目で1件ずれて重複しうるので、id で重複を除いてから件数を照合する
-    const seen = new Set();
-    all = all.filter(g => (seen.has(g.id) ? false : (seen.add(g.id), true)));
-    if (total !== null && all.length !== total) {
-      console.error("[gifts] 金券一覧の件数が合わない", { got: all.length, total });
-      setGiftHistoryError(true);
-      return;
-    }
+    const rows = await fetchAllRows(`${SUPABASE_URL}/rest/v1/gift_tickets?order=issued_at.desc,id.desc&select=*,customers(name,kana,customer_number)`, headers, "gifts");
+    if (rows === null) { setGiftHistoryError(true); return; }
     setGiftHistoryError(false);
-    setGiftHistory(all);
+    setGiftHistory(rows);
   };
   const fetchNotifications = async () => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/notifications?store_id=eq.${currentStore.id}&order=created_at.desc&limit=50`, { headers });
@@ -2090,8 +2121,14 @@ const handleAdminQrInput = async (value) => {
       // 対象顧客を取得
       let targetCustomers = [];
       if (notifyTarget === "all") {
-        const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?select=id,name,email,notification_method,line_user_id`, { headers });
-        targetCustomers = await res.json();
+        // 全顧客を分割取得する（以前は1,000人目以降に届いていなかった）。
+        // 読み込めないときは一部の人だけに送らないよう、1通も送らずに止める
+        const rows = await fetchAllRows(`${SUPABASE_URL}/rest/v1/customers?select=id,name,email,notification_method,line_user_id&order=id.asc`, headers, "notifyAll");
+        if (rows === null) {
+          alert("顧客の読み込みに失敗したため、送信を中止しました（1通も送っていません）。ページを再読み込みしてからもう一度お試しください。");
+          return;
+        }
+        targetCustomers = rows;
       } else if (notifyTarget === "individual" && notifyCustomerId) {
         const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${notifyCustomerId}&select=id,name,email,notification_method,line_user_id`, { headers });
         targetCustomers = await res.json();
@@ -6018,15 +6055,27 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                   const val = e.target.checked;
                   setShowDeleted(val);
                   setLoading(true);
-                  const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?is_deleted=eq.${val}&order=created_at.desc`, { headers });
-                  const data = await res.json();
-                  setCustomers(Array.isArray(data) ? data : []);
+                  const rows = await fetchCustomersList(val);
+                  if (rows === null) {
+                    // 失敗したら切り替えを戻す（チェックと一覧の中身が食い違わないように）
+                    setShowDeleted(!val);
+                    setCustomersError(true);
+                  } else {
+                    setCustomersError(false);
+                    setCustomers(rows);
+                  }
                   setLoading(false);
                 }} />
                 非表示顧客を表示
               </label>
               <button onClick={findDuplicates} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #e07070", background: "white", color: "#e07070", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>🔍 重複検出</button>
             </div>
+            {(customersError || customerTicketsError) && (
+              <div style={{ background: "#fdecea", border: "1px solid #e57373", color: "#b71c1c", borderRadius: 8, padding: "12px 16px", marginBottom: 16, fontSize: 14, fontWeight: 600, lineHeight: 1.6 }}>
+                {customersError ? "顧客の一覧" : "保有金券の枚数"}を読み込めませんでした。表示されている内容は古い可能性があります。<br />
+                ページを再読み込みしてください。
+              </div>
+            )}
             {showDuplicates && duplicates.length > 0 && (
               <div style={{ background: "white", borderRadius: 16, padding: 20, boxShadow: "0 2px 8px rgba(0,0,0,0.06)", marginBottom: 16 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
