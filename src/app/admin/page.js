@@ -274,6 +274,7 @@ export default function AdminPage() {
   const [giftSaving, setGiftSaving] = useState(false);
   const [giftDone, setGiftDone] = useState(false);
   const [giftHistory, setGiftHistory] = useState([]);
+  const [giftHistoryError, setGiftHistoryError] = useState(false);
   const [expandedGiftCustomer, setExpandedGiftCustomer] = useState(null);
   const [notifyTarget, setNotifyTarget] = useState("all"); // all / individual
   const [notifyCustomerId, setNotifyCustomerId] = useState("");
@@ -1989,10 +1990,52 @@ const handleAdminQrInput = async (value) => {
     fetchLineMessages();
   };
 
+  // 金券は全件を分割取得する（PostgRESTの既定上限1,000件で古い金券が落ちていたため）。
+  // 呼び出し元に try/catch が無いので、ここからは例外を投げない。
+  // 失敗時は一覧を差し替えずにエラー帯を出す（空や一部だけの一覧で「残高が無い」と誤認させない）。
   const fetchGiftHistory = async () => {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?order=issued_at.desc&select=*,customers(name,kana,customer_number)`, { headers });
-    const data = await res.json();
-    setGiftHistory(Array.isArray(data) ? data : []);
+    const STEP = 1000;
+    // id を第2キーにして並びを固定し、分割の境目で重複・欠落が起きないようにする
+    const base = `${SUPABASE_URL}/rest/v1/gift_tickets?order=issued_at.desc,id.desc&select=*,customers(name,kana,customer_number)`;
+    let all = [];
+    let offset = 0;
+    let total = null;
+    try {
+      while (true) {
+        const res = await fetch(base, {
+          headers: {
+            ...headers,
+            "Prefer": "count=exact",
+            "Range-Unit": "items",
+            "Range": `${offset}-${offset + STEP - 1}`,
+          },
+        });
+        if (!res.ok) { setGiftHistoryError(true); return; }
+        const data = await res.json();
+        if (!Array.isArray(data)) { setGiftHistoryError(true); return; }
+        // Content-Range: "0-999/1345" の総件数を控えておき、最後に件数が揃ったか確かめる
+        const m = (res.headers.get("Content-Range") || "").match(/\/(\d+)$/);
+        if (m) total = Number(m[1]);
+        all = all.concat(data);
+        if (data.length === 0 || (total !== null ? all.length >= total : data.length < STEP)) break;
+        offset += data.length;
+        if (offset > 50000) { setGiftHistoryError(true); return; }  // 無限ループ防止
+      }
+    } catch (e) {
+      console.error("[gifts] 金券一覧の取得に失敗", e);
+      setGiftHistoryError(true);
+      return;
+    }
+    // 取得中に金券が発行・削除されると境目で1件ずれて重複しうるので、id で重複を除いてから件数を照合する
+    const seen = new Set();
+    all = all.filter(g => (seen.has(g.id) ? false : (seen.add(g.id), true)));
+    if (total !== null && all.length !== total) {
+      console.error("[gifts] 金券一覧の件数が合わない", { got: all.length, total });
+      setGiftHistoryError(true);
+      return;
+    }
+    setGiftHistoryError(false);
+    setGiftHistory(all);
   };
   const fetchNotifications = async () => {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/notifications?store_id=eq.${currentStore.id}&order=created_at.desc&limit=50`, { headers });
@@ -5693,6 +5736,13 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
         {tab === "gifts" && (
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", marginBottom: 24 }}>🎫 金券管理</h2>
+
+            {giftHistoryError && (
+              <div style={{ background: "#fdecea", border: "1px solid #e57373", color: "#b71c1c", borderRadius: 8, padding: "12px 16px", marginBottom: 20, fontSize: 14, fontWeight: 600, lineHeight: 1.6 }}>
+                金券の一覧を読み込めませんでした。表示されている内容は古い可能性があります。<br />
+                ページを再読み込みしてください。
+              </div>
+            )}
 
             {(() => {
               const today = jstToday();
