@@ -2,6 +2,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import HomeScreenGuide from "../_lib/HomeScreenGuide";
+import { storeTel, deadlineMessage } from "../_lib/store-contacts";
 
 // マイページのデータはすべて /api/mypage/* を経由する（Supabase を直接呼ばない）。
 // 各APIはセッションCookieの顧客IDで本人のデータだけを扱う。
@@ -24,12 +25,7 @@ const LOGO_URL = "https://seitai-yurari.com/wp-content/uploads/2025/11/logo.webp
 
 const DAYS_JP = ["日","月","火","水","木","金","土"];
 
-// 予約の店舗の電話番号（お問い合わせタブの番号と同じ）。店舗名の出し分けは一覧の表示（toda 以外は南浦和）に合わせる。
-const STORE_TEL = {
-  toda: { name: "戸田院", tel: "0482873318", label: "048-287-3318" },
-  minamiurawa: { name: "南浦和院", tel: "0487628333", label: "048-762-8333" },
-};
-const storeTel = (storeId) => storeId === "toda" ? STORE_TEL.toda : STORE_TEL.minamiurawa;
+// 予約の院の電話番号（storeTel）と締切超過の案内文は ../_lib/store-contacts にある（APIと共通）。
 
 // 日本時間の「今日」をYYYY-MM-DDで返す。
 // toISOString() はUTC基準のため 0:00〜8:59 に前日を返してしまう。日付判定は必ずこれを使う。
@@ -462,13 +458,26 @@ function MyPageInner() {
                     <div style={{ fontSize: 13, color: "#888", marginBottom: 2 }}>🏥 {b.store_id === "toda" ? "戸田院" : "南浦和本院"}</div>
                     <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>👤 {b.staff_name}</div>
                     {b.status !== "cancelled" && b.status !== "completed" && b.can_modify === false && (
-                      // 受付締切（施術日の前日の設定時刻）を過ぎた予約は、ボタンを出さず電話を案内する
-                      <div style={{ marginTop: 4, padding: "12px 14px", borderRadius: 12, background: "#f9f6f2", fontSize: 13, color: DARK, lineHeight: 1.7 }}>
-                        変更・キャンセルはお電話にてご連絡ください
-                        <a href={"tel:" + storeTel(b.store_id).tel}
-                          style={{ display: "block", marginTop: 8, padding: "12px", borderRadius: 12, background: GREEN, color: "white", fontSize: 14, fontWeight: 700, textAlign: "center", textDecoration: "none" }}>
-                          📞 {storeTel(b.store_id).name}に電話する（{storeTel(b.store_id).label}）
-                        </a>
+                      // 受付締切（施術日の前日の設定時刻）を過ぎた予約は、ボタンを最初から押せない状態にし、
+                      // 理由と予約の院の電話番号をその場に出す（文言はサーバーが設定値から組み立てたもの）
+                      <div style={{ marginTop: 4 }}>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button type="button" disabled aria-disabled="true"
+                            style={{ flex: 2, padding: "12px", borderRadius: 12, border: "none", background: "#d9d9d9", color: "#888", fontSize: 13, fontWeight: 700, cursor: "not-allowed" }}>
+                            予約を変更する
+                          </button>
+                          <button type="button" disabled aria-disabled="true"
+                            style={{ flex: 1, padding: "12px", borderRadius: 12, border: "2px solid #d9d9d9", background: "white", color: "#bbb", fontSize: 11, fontWeight: 700, cursor: "not-allowed" }}>
+                            キャンセル
+                          </button>
+                        </div>
+                        <div style={{ marginTop: 10, padding: "12px 14px", borderRadius: 12, background: "#f9f6f2", fontSize: 13, color: DARK, lineHeight: 1.7, whiteSpace: "pre-line" }}>
+                          {b.deadline_message || deadlineMessage(b.store_id, null)}
+                          <a href={"tel:" + storeTel(b.store_id).tel}
+                            style={{ display: "block", marginTop: 8, padding: "12px", borderRadius: 12, background: GREEN, color: "white", fontSize: 14, fontWeight: 700, textAlign: "center", textDecoration: "none" }}>
+                            📞 {storeTel(b.store_id).name}に電話する（{storeTel(b.store_id).label}）
+                          </a>
+                        </div>
                       </div>
                     )}
                     {b.status !== "cancelled" && b.status !== "completed" && b.can_modify !== false && (

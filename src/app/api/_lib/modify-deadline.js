@@ -9,10 +9,10 @@
 //
 // 時刻はすべて UTC のエポックミリ秒に直して比較するので、サーバーのタイムゾーン設定に依存しない。
 import { sbFetch } from "./mypage-auth";
+import { deadlineMessage } from "../../_lib/store-contacts";
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
-export const DEADLINE_PASSED_MESSAGE = "受付時間を過ぎているため、変更・キャンセルはお電話にてご連絡ください";
 export const DEADLINE_PASSED_CODE = "deadline_passed";
 
 // 施術日の前日 HH:MM:SS（日本時間）を UTC のエポックミリ秒で返す。解釈できなければ null。
@@ -38,7 +38,7 @@ export function canCustomerModify(booking, settings, now = Date.now()) {
   const deadline = deadlineMs(booking?.booking_date, settings.cancel_deadline_time);
   if (deadline == null) return true; // 設定値を解釈できない場合も制限しない（3 と同じ考え方）
 
-  // ちょうど 19:30:00 を可にするため、秒未満は切り捨てて比較する
+  // ちょうど締切時刻（例 17:30:00）を可にするため、秒未満は切り捨てて比較する
   const nowSec = Math.floor(now / 1000) * 1000;
   if (nowSec <= deadline) return true;
 
@@ -61,5 +61,10 @@ export async function fetchDeadlineSettings(headers, storeIds) {
   return map;
 }
 
+// 締切を過ぎた予約の案内文（院の電話番号・設定の締切時刻入り）。画面とAPIで同じ文言を使う。
+export const deadlinePassedMessage = (storeId, settings) => deadlineMessage(storeId, settings?.cancel_deadline_time);
+
 // API でそのまま返せる拒否レスポンスの中身
-export const deadlinePassedBody = () => ({ error: DEADLINE_PASSED_MESSAGE, code: DEADLINE_PASSED_CODE });
+export const deadlinePassedBody = (storeId, settings) => ({
+  error: deadlinePassedMessage(storeId, settings), code: DEADLINE_PASSED_CODE,
+});

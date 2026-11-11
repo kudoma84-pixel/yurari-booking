@@ -3,10 +3,10 @@ import { requireServiceHeaders, sbFetch, isSafeId, pickFields } from "../../_lib
 
 export const dynamic = "force-dynamic";
 
-// 予約フォーム（/src）が使うのは当日予約の締切時間（分）だけ。
-const SETTINGS_FIELDS = ["same_day_lead_time"];
+// 予約フォーム（/src）が使うのは当日予約の締切時間（分）と、完了画面に出す変更・キャンセルの締切時刻だけ。
+const SETTINGS_FIELDS = ["same_day_lead_time", "cancel_deadline_time"];
 
-// 店舗設定（当日予約の締切時間）。
+// 店舗設定（当日予約の締切時間・変更/キャンセルの締切時刻）。
 export async function GET(request) {
   const s = requireServiceHeaders();
   if (s.error) return s.error;

@@ -30,9 +30,9 @@ const pickBooking = (b) => {
   return out;
 };
 
-const fail = (status, error, log) => {
+const fail = (status, error, log, code) => {
   console.error("[booking-create] 登録拒否", JSON.stringify({ status, error, ...log }));
-  return NextResponse.json({ error }, { status });
+  return NextResponse.json(code ? { error, code } : { error }, { status });
 };
 
 export async function POST(request) {
@@ -165,21 +165,28 @@ export async function POST(request) {
     return fail(500, "予約内容の確認に失敗しました", log);
   }
 
-  // ── 予約変更の受付締切（新しい予約を登録する前に判定し、過ぎていれば何も登録しない） ──
+  // ── 予約変更の事前確認（新しい予約を登録する前に判定し、だめなら何も登録しない） ──
+  // 予約変更は「新しい予約を作って元の予約をキャンセルする」流れのため、
+  // 元の予約をキャンセルできない状態で新しい予約だけが残らないよう、登録前にすべて確認する：
+  //   元の予約が存在する・本人のもの・キャンセル済み/会計済みでない・受付締切を過ぎていない
   // 変更画面を締切前に開いたまま締切後に確定した場合や、直接の呼び出しもここで止める。
   if (change_booking_id) {
     try {
-      const src = await sbFetch(headers, `bookings?id=eq.${encodeURIComponent(change_booking_id)}&select=id,store_id,booking_date,created_at`);
+      const src = await sbFetch(headers, `bookings?id=eq.${encodeURIComponent(change_booking_id)}&select=id,customer_id,store_id,status,booking_date,created_at`);
       const orig = Array.isArray(src) ? src[0] : null;
-      if (orig) {
-        const settings = await fetchDeadlineSettings(headers, [orig.store_id]);
-        if (!canCustomerModify(orig, settings[orig.store_id])) {
-          console.error("[booking-create] 登録拒否", JSON.stringify({ status: 403, reason: "change_deadline_passed", ...log }));
-          return NextResponse.json(deadlinePassedBody(), { status: 403 });
-        }
+      if (!orig || String(orig.customer_id) !== String(c.id)) {
+        return fail(409, "変更元の予約が見つかりませんでした。お手数ですがマイページからやり直してください。", { ...log, reason: "change_source_not_owned", found: !!orig }, "change_source_invalid");
+      }
+      if (orig.status === "cancelled" || orig.status === "completed") {
+        return fail(409, "変更元の予約はすでにキャンセル済み、またはご来院済みのため変更できません。", { ...log, reason: "change_source_closed", source_status: orig.status }, "change_source_invalid");
+      }
+      const settings = await fetchDeadlineSettings(headers, [orig.store_id]);
+      if (!canCustomerModify(orig, settings[orig.store_id])) {
+        console.error("[booking-create] 登録拒否", JSON.stringify({ status: 403, reason: "change_deadline_passed", ...log }));
+        return NextResponse.json(deadlinePassedBody(orig.store_id, settings[orig.store_id]), { status: 403 });
       }
     } catch (e) {
-      console.error("[booking-create] 変更の受付締切の確認に失敗", e.message);
+      console.error("[booking-create] 変更元の予約の確認に失敗", e.message);
       return fail(500, "予約内容の確認に失敗しました", log);
     }
   }
@@ -220,25 +227,34 @@ export async function POST(request) {
   }
 
   // ── 予約変更：元の予約をキャンセル（新しい予約の登録に成功した後でのみ） ──
+  // 本人確認・状態・受付締切は登録前に確認済み。ここで元の予約をキャンセルできなかった場合は、
+  // 新しい予約だけが残らないよう、今回登録した予約を取り消してエラーを返す。
   let changeCancelled = false;
   if (change_booking_id) {
     try {
-      const src = await sbFetch(headers, `bookings?id=eq.${encodeURIComponent(change_booking_id)}&select=id,customer_id,status`);
-      const orig = Array.isArray(src) ? src[0] : null;
-      if (!orig || String(orig.customer_id) !== String(c.id)) {
-        // 他人の予約はキャンセルしない
-        console.error("[booking-create] 変更元の予約が本人のものではないためキャンセルしません", JSON.stringify({ found: !!orig }));
-      } else if (orig.status === "cancelled" || orig.status === "completed") {
-        console.error("[booking-create] 変更元の予約はキャンセル済み・会計済みのため変更しません", orig.status);
-      } else {
-        await sbFetch(headers, `bookings?id=eq.${encodeURIComponent(orig.id)}&customer_id=eq.${encodeURIComponent(c.id)}`, {
+      const updated = await sbFetch(headers,
+        `bookings?id=eq.${encodeURIComponent(change_booking_id)}&customer_id=eq.${encodeURIComponent(c.id)}&status=not.in.(cancelled,completed)`, {
+          method: "PATCH",
+          prefer: "return=representation",
+          body: JSON.stringify({ status: "cancelled", cancelled_at: new Date().toISOString() }),
+        });
+      changeCancelled = Array.isArray(updated) && updated.length > 0;
+      if (!changeCancelled) console.error("[booking-create] 元の予約が更新対象になりませんでした（登録前の確認後に状態が変わった）");
+    } catch (e) {
+      console.error("[booking-create] 元の予約のキャンセルに失敗", e.message);
+    }
+    if (!changeCancelled) {
+      const newIds = [b1.id, booking2Id].filter(Boolean);
+      try {
+        await sbFetch(headers, `bookings?id=in.(${newIds.map(encodeURIComponent).join(",")})`, {
           method: "PATCH",
           body: JSON.stringify({ status: "cancelled", cancelled_at: new Date().toISOString() }),
         });
-        changeCancelled = true;
+      } catch (e) {
+        // ここまで失敗した場合は新旧両方が残る。スタッフが管理画面で直せるようログに予約IDを残す
+        console.error("[booking-create] 要確認：新しい予約の取り消しにも失敗", JSON.stringify({ new_booking_ids: newIds, change_booking_id, error: e.message }));
       }
-    } catch (e) {
-      console.error("[booking-create] 元の予約のキャンセルに失敗", e.message);
+      return NextResponse.json({ error: "予約の変更に失敗しました。お手数ですが、もう一度お試しいただくか、お電話でご連絡ください。", code: "change_failed" }, { status: 500 });
     }
   }
 

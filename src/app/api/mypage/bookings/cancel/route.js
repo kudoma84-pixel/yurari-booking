@@ -37,7 +37,7 @@ export async function POST(request) {
     // 受付締切（施術日の前日の設定時刻）。古い画面のままの端末や直接の呼び出しもここで止める。
     const settings = await fetchDeadlineSettings(headers, [booking.store_id]);
     if (!canCustomerModify(booking, settings[booking.store_id])) {
-      return NextResponse.json(deadlinePassedBody(), { status: 403 });
+      return NextResponse.json(deadlinePassedBody(booking.store_id, settings[booking.store_id]), { status: 403 });
     }
 
     await sbFetch(headers, `bookings?id=eq.${encodeURIComponent(booking.id)}&customer_id=eq.${encodeURIComponent(customer.id)}`, {

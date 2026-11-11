@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { canStaffHandleCourse } from "../_lib/staff-eligibility";
 import { isWithinShift } from "../_lib/shift-hours";
 import HomeScreenGuide from "../_lib/HomeScreenGuide";
+import { storeTel, formatDeadlineTime } from "../_lib/store-contacts";
 
 // 予約フォームのデータはすべて /api/booking-form/* などのサーバーAPIを経由する（Supabase を直接呼ばない）。
 // 本人確認はサーバー側で行う（電話番号の一致／検証済みLINEユーザーID／マイページのセッション）。
@@ -200,6 +201,8 @@ function AppInner() {
   // existingCustomer をどう特定したか（予約登録時にサーバーのログへ渡す）
   const customerMatchRef = useRef(null);
   const [sameDayLeadTime, setSameDayLeadTime] = useState(60);
+  // 変更・キャンセルの締切時刻（store_settings.cancel_deadline_time）。完了画面の案内に使う
+  const [cancelDeadlineTime, setCancelDeadlineTime] = useState(null);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [staffShiftDates, setStaffShiftDates] = useState({});
   // 受付時間（start_time〜end_time）の判定用：期間内のシフトと在籍中スタッフのID（指名なし用）
@@ -384,6 +387,7 @@ function AppInner() {
   const fetchStoreSettings = async (storeId) => {
     const r = await api("booking-form/store-settings?store_id=" + encodeURIComponent(storeId));
     if (r.ok && r.data.settings) setSameDayLeadTime(r.data.settings.same_day_lead_time);
+    if (r.ok) setCancelDeadlineTime(r.data.settings?.cancel_deadline_time ?? null);
   };
 
   // setSlots：1件目の担当は setBookedSlots、連続予約の2件目の担当は setBookedSlots2
@@ -675,8 +679,8 @@ function AppInner() {
       // 予約が保存できていないのに「完了」と表示しないよう、ここで必ず検証する
       if (!createRes.ok || !booking1Id) {
         console.error("予約の登録に失敗:", createRes.status, createData);
-        setError(createData?.code === "deadline_passed"
-          ? createData.error // 変更の受付締切を過ぎている
+        setError((createData?.code === "deadline_passed" || createData?.code === "change_source_invalid" || createData?.code === "change_failed")
+          ? createData.error // 変更の受付締切を過ぎている・変更元の予約が変更できない状態・変更の途中で失敗（新しい予約は取り消し済み）
           : createRes.status === 409
           ? "お客様情報が確認できなかったため、予約を登録できませんでした。お手数ですが最初からやり直してください。"
           : createRes.status === 422 && createData?.error
@@ -917,7 +921,7 @@ function AppInner() {
             <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>お客様情報をご入力ください</div>
             <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>初回のみ入力が必要です。次回からは自動入力されます。</div>
           </div>
-          {error && <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#cc4444" }}>{error}</div>}
+          {error && <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#cc4444", whiteSpace: "pre-line" }}>{error}</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>お名前 <span style={{ color: ORANGE }}>*</span></label>
@@ -1045,7 +1049,16 @@ function AppInner() {
             ))}
           </div>
           <div style={{ fontSize: 12, color: "#aaa", marginBottom: 24, lineHeight: 1.8 }}>
-            当日は予約時間の5分前にお越しください。<br/>キャンセル・変更は前日17時まで承ります。
+            当日は予約時間の5分前にお越しください。<br/>
+            {formatDeadlineTime(cancelDeadlineTime) ? (
+              <>
+                マイページからの変更・キャンセルは前日{formatDeadlineTime(cancelDeadlineTime)}まで承ります。<br/>
+                当日の変更・キャンセルは、お電話でご連絡ください。<br/>
+                {storeTel(store?.id).name} <a href={"tel:" + storeTel(store?.id).tel} style={{ color: GREEN }}>{storeTel(store?.id).label}</a>
+              </>
+            ) : (
+              <>変更・キャンセルはマイページから承ります。</>
+            )}
           </div>
           <a href="/mypage" style={{ display: "block", width: "100%", padding: "14px", borderRadius: 14, background: GREEN, color: "white", fontSize: 15, fontWeight: 700, textDecoration: "none", textAlign: "center", marginBottom: 12, boxSizing: "border-box" }}>マイページで予約を確認する</a>
           <button onClick={resetForNextBooking} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "2px solid " + GREEN, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer", marginBottom: 20 }}>別の予約をする</button>
@@ -1390,7 +1403,7 @@ function AppInner() {
             <div style={{ fontSize: 12, color: "#aaa", marginBottom: 20, lineHeight: 1.7, padding: "12px 16px", background: "white", borderRadius: 12 }}>
               キャンセル・変更は前日17時まで承ります。
             </div>
-            {error && <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#cc4444" }}>{error}</div>}
+            {error && <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#cc4444", whiteSpace: "pre-line" }}>{error}</div>}
             <button onClick={handleSubmit} disabled={loading} style={{ width: "100%", padding: "18px", borderRadius: 14, border: "none", cursor: loading ? "not-allowed" : "pointer", background: loading ? "#aaa" : GREEN, color: "white", fontSize: 16, fontWeight: 700 }}>
               {loading ? "送信中..." : changeBookingId ? "✓ この内容で予約を変更する" : "✓ この内容で予約を確定する"}
             </button>

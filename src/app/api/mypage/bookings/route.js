@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireMypageSession, sbFetch } from "../../_lib/mypage-auth";
-import { canCustomerModify, fetchDeadlineSettings } from "../../_lib/modify-deadline";
+import { canCustomerModify, fetchDeadlineSettings, deadlinePassedMessage } from "../../_lib/modify-deadline";
 
 export const dynamic = "force-dynamic";
 
@@ -24,10 +24,15 @@ export async function GET(request) {
       console.error("[mypage-bookings] 受付締切の設定取得に失敗しました:", e.message);
     }
     const now = Date.now();
-    const bookings = list.map(({ created_at, ...b }) => ({
-      ...b,
-      can_modify: settings ? canCustomerModify({ ...b, created_at }, settings[b.store_id], now) : true,
-    }));
+    // deadline_message：締切を過ぎた予約に画面で出す案内文（API の拒否レスポンスと同じ文言）
+    const bookings = list.map(({ created_at, ...b }) => {
+      const canModify = settings ? canCustomerModify({ ...b, created_at }, settings[b.store_id], now) : true;
+      return {
+        ...b,
+        can_modify: canModify,
+        deadline_message: canModify ? null : deadlinePassedMessage(b.store_id, settings[b.store_id]),
+      };
+    });
     return NextResponse.json({ bookings }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     console.error("[mypage-bookings]", e.message);

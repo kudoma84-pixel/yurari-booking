@@ -32,7 +32,7 @@ export async function GET(request) {
     // 受付締切を過ぎた予約は、変更画面に入る時点で断る（登録時は booking-create でも判定する）
     const settings = await fetchDeadlineSettings(s.headers, [booking.store_id]);
     if (!canCustomerModify(booking, settings[booking.store_id])) {
-      return NextResponse.json(deadlinePassedBody(), { status: 403 });
+      return NextResponse.json(deadlinePassedBody(booking.store_id, settings[booking.store_id]), { status: 403 });
     }
     return NextResponse.json({ booking: { id: booking.id, status: booking.status }, customer: pickFormCustomer(owner) }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
