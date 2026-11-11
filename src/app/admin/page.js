@@ -219,6 +219,15 @@ export default function AdminPage() {
   const [extensions, setExtensions] = useState([]);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+  // 窓口での新規顧客登録（スマホで登録できないお客様の代わりにスタッフが登録する）
+  const [newCustomerForm, setNewCustomerForm] = useState(null); // null のときはフォームを閉じている
+  const [newCustomerError, setNewCustomerError] = useState("");
+  const [newCustomerDupes, setNewCustomerDupes] = useState(null); // 同じ電話番号の既存顧客（確認待ち）
+  const [isSavingNewCustomer, setIsSavingNewCustomer] = useState(false);
+  // 登録直後の顧客（来院歴・備考を次の予約のメモへ引き継ぐ）
+  const [justRegisteredCustomer, setJustRegisteredCustomer] = useState(null); // { id, note }
+  // 続けて予約を入れる顧客。カレンダーで枠を選ぶと直接予約入力にこの顧客が入る
+  const [bookingForCustomer, setBookingForCustomer] = useState(null); // { id, name, kana, tel, note }
   const [customerHistory, setCustomerHistory] = useState([]);
   const [shiftMonth, setShiftMonth] = useState(new Date());
   const [monthShifts, setMonthShifts] = useState([]);
@@ -1761,6 +1770,129 @@ const handleAdminQrInput = async (value) => {
     }
   };
 
+  // ===== 窓口での新規顧客登録 =====
+  // 項目はお客様用フォーム（src/app/src/page.js の profile）と同じ。
+  // 必須は 氏名・フリガナ・電話番号 のみ（ご年配の方はメールや住所が分からないことがあるため）。
+  // 顧客番号は入れない（受付時に assign_customer_number で採番される）。
+  const openNewCustomerForm = () => {
+    setNewCustomerForm({ name: "", kana: "", zipcode: "", address: "", tel: "", birthYear: "", birthMonth: "", birthDay: "", email: "", firstVisit: "初めて", notes: "" });
+    setNewCustomerError("");
+    setNewCustomerDupes(null);
+  };
+
+  const closeNewCustomerForm = () => {
+    if (isSavingNewCustomer) return;
+    setNewCustomerForm(null);
+    setNewCustomerError("");
+    setNewCustomerDupes(null);
+  };
+
+  const telDigits = (s) => String(s ?? "").replace(/[^0-9]/g, "");
+
+  // 郵便番号から住所を入れる（お客様用フォームと同じ zipcloud）
+  const lookupNewCustomerZip = async (zip) => {
+    try {
+      const res = await fetch("https://zipcloud.ibsnet.co.jp/api/search?zipcode=" + zip);
+      const data = await res.json();
+      if (data.results) {
+        const r = data.results[0];
+        // 問い合わせ中に郵便番号が書き換えられていたら反映しない
+        setNewCustomerForm(p => (p && p.zipcode === zip) ? { ...p, address: r.address1 + r.address2 + r.address3 } : p);
+      }
+    } catch (e) {
+      console.error("[新規顧客登録] 郵便番号から住所を取得できませんでした", e);
+    }
+  };
+
+  // skipDupCheck: 同じ電話番号の顧客がいる警告を見たうえで「このまま登録する」を押したとき
+  const submitNewCustomer = async (skipDupCheck = false) => {
+    if (isSavingNewCustomer || !newCustomerForm) return;
+    const f = newCustomerForm;
+    const name = f.name.trim();
+    const kana = f.kana.trim();
+    const tel = f.tel.trim();
+    const email = f.email.trim();
+    const zipcode = f.zipcode.trim();
+    const address = f.address.trim();
+    if (!name || !kana || !tel) { setNewCustomerError("氏名・フリガナ・電話番号を入力してください"); return; }
+    if (telDigits(tel).length === 0) { setNewCustomerError("電話番号を入力してください"); return; }
+    if (zipcode && !/^\d{7}$/.test(zipcode)) { setNewCustomerError("郵便番号はハイフンなしの7桁で入力してください"); return; }
+    const birthParts = [f.birthYear, f.birthMonth, f.birthDay];
+    if (birthParts.some(Boolean) && !birthParts.every(Boolean)) {
+      setNewCustomerError("生年月日は年・月・日をすべて選んでください（分からない場合はすべて空欄にしてください）");
+      return;
+    }
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setNewCustomerError("メールアドレスの形式が正しくありません"); return; }
+    const birthday = birthParts.every(Boolean)
+      ? `${f.birthYear}-${String(f.birthMonth).padStart(2, "0")}-${String(f.birthDay).padStart(2, "0")}`
+      : null;
+
+    setNewCustomerError("");
+    setIsSavingNewCustomer(true);
+    try {
+      // 登録前に、同じ電話番号の既存顧客を探す（ハイフンの有無などの書き方の違いも同じ番号として扱う）
+      if (!skipDupCheck) {
+        const d = telDigits(tel);
+        const pattern = d.split("").join("*"); // 数字の間に区切り文字があっても一致させる
+        const dupRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?or=(tel.ilike.${pattern},tel2.ilike.${pattern})&select=id,customer_number,name,tel,tel2,is_deleted&limit=20`, { headers });
+        const dupRows = await dupRes.json().catch(() => null);
+        if (!dupRes.ok || !Array.isArray(dupRows)) {
+          console.error("[新規顧客登録] 重複確認に失敗", dupRes.status, dupRows);
+          setNewCustomerError("同じ電話番号の顧客がいるか確認できませんでした。入力内容はそのまま残っています。通信状態を確認して、もう一度「登録する」を押してください。");
+          return;
+        }
+        const hits = dupRows.filter(c => telDigits(c.tel) === d || telDigits(c.tel2) === d);
+        if (hits.length > 0) {
+          setNewCustomerDupes(hits);
+          return;
+        }
+      }
+
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/customers`, {
+        method: "POST", headers: { ...headers, Prefer: "return=representation" },
+        body: JSON.stringify({
+          name, kana, tel, email, zipcode, address, birthday,
+          // LINE未連携の方を 'line' にすると、リマインドが届かないまま「送信済み」になってしまう。
+          // LINE連携はお客様ご自身が後から行い、そのときに 'line' へ切り替わる。
+          notification_method: email ? "email" : "none",
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !Array.isArray(data) || !data[0]?.id) {
+        console.error("[新規顧客登録] 登録に失敗", res.status, data);
+        setNewCustomerError("登録できませんでした。入力内容はそのまま残っています。通信状態を確認して、もう一度「登録する」を押してください。"
+          + (data?.message ? `（${data.message}）` : ""));
+        return;
+      }
+      const created = data[0];
+      const note = `【${f.firstVisit}】` + (f.notes.trim() ? " " + f.notes.trim() : "");
+      setNewCustomerForm(null);
+      setNewCustomerDupes(null);
+      setJustRegisteredCustomer({ id: created.id, note });
+      // 登録したお客様の詳細を開く（ここから続けて予約を入れられる）
+      setCustomerTickets([]);
+      setSelectedCustomer(created);
+      fetchCustomerDetail(created.id);
+      fetchCustomerHistory(created.id);
+      fetchCustomerTickets(created.id);
+      fetchCustomers();
+    } catch (e) {
+      console.error("[新規顧客登録] 通信エラー", e);
+      setNewCustomerError("登録できませんでした。入力内容はそのまま残っています。通信状態を確認して、もう一度「登録する」を押してください。");
+    } finally {
+      setIsSavingNewCustomer(false);
+    }
+  };
+
+  // 顧客詳細から「この方の予約を入れる」：カレンダーへ移り、空き枠を選ぶと直接予約入力にこの方が入る
+  const startBookingForCustomer = (c) => {
+    const note = justRegisteredCustomer?.id === c.id ? justRegisteredCustomer.note : "";
+    setBookingForCustomer({ id: c.id, name: c.name || "", kana: c.kana || "", tel: c.tel || "", note });
+    setSelectedCustomer(null);
+    setEditingCustomer(null);
+    setTab("calendar");
+  };
+
   const saveDirectBooking = async () => {
     if (isSavingDirectBooking) return;
     const f = directBookingForm;
@@ -1780,7 +1912,8 @@ const handleAdminQrInput = async (value) => {
     if (!customerId && f.customer_name) {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/customers`, {
         method: "POST", headers: { ...headers, Prefer: "return=representation" },
-        body: JSON.stringify({ name: f.customer_name, kana: f.customer_kana || "", tel: f.tel || "", email: f.email || "", ...(f.email ? { notification_method: "email" } : {}) }),
+        // メールが無い方は 'none'（'line' のままだとLINE未連携でリマインドが届かないまま「送信済み」になる）
+        body: JSON.stringify({ name: f.customer_name, kana: f.customer_kana || "", tel: f.tel || "", email: f.email || "", notification_method: f.email ? "email" : "none" }),
       });
       const data = await res.json();
       if (!Array.isArray(data) || !data[0]?.id) {
@@ -1920,6 +2053,8 @@ const handleAdminQrInput = async (value) => {
       }
     }
     setIsSavingDirectBooking(false);
+    // 「この方の予約を入れる」から来た予約が入ったら、次の枠選択では引き継がない
+    if (bookingForCustomer && customerId === bookingForCustomer.id) setBookingForCustomer(null);
     setDirectBookingModal(null);
     setDirectBookingForm({});
     setDirectBookingMode("normal");
@@ -2364,6 +2499,21 @@ const handleAdminQrInput = async (value) => {
 
   useEffect(() => {
     if (loggedIn && tab === "customers") { fetchCustomers(); fetchAllCustomerTickets(); }
+  }, [loggedIn, tab]);
+
+  // 「この方の予約を入れる」中にカレンダーの枠を開いたら、直接予約入力にその顧客を入れておく
+  // （枠を開く処理はフォームと検索結果を空にするので、その後に上書きする）
+  useEffect(() => {
+    if (!directBookingModal || !bookingForCustomer) return;
+    const c = bookingForCustomer;
+    setDirectBookingForm(f => ({ ...f, customer_id: c.id, customer_name: c.name, customer_kana: c.kana, tel: c.tel, notes: f.notes || c.note || "" }));
+    setCustomerSearchQuery(c.name);
+    setCustomerSearchResults([c]);
+    setCustomerSearchResult(c);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [directBookingModal]);
+
+  useEffect(() => {
     if (loggedIn && tab === "shifts") { fetchMonthShifts(); fetchShiftPlans(); fetchStaffMembers(); }
     if (loggedIn && tab === "checkout") { fetchTodayBookings(); fetchCompletedBookings(); fetchProducts(); fetchCourseMenus(); fetchSubMenus(); fetchGiftTicketTemplates(); }
     if (loggedIn && tab === "settings") { fetchStaffMembers(); fetchCourseMenus(); fetchProducts(); fetchSubMenus(); fetchStoreSettings(); fetchGiftTicketTemplates(); }
@@ -3548,6 +3698,134 @@ const handleAdminQrInput = async (value) => {
       </div>
     )}
 
+    {newCustomerForm && (() => {
+      const f = newCustomerForm;
+      const set = (patch) => setNewCustomerForm(p => ({ ...p, ...patch }));
+      const labelStyle = { fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 4 };
+      const inputStyle = { width: "100%", padding: "10px 14px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" };
+      const req = <span style={{ color: "#e07070" }}>*</span>;
+      const opt = <span style={{ fontSize: 11, fontWeight: 400, color: "#aaa" }}>（任意）</span>;
+      const thisYear = new Date().getFullYear();
+      const years = Array.from({ length: thisYear - 1920 + 1 }, (_, i) => String(thisYear - i));
+      const daysInMonth = (f.birthYear && f.birthMonth) ? new Date(Number(f.birthYear), Number(f.birthMonth), 0).getDate() : 31;
+      // 年・月を変えて日が存在しなくなったら（2月30日など）日を空に戻す
+      const setBirth = (patch) => {
+        const n = { ...f, ...patch };
+        const max = (n.birthYear && n.birthMonth) ? new Date(Number(n.birthYear), Number(n.birthMonth), 0).getDate() : 31;
+        if (n.birthDay && Number(n.birthDay) > max) patch.birthDay = "";
+        set(patch);
+      };
+      return (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>{/* 背景クリックでは閉じない（入力途中の内容が消えないように） */}
+          <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 560, maxHeight: "90vh", overflow: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a" }}>＋ 新規顧客を登録</div>
+              <button onClick={closeNewCustomerForm} style={{ border: "none", background: "none", fontSize: 24, cursor: "pointer", color: "#aaa" }}>×</button>
+            </div>
+            <div style={{ fontSize: 12, color: "#888", marginBottom: 20 }}>{req} は必須です。顧客番号は受付時に自動で付きます。</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={labelStyle}>氏名 {req}</label>
+                <input type="text" value={f.name} onChange={e => set({ name: e.target.value })} placeholder="山田 花子" style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>フリガナ {req}</label>
+                <input type="text" value={f.kana} onChange={e => set({ kana: e.target.value })} placeholder="ヤマダ ハナコ" style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>郵便番号 {opt}</label>
+                <input type="text" inputMode="numeric" value={f.zipcode} maxLength={7} placeholder="1234567（ハイフンなし）"
+                  onChange={e => {
+                    const zip = e.target.value.replace(/[^0-9]/g, "").slice(0, 7);
+                    set({ zipcode: zip });
+                    if (zip.length === 7) lookupNewCustomerZip(zip);
+                  }}
+                  style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>住所 {opt}</label>
+                <input type="text" value={f.address} onChange={e => set({ address: e.target.value })} placeholder="郵便番号から自動入力されます（番地・部屋番号を追加してください）" style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>電話番号 {req}</label>
+                <input type="tel" inputMode="tel" value={f.tel} onChange={e => { set({ tel: e.target.value.replace(/[^0-9-]/g, "") }); setNewCustomerDupes(null); }} placeholder="090-1234-5678" style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>生年月日 {opt}</label>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <select value={f.birthYear} onChange={e => setBirth({ birthYear: e.target.value })} style={{ ...inputStyle, flex: 2, padding: "10px 8px" }}>
+                    <option value="">----</option>
+                    {years.map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                  <span style={{ fontSize: 12, color: "#aaa", flexShrink: 0 }}>年</span>
+                  <select value={f.birthMonth} onChange={e => setBirth({ birthMonth: e.target.value })} style={{ ...inputStyle, flex: 1, padding: "10px 8px" }}>
+                    <option value="">--</option>
+                    {Array.from({ length: 12 }, (_, i) => String(i + 1)).map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                  <span style={{ fontSize: 12, color: "#aaa", flexShrink: 0 }}>月</span>
+                  <select value={f.birthDay} onChange={e => setBirth({ birthDay: e.target.value })} style={{ ...inputStyle, flex: 1, padding: "10px 8px" }}>
+                    <option value="">--</option>
+                    {Array.from({ length: daysInMonth }, (_, i) => String(i + 1)).map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                  <span style={{ fontSize: 12, color: "#aaa", flexShrink: 0 }}>日</span>
+                </div>
+              </div>
+              <div>
+                <label style={labelStyle}>メールアドレス {opt}</label>
+                <input type="email" value={f.email} onChange={e => set({ email: e.target.value })} placeholder="example@email.com" style={inputStyle} />
+                <div style={{ fontSize: 11, color: "#aaa", marginTop: 4 }}>
+                  {f.email.trim() ? "通知方法は「メール」で登録されます" : "メールが無い場合、通知方法は「なし」で登録されます（LINE連携はお客様ご自身で後から行えます）"}
+                </div>
+              </div>
+              <div>
+                <label style={labelStyle}>ご来院歴</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {["初めて", "2回目以降"].map(v => (
+                    <button key={v} type="button" onClick={() => set({ firstVisit: v })}
+                      style={{ flex: 1, padding: "10px", borderRadius: 10, border: `2px solid ${f.firstVisit === v ? "#5a9e7a" : "#e8ddd0"}`, background: f.firstVisit === v ? "#eaf5ec" : "white", color: f.firstVisit === v ? "#3a5a3a" : "#aaa", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>{v}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={labelStyle}>備考 {opt}</label>
+                <textarea value={f.notes} onChange={e => set({ notes: e.target.value })} rows={3} placeholder="お悩み・ご要望など" style={{ ...inputStyle, resize: "none", fontFamily: "inherit" }} />
+                <div style={{ fontSize: 11, color: "#aaa", marginTop: 4 }}>ご来院歴と備考は、続けて入れる予約のメモに入ります</div>
+              </div>
+            </div>
+
+            {newCustomerError && (
+              <div style={{ marginTop: 16, background: "#fdecea", border: "1px solid #e57373", color: "#b71c1c", borderRadius: 10, padding: "12px 16px", fontSize: 13, fontWeight: 600, lineHeight: 1.6 }}>{newCustomerError}</div>
+            )}
+
+            {newCustomerDupes ? (
+              <div style={{ marginTop: 16, background: "#fff8e6", border: "2px solid #e0a040", borderRadius: 12, padding: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#a06010", marginBottom: 8 }}>⚠️ 同じ電話番号の顧客が登録されています：</div>
+                {newCustomerDupes.map(c => (
+                  <div key={c.id} style={{ fontSize: 14, color: "#3a5a3a", padding: "4px 0 4px 12px" }}>
+                    {c.customer_number || "（番号未採番）"} {c.name} 様{c.is_deleted ? "（非表示）" : ""}
+                  </div>
+                ))}
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", margin: "10px 0 12px" }}>このまま登録しますか？</div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button onClick={() => setNewCustomerDupes(null)} disabled={isSavingNewCustomer} style={{ flex: 1, padding: "12px", borderRadius: 12, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>戻って確認する</button>
+                  <button onClick={() => submitNewCustomer(true)} disabled={isSavingNewCustomer} style={{ flex: 1, padding: "12px", borderRadius: 12, border: "none", background: "#e0a040", color: "white", fontSize: 14, fontWeight: 700, cursor: isSavingNewCustomer ? "default" : "pointer", opacity: isSavingNewCustomer ? 0.6 : 1 }}>
+                    {isSavingNewCustomer ? "登録中..." : "このまま登録する"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
+                <button onClick={closeNewCustomerForm} disabled={isSavingNewCustomer} style={{ flex: 1, padding: "14px", borderRadius: 12, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>キャンセル</button>
+                <button onClick={() => submitNewCustomer(false)} disabled={isSavingNewCustomer} style={{ flex: 2, padding: "14px", borderRadius: 12, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 14, fontWeight: 700, cursor: isSavingNewCustomer ? "default" : "pointer", opacity: isSavingNewCustomer ? 0.6 : 1 }}>
+                  {isSavingNewCustomer ? "登録中..." : "登録する"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    })()}
+
     {selectedCustomer && (
   <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => { setSelectedCustomer(null); setEditingCustomer(null); }}>
     <div style={{ background: "white", borderRadius: 20, padding: 32, width: "100%", maxWidth: 560, maxHeight: "90vh", overflow: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
@@ -3687,6 +3965,17 @@ const handleAdminQrInput = async (value) => {
           </div>
         </div>
       ) : (
+        <>
+        {justRegisteredCustomer?.id === selectedCustomer.id && (
+          <div style={{ background: "#eaf5ec", border: "1px solid #5a9e7a", borderRadius: 12, padding: "12px 16px", marginBottom: 12, fontSize: 13, color: "#3a5a3a", lineHeight: 1.6 }}>
+            ✓ 登録しました。顧客番号は受付時に自動で付きます。
+          </div>
+        )}
+        {!selectedCustomer.is_deleted && (
+          <button onClick={() => startBookingForCustomer(selectedCustomer)} style={{ width: "100%", padding: "12px", marginBottom: 12, borderRadius: 12, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+            📅 この方の予約を入れる
+          </button>
+        )}
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24, background: "#f9f6f2", borderRadius: 12, padding: 16 }}>
           {[
             { label: "顧客番号", value: selectedCustomer.customer_number },
@@ -3698,7 +3987,7 @@ const handleAdminQrInput = async (value) => {
             { label: "電話番号1", value: selectedCustomer.tel },
             { label: "電話番号2", value: selectedCustomer.tel2 },
             { label: "メール", value: selectedCustomer.email },
-            { label: "通知方法", value: selectedCustomer.notification_method },
+            { label: "通知方法", value: selectedCustomer.notification_method === "none" ? "none（通知なし）" : selectedCustomer.notification_method },
             { label: "LINE", value: selectedCustomer.line_user_id ? "✓ 連携済" : "未連携" },
             { label: "ポイント", value: (selectedCustomer.points || 0) + "P" },
           ].map((row, i) => (
@@ -3708,6 +3997,7 @@ const handleAdminQrInput = async (value) => {
             </div>
           ))}
         </div>
+        </>
       )}
 
       {/* 保有金券 */}
@@ -5322,6 +5612,14 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
 
         {tab === "calendar" && (
           <div>
+            {bookingForCustomer && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: "#eaf5ec", border: "2px solid #5a9e7a", borderRadius: 12, padding: "12px 16px", marginBottom: 12 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a" }}>
+                  📅 {bookingForCustomer.name} 様の予約を入れます。空いている枠を選んでください。
+                </div>
+                <button onClick={() => setBookingForCustomer(null)} style={{ padding: "6px 14px", borderRadius: 8, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>やめる</button>
+              </div>
+            )}
             <div
               onDragOver={draggedBooking && !draggedBooking.isStaged ? (e => { e.preventDefault(); setDragOverStaging(true); }) : undefined}
               onDragLeave={draggedBooking && !draggedBooking.isStaged ? (() => setDragOverStaging(false)) : undefined}
@@ -6069,6 +6367,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                 非表示顧客を表示
               </label>
               <button onClick={findDuplicates} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #e07070", background: "white", color: "#e07070", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>🔍 重複検出</button>
+              <button onClick={openNewCustomerForm} style={{ padding: "8px 16px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>＋ 新規顧客を登録</button>
             </div>
             {(customersError || customerTicketsError) && (
               <div style={{ background: "#fdecea", border: "1px solid #e57373", color: "#b71c1c", borderRadius: 8, padding: "12px 16px", marginBottom: 16, fontSize: 14, fontWeight: 600, lineHeight: 1.6 }}>
