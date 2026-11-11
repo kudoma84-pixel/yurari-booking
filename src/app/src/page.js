@@ -201,7 +201,7 @@ function AppInner() {
   // existingCustomer をどう特定したか（予約登録時にサーバーのログへ渡す）
   const customerMatchRef = useRef(null);
   const [sameDayLeadTime, setSameDayLeadTime] = useState(60);
-  // 変更・キャンセルの締切時刻（store_settings.cancel_deadline_time）。完了画面の案内に使う
+  // 変更・キャンセルの締切時刻（store_settings.cancel_deadline_time）。確認画面・完了画面の案内に使う
   const [cancelDeadlineTime, setCancelDeadlineTime] = useState(null);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [staffShiftDates, setStaffShiftDates] = useState({});
@@ -1401,7 +1401,15 @@ function AppInner() {
               ))}
             </div>
             <div style={{ fontSize: 12, color: "#aaa", marginBottom: 20, lineHeight: 1.7, padding: "12px 16px", background: "white", borderRadius: 12 }}>
-              キャンセル・変更は前日17時まで承ります。
+              {/* 締切時刻は store_settings.cancel_deadline_time から（完了画面と同じ）。読めなければ時刻は出さない */}
+              {formatDeadlineTime(cancelDeadlineTime) ? (
+                <>
+                  キャンセル・変更は前日{formatDeadlineTime(cancelDeadlineTime)}まで承ります。<br/>
+                  当日の変更・キャンセルは、お電話でご連絡ください。
+                </>
+              ) : (
+                <>キャンセル・変更はマイページから承ります。</>
+              )}
             </div>
             {error && <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#cc4444", whiteSpace: "pre-line" }}>{error}</div>}
             <button onClick={handleSubmit} disabled={loading} style={{ width: "100%", padding: "18px", borderRadius: 14, border: "none", cursor: loading ? "not-allowed" : "pointer", background: loading ? "#aaa" : GREEN, color: "white", fontSize: 16, fontWeight: 700 }}>
