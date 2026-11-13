@@ -120,7 +120,20 @@ const fetchAllRows = async (url, headers, label = "fetchAllRows") => {
 const GIFT_TICKET_DEFAULT_FACE_VALUE = 1000;
 // ポイント20P達成特典で発行するプレゼント金券の額面
 const POINT_REWARD_TICKET_FACE_VALUE = 1000;
-// 特典金券の gift_tickets.checkout_action。会計取り消し時に、その会計で発行した特典を見分けて削除するための印
+// ポイントが付く会計の条件：施術メニュー（item_type='course'、物販の0円枠を除く）の金額がこれを「超える」こと。
+// 物販のみの会計・この金額以下の施術（アスリートメニュー1,000円など）ではポイントを加算しない。
+// 指名料・月会費など（submenu）は金額に含めない。
+const POINT_MIN_COURSE_PRICE = 5000;
+// 会計の明細でポイント加算の対象か判定する。
+// 明細は会計画面の { type, name, price } と payment_items の { item_type, item_name, price } のどちらでもよい。
+const isPointEligibleItems = (items) => {
+  const prices = (Array.isArray(items) ? items : [])
+    .filter(i => (i.item_type ?? i.type) === "course" && (i.item_name ?? i.name) !== "物販")
+    .map(i => Number(i.price) || 0);
+  return prices.length > 0 && Math.max(...prices) > POINT_MIN_COURSE_PRICE;
+};
+// 特典金券の gift_tickets.checkout_action。その会計（booking_id）の特典を発行済みか見分けるための印
+// （会計取り消しでは特典金券は削除しない。再会計で同じ会計の特典を再発行しない）
 const POINT_REWARD_CHECKOUT_ACTION = "point_reward_at_checkout";
 // 会計の中で発行する金券の checkout_action と、notes に書く見出し
 const CHECKOUT_ISSUE_LABELS = {
@@ -545,7 +558,9 @@ const handleAdminQrInput = async (value) => {
     //       （削除すると、使った会計の支払いの参照先が失われる）
     //   ④この会計で使った金券（booking_id がこの会計で used）→ 削除せず active に戻し、used_at/booking_id をクリア
     //       notes の記録がない古い金券で「この会計で発行・使用」か「別の会計で発行・この会計で使用」か判別できないものもここに入り、残る。
-    const issueMarks = Object.keys(CHECKOUT_ISSUE_LABELS);
+    // ポイント特典の金券は取り消しでは削除しない（残す）。再会計で再び20Pに達しても、
+    // この会計（booking_id）の特典は発行済みとして再発行しないので、残しておけば1枚のままになる。
+    const issueMarks = Object.keys(CHECKOUT_ISSUE_LABELS).filter(a => a !== POINT_REWARD_CHECKOUT_ACTION);
     const issuedHereFilter = `notes=in.${encodeURIComponent(`(${issueMarks.map(a => `"${checkoutIssueNotes(a, booking.id)}"`).join(",")})`)}`;
     await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${issuedHereFilter}&status=eq.active`, { method: "DELETE", headers });
     await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?booking_id=eq.${booking.id}&checkout_action=in.(${issueMarks.join(",")})&notes=is.null&status=eq.active`, { method: "DELETE", headers });
@@ -557,14 +572,18 @@ const handleAdminQrInput = async (value) => {
       body: JSON.stringify({ status: "active", used_at: null, booking_id: null }),
     });
     await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${booking.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "treatment_done", completed_at: null }) });
-    // ポイントを1点戻す
-    const ptRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${booking.customer_id}&select=points`, { headers });
-    const ptData = await ptRes.json();
-    if (ptData && ptData[0] && ptData[0].points > 0) {
-      await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${booking.customer_id}`, { method: "PATCH", headers, body: JSON.stringify({ points: ptData[0].points - 1 }) });
+    // ポイントを1点戻す。ポイントが付かない会計（物販のみ・施術がしきい値以下）は加算していないので戻さない。
+    // 明細が読めていない場合は従来どおり戻す。
+    const pointWasAdded = Array.isArray(booking.paymentItems) ? isPointEligibleItems(booking.paymentItems) : true;
+    if (booking.customer_id && pointWasAdded) {
+      const ptRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${booking.customer_id}&select=points`, { headers });
+      const ptData = await ptRes.json();
+      if (ptData && ptData[0] && ptData[0].points > 0) {
+        await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${booking.customer_id}`, { method: "PATCH", headers, body: JSON.stringify({ points: ptData[0].points - 1 }) });
+      }
     }
     if (Array.isArray(usedElsewhere) && usedElsewhere.length > 0) {
-      alert(`この会計で発行した金券のうち${usedElsewhere.length}枚は、すでに別の会計で使用済みのため回収できません。\n（再会計で金券の販売・プレゼントをやり直すと、その分多く発行されます。ポイント特典も再会計で20Pに戻ればもう1枚発行されます）`);
+      alert(`この会計で発行した金券のうち${usedElsewhere.length}枚は、すでに別の会計で使用済みのため回収できません。\n（再会計で金券の販売・プレゼントをやり直すと、その分多く発行されます）`);
     }
     setSelectedCompletedPayment(null);
     fetchCompletedBookings();
@@ -2927,8 +2946,8 @@ const handleAdminQrInput = async (value) => {
       if (includeConnectedBooking && connectedBooking) {
         await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${connectedBooking.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "completed", completed_at: new Date().toISOString() }) });
       }
-      // ポイント加算
-      if (checkoutBooking.customer_id) {
+      // ポイント加算（施術メニューが POINT_MIN_COURSE_PRICE 円を超える会計だけ。物販のみ・それ以下の施術では加算しない）
+      if (checkoutBooking.customer_id && isPointEligibleItems(checkoutItems)) {
         const ptRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${checkoutBooking.customer_id}&select=points`, { headers });
         const ptData = await ptRes.json();
         const currentPoints = ptData[0]?.points || 0;
@@ -2939,9 +2958,29 @@ const handleAdminQrInput = async (value) => {
         });
         // 20P到達ごとに特典の金券を1枚発行する（ポイントは累積のまま減らさない。20・40・60…で1枚ずつ）。
         // ポイント加算と特典発行はこの会計確定時だけで行う（受付ページでは加算しない）。
-        // 特典の金券はこの会計（booking_id）に紐付け、会計取り消し時にポイントを1戻すのと合わせて削除する。
-        // 紐付けないと「取り消しで20→19、再会計で再び20」で特典が2枚になる。
+        // 特典の金券はこの会計（booking_id）に紐付ける。会計取り消しではポイントは1戻すが、特典の金券は残す。
+        // 取り消しで20→19、再会計で再び20になっても、この会計（booking_id）の特典を一度でも発行していれば再発行しない。
+        // 金券の状態（使用済み・取り消し）に関係なく、スタッフが削除した場合も発行ログで判定する。
+        let rewardAlreadyIssued = null; // true / false / null（確認できなかった）
         if (newPoints % 20 === 0) {
+          try {
+            const notesMark = encodeURIComponent(checkoutIssueNotes(POINT_REWARD_CHECKOUT_ACTION, checkoutBooking.id));
+            const [byNotes, byBooking, byLog] = await Promise.all([
+              fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?notes=eq.${notesMark}&select=id&limit=1`, { headers }),
+              fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?booking_id=eq.${checkoutBooking.id}&checkout_action=eq.${POINT_REWARD_CHECKOUT_ACTION}&select=id&limit=1`, { headers }),
+              fetch(`${SUPABASE_URL}/rest/v1/gift_ticket_logs?action=eq.point_reward&customer_id=eq.${checkoutBooking.customer_id}&after_state->>reward_booking_id=eq.${checkoutBooking.id}&select=id&limit=1`, { headers }),
+            ]);
+            if (!byNotes.ok || !byBooking.ok || !byLog.ok) throw new Error(`${byNotes.status}/${byBooking.status}/${byLog.status}`);
+            const found = await Promise.all([byNotes.json(), byBooking.json(), byLog.json()]);
+            rewardAlreadyIssued = found.some(rows => Array.isArray(rows) && rows.length > 0);
+          } catch (e) {
+            console.error("[ポイント特典] 発行済みか確認できませんでした", e);
+          }
+          if (rewardAlreadyIssued === null) {
+            alert(`⚠️ ${newPoints}P達成の特典金券を、この会計ですでに発行済みか確認できませんでした（会計は確定済みです）。\n\n二重発行を防ぐため自動では発行していません。金券の履歴を確認し、未発行であれば金券を手動で1枚プレゼントしてください。`);
+          }
+        }
+        if (newPoints % 20 === 0 && rewardAlreadyIssued === false) {
           const ptToday = formatDate(new Date());
           const ptExpire = new Date();
           ptExpire.setFullYear(ptExpire.getFullYear() + 1);
@@ -2962,7 +3001,9 @@ const handleAdminQrInput = async (value) => {
             notes: checkoutIssueNotes(POINT_REWARD_CHECKOUT_ACTION, checkoutBooking.id),
           }]);
           if (reward.ok) {
-            await logGiftTicketAction("point_reward", checkoutBooking.customer_id, beforeState, await captureGiftTicketState(checkoutBooking.customer_id));
+            // reward_booking_id：再会計で同じ会計の特典を再発行しないための印（金券を削除しても残る）
+            const afterState = await captureGiftTicketState(checkoutBooking.customer_id);
+            await logGiftTicketAction("point_reward", checkoutBooking.customer_id, beforeState, { ...(afterState || {}), reward_booking_id: checkoutBooking.id, points: newPoints });
           } else {
             alert(`⚠️ ${newPoints}P達成の特典金券を発行できませんでした（会計は確定済みです）。\n\nお手数ですが、金券を手動で1枚プレゼントしてください。${reward.cleanupFailed ? giftIssueCleanupNote(checkoutBooking.customers?.name) : ""}`);
           }
