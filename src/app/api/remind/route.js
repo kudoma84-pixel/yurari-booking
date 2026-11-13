@@ -10,6 +10,8 @@ import {
   contactChannel,
   sendEmail,
 } from "../_lib/server";
+import { serviceRoleHeaders } from "../_lib/mypage-auth";
+import { customersNeedingIntake, INTAKE_INVITE_TEXT, MONSHIN_WEB_URL, monshinUrlForLine } from "../_lib/intake";
 
 // 当日（?type=today）・前日（?type=tomorrow）のリマインド配信。外部の cron サービスから毎日呼ばれる。
 // 来院後フォローはここでは送らない（/api/followup を別に cron で呼ぶ）。
@@ -53,6 +55,22 @@ export async function GET(request) {
     }
   }
 
+  // 前日リマインドだけ：問診票が未記入 かつ 来院実績なし（物販のみは来院としない）の方に、事前記入の案内を付ける。
+  // 問診票はサービスロールキーでしか読めないので、キーが無い・確認に失敗したときは案内を付けずにリマインドだけ送る。
+  let needsIntake = new Set();
+  if (isTomorrow && bookings.length > 0) {
+    const svc = serviceRoleHeaders();
+    if (!svc) {
+      console.warn("[remind] SUPABASE_SERVICE_ROLE_KEY が無いため、問診票の案内は付けません");
+    } else {
+      try {
+        needsIntake = await customersNeedingIntake(svc, bookings.map((b) => String(b.customer_id || "")));
+      } catch (e) {
+        console.error("[remind] 問診票の記入状況を確認できなかったため、案内は付けません", e.message);
+      }
+    }
+  }
+
   let sent = 0;
   let failed = 0;
 
@@ -78,6 +96,9 @@ export async function GET(request) {
       }).catch((e) => console.error("[remind] アプリ通知に失敗（LINE・メールは続行）", booking.id, e.message));
 
       const channel = contactChannel(customer);
+      const invite = needsIntake.has(String(booking.customer_id))
+        ? "\n\n" + INTAKE_INVITE_TEXT + "\n▶ " + (channel === "line" ? monshinUrlForLine() : MONSHIN_WEB_URL)
+        : "";
       if (channel === "line") {
         const res = await fetch("https://api.line.me/v2/bot/message/push", {
           method: "POST",
@@ -87,7 +108,7 @@ export async function GET(request) {
           },
           body: JSON.stringify({
             to: customer.line_user_id,
-            messages: [{ type: "text", text: message }],
+            messages: [{ type: "text", text: message + invite }],
           }),
         });
         if (!res.ok) throw new Error(`LINE ${res.status}: ${await res.text()}`);
@@ -98,7 +119,7 @@ export async function GET(request) {
           subject: timeLabel + "のご予約リマインド｜整体院 癒楽里",
           html:
             "<div style='font-family:sans-serif;padding:20px;'><p>" + customer.name +
-            " 様</p><p>" + message.replace(/\n/g, "<br>") + "</p></div>",
+            " 様</p><p>" + (message + invite).replace(/\n/g, "<br>") + "</p></div>",
         });
         sent++;
       }

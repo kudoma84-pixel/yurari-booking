@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { canStaffHandleCourse } from "../_lib/staff-eligibility";
 import { isWithinShift, hhmm } from "../_lib/shift-hours";
+import { NewIntakeButton, IntakeCustomerSection, IntakeCardMark, intakeLabelFor } from "./IntakePanels";
 
 const SUPABASE_URL = "https://pbjekdzmvjqhqbbrzbfk.supabase.co";
 const SUPABASE_KEY = "sb_publishable_I_98PawL-eNS__SZa0DlPA_80VwFUZc";
@@ -298,6 +299,10 @@ export default function AdminPage() {
   const [showAdminNotif, setShowAdminNotif] = useState(false);
   // カレンダーの予約カードに出す金券状況 { customerId: { purchaseActive, purchaseTotal, presentActive, presentTotal } }
   const [bookingTicketInfo, setBookingTicketInfo] = useState({});
+  // 予約カードの「問診票：未記入／記入済」（初回の方だけに出す）。サーバーAPIから ID だけを受け取る
+  const [intakeStatus, setIntakeStatus] = useState({ withIntake: {}, visited: {}, loaded: {} });
+  const passwordRef = useRef("");
+  passwordRef.current = password; // 自動更新（20秒ごと）の古いクロージャからも最新のパスワードを使う
   const [isSavingPayment, setIsSavingPayment] = useState(false);
   const [lineReplyText, setLineReplyText] = useState("");
   const [selectedLineUser, setSelectedLineUser] = useState(null);
@@ -2445,13 +2450,36 @@ const handleAdminQrInput = async (value) => {
     setBookingTicketInfo(prev => ({ ...prev, ...map }));
   };
 
+  // 表示中の日の予約の顧客について、問診票の有無・来院実績の有無をまとめて問い合わせる。
+  // 問診票は公開キーでは読めないため、管理画面のパスワード付きでサーバーAPIを呼ぶ（パスワード未入力なら何もしない）。
+  const fetchIntakeStatus = async (ids) => {
+    const list = [...new Set((ids || []).filter(Boolean).map(String))];
+    const pw = passwordRef.current;
+    if (!pw || !currentStore || list.length === 0) return;
+    try {
+      const r = await fetch("/api/admin/intake/status", { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", body: JSON.stringify({ customer_ids: list, store: currentStore.id, password: pw }) });
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d || !Array.isArray(d.with_intake) || !Array.isArray(d.visited)) { console.error("[管理画面] 問診票の記入状況を取得できませんでした", r.status); return; }
+      const withI = new Set(d.with_intake.map(String)), vis = new Set(d.visited.map(String));
+      setIntakeStatus(prev => {
+        const n = { withIntake: { ...prev.withIntake }, visited: { ...prev.visited }, loaded: { ...prev.loaded } };
+        list.forEach(id => { n.loaded[id] = true; n.withIntake[id] = withI.has(id); n.visited[id] = vis.has(id); });
+        return n;
+      });
+    } catch (e) {
+      console.error("[管理画面] 問診票の記入状況を取得できませんでした", e);
+    }
+  };
+
   const fetchAll = async (date) => {
     const [bookData] = await Promise.all([fetchBookings(date), fetchBlocks(date), fetchShifts(date), fetchExtensions(date)]);
+    fetchIntakeStatus((bookData || []).map(b => b.customer_id));
     await fetchBookingTicketInfo((bookData || []).map(b => b.customer_id));
   };
   const fetchAllSilent = async (date) => {
     const [bookData] = await Promise.all([fetchBookings(date, true), fetchBlocks(date), fetchShifts(date), fetchExtensions(date)]);
     fetchBookingTicketInfo((bookData || []).map(b => b.customer_id));
+    fetchIntakeStatus((bookData || []).map(b => b.customer_id));
     fetchSubAll(date);
   };
 
@@ -2480,6 +2508,7 @@ const handleAdminQrInput = async (value) => {
       setSubBookings(bookR.data);
       setSubBookingLoadError(null);
       fetchBookingTicketInfo(bookR.data.map(b => b.customer_id));
+      fetchIntakeStatus(bookR.data.map(b => b.customer_id));
     } else {
       const msg = bookR.error ? (bookR.error.message || String(bookR.error)) : `bookings ${bookR.status} ${JSON.stringify(bookR.data)?.slice(0, 200)}`;
       console.error("[管理画面] サブ院の予約の取得に失敗しました", key, msg);
@@ -2525,6 +2554,12 @@ const handleAdminQrInput = async (value) => {
   useEffect(() => {
     if (loggedIn && tab === "customers") { fetchCustomers(); fetchAllCustomerTickets(); }
   }, [loggedIn, tab]);
+
+  // パスワードが入力されたら（LINE連携QR・問診票で確認したときも）、表示中の予約の問診票の記入状況を取り直す
+  useEffect(() => {
+    if (password && loggedIn) fetchIntakeStatus([...bookings, ...subBookings].map(b => b.customer_id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [password, loggedIn]);
 
   // 「この方の予約を入れる」中にカレンダーの枠を開いたら、直接予約入力にその顧客を入れておく
   // （枠を開く処理はフォームと検索結果を空にするので、その後に上書きする）
@@ -3525,6 +3560,13 @@ const handleAdminQrInput = async (value) => {
                 { label: "メール", value: selectedBooking.customers?.email || "-" },
                 { label: "LINE", value: selectedBooking.customers?.line_user_id ? "連携済" : "未連携" },
                 { label: "メモ", value: selectedBooking.notes || "-" },
+                // 初回の方（来院実績なし）だけ、問診票の記入状況を出す
+                ...(selectedBooking.customer_id ? (() => {
+                  const l = intakeLabelFor(intakeStatus, selectedBooking.customer_id);
+                  if (l) return [{ label: "問診票", value: l === "未記入" ? "未記入（初回の方）" : "記入済（初回の方）" }];
+                  if (!intakeStatus.loaded[selectedBooking.customer_id]) return [{ label: "問診票", value: password ? "確認中…" : "確認できません（顧客詳細の問診票欄でパスワードを入力すると表示されます）" }];
+                  return [];
+                })() : []),
               ].map((row, i) => (
                 <div key={i} style={{ display: "flex", borderBottom: "1px solid #f0ebe4", paddingBottom: 8 }}>
                   <div style={{ fontSize: 12, color: "#7a9a7a", fontWeight: 700, width: 80, flexShrink: 0 }}>{row.label}</div>
@@ -4036,6 +4078,7 @@ const handleAdminQrInput = async (value) => {
             </div>
           </div>
         )}
+        <IntakeCustomerSection customer={selectedCustomer} storeId={currentStore?.id} password={password} setPassword={setPassword} />
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24, background: "#f9f6f2", borderRadius: 12, padding: 16 }}>
           {[
             { label: "顧客番号", value: selectedCustomer.customer_number },
@@ -5836,7 +5879,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                                 const cellBg = isDragOver ? "#d4f0dc" : (BREAK_SLOTS.includes(time) && !isSlotBreakReleased(time)) ? "#fdf5f0" : isExt ? "#f0f8f4" : "white";
                                 cells.push(
                                   <td key={time} colSpan={colSpan} draggable={!!(booking && booking.status !== "cancelled")} onDragStart={booking && booking.status !== "cancelled" ? (e => { e.dataTransfer.effectAllowed = 'move'; setDraggedBooking(booking); }) : undefined} onDragEnd={booking && booking.status !== "cancelled" ? (() => { setDraggedBooking(null); setDragOverCell(null); }) : undefined} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: cellBg, minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden", cursor: booking && booking.status !== "cancelled" ? "grab" : "default" }} onDragOver={isDroppable ? (e => { e.preventDefault(); setDragOverCell({ staffId: s.id, time }); }) : undefined} onDragLeave={isDroppable ? (() => setDragOverCell(null)) : undefined} onDrop={isDroppable ? (e => { e.preventDefault(); if (draggedBooking && draggedBooking.store_id && draggedBooking.store_id !== currentStore.id) { dropBookingCrossStore(currentStore.id, time); } else { dropBooking(s.id, time); } }) : undefined}>                                    {/* 予約はシフト・休憩に関係なく必ず表示する（シフト外は赤枠で警告） */}
-                                    {booking && booking.status !== "cancelled" ? <div onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "grab", lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 1, ...(!onShift ? OUTSIDE_SHIFT_STYLE : {}) }} title={bookingCardTitle(booking)}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div>{!onShift && <OutsideShiftTag />}{renderTicketMarks(booking.customer_id)}</div>
+                                    {booking && booking.status !== "cancelled" ? <div onClick={() => setSelectedBooking(booking)} style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, cursor: "grab", lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 1, ...(!onShift ? OUTSIDE_SHIFT_STYLE : {}) }} title={bookingCardTitle(booking)}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div>{!onShift && <OutsideShiftTag />}{renderTicketMarks(booking.customer_id)}<IntakeCardMark status={intakeStatus} customerId={booking.customer_id} /></div>
                                     : isBreak && !isSlotBreakReleased(time) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
                                     : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
                                     : blocked ? (() => { const blk = getBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, cursor: "pointer", lineHeight: 1.3 }} onClick={() => { if (window.confirm("ブロックを解除しますか？")) toggleBlock(s.id, time); }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()                                    : <div onClick={() => setBlockModal({ staffId: s.id, time })} style={{ color: "#bbb", fontSize: 18, cursor: "pointer", lineHeight: 1, fontWeight: 300 }}>＋</div>}                                  </td>
@@ -5882,7 +5925,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                                 const isDragOver = isDroppable && dragOverCell?.staffId === s.id && dragOverCell?.time === time;
                                 cells.push(
                                   <td key={time} colSpan={colSpan} draggable={!!booking} onDragStart={booking ? (e => { e.dataTransfer.effectAllowed = 'move'; setDraggedBooking(booking); }) : undefined} onDragEnd={booking ? (() => { setDraggedBooking(null); setDragOverCell(null); }) : undefined} onDragOver={isDroppable ? (e => { e.preventDefault(); setDragOverCell({ staffId: s.id, time }); }) : undefined} onDragLeave={isDroppable ? (() => setDragOverCell(null)) : undefined} onDrop={isDroppable ? (e => { e.preventDefault(); dropBookingCrossStore(subStoreId, time); }) : undefined} style={{ padding: "4px", textAlign: "center", borderLeft: "1px solid #f0ebe4", background: isDragOver ? "#d4f0dc" : "#fafbfd", minWidth: 38, maxWidth: colSpan * 60, width: colSpan * 60, verticalAlign: "top", overflow: "hidden", cursor: booking ? "grab" : "default" }}>
-                                    {booking ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 0.85, ...(!onShift ? OUTSIDE_SHIFT_STYLE : {}) }} title={bookingCardTitle(booking)}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div>{!onShift && <OutsideShiftTag />}{renderTicketMarks(booking.customer_id)}</div>
+                                    {booking ? <div style={{ background: statusColor(booking.status), color: "white", borderRadius: 6, padding: "4px 4px", fontSize: 11, fontWeight: 600, lineHeight: 1.4, minHeight: 30, width: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-start", alignItems: "center", opacity: 0.85, ...(!onShift ? OUTSIDE_SHIFT_STYLE : {}) }} title={bookingCardTitle(booking)}><div>{booking.customers?.name || "予約"}</div><div style={{ fontSize: 10, opacity: 0.9 }}>{(booking.course_name || "").slice(0, 6)}</div><div style={{ fontSize: 9, opacity: 0.7 }}>{booking.booking_time}</div>{!onShift && <OutsideShiftTag />}{renderTicketMarks(booking.customer_id)}<IntakeCardMark status={intakeStatus} customerId={booking.customer_id} /></div>
                                     : !onShift ? <div style={{ fontSize: 11, color: "#ddd" }}>－</div>
                                     : blocked ? (() => { const blk = getSubBlock(s.id, time); return <div style={{ background: "#e0e0e0", color: "#888", borderRadius: 6, padding: "3px 4px", fontSize: 10, lineHeight: 1.3 }}><div>🔒</div>{blk?.reason && <div style={{ fontSize: 9, color: "#aaa" }}>{blk.reason.slice(0, 6)}</div>}</div>; })()
                                     : (isBreak && !isSlotBreakReleased(time)) ? <div style={{ fontSize: 11, color: "#e0a040" }}>－</div>
@@ -6428,6 +6471,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
               </label>
               <button onClick={findDuplicates} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #e07070", background: "white", color: "#e07070", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>🔍 重複検出</button>
               <button onClick={openNewCustomerForm} style={{ padding: "8px 16px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>＋ 新規顧客を登録</button>
+              <NewIntakeButton storeId={currentStore?.id} password={password} setPassword={setPassword} />
             </div>
             {(customersError || customerTicketsError) && (
               <div style={{ background: "#fdecea", border: "1px solid #e57373", color: "#b71c1c", borderRadius: 8, padding: "12px 16px", marginBottom: 16, fontSize: 14, fontWeight: 600, lineHeight: 1.6 }}>

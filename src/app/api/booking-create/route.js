@@ -5,6 +5,7 @@ import {
 import { canStaffHandleCourse } from "../../_lib/staff-eligibility";
 import { isWithinShift } from "../../_lib/shift-hours";
 import { canCustomerModify, fetchDeadlineSettings, deadlinePassedBody } from "../_lib/modify-deadline";
+import { customersNeedingIntake } from "../_lib/intake";
 
 // 顧客向け予約フォームからの予約登録。
 // 登録の直前に「customer_id が、フォームで確定した顧客本人か」をサーバー側で再検証する。
@@ -274,6 +275,15 @@ export async function POST(request) {
     console.error("[booking-create] 管理画面への通知に失敗", e.message);
   }
 
-  console.log("[booking-create] 予約登録", JSON.stringify({ customer_id: c.id, booking_id: b1.id, booking2_id: booking2Id, change_cancelled: changeCancelled }));
-  return NextResponse.json({ ok: true, customer_id: c.id, booking_id: b1.id, booking2_id: booking2Id, change_cancelled: changeCancelled });
+  // 問診票（カウンセリングシート）が未記入 かつ 来院実績なし（物販のみは来院としない）の方には、
+  // 確定メッセージに事前記入の案内を付ける（画面側で needs_intake を見て追記する）。確認できなければ付けない。
+  let needsIntake = false;
+  try {
+    needsIntake = (await customersNeedingIntake(headers, [String(c.id)])).has(String(c.id));
+  } catch (e) {
+    console.error("[booking-create] 問診票の記入状況を確認できませんでした", e.message);
+  }
+
+  console.log("[booking-create] 予約登録", JSON.stringify({ customer_id: c.id, booking_id: b1.id, booking2_id: booking2Id, change_cancelled: changeCancelled, needs_intake: needsIntake }));
+  return NextResponse.json({ ok: true, customer_id: c.id, booking_id: b1.id, booking2_id: booking2Id, change_cancelled: changeCancelled, needs_intake: needsIntake });
 }

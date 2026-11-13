@@ -52,6 +52,8 @@ function MyPageInner() {
   const [checkinLoading, setCheckinLoading] = useState(false);
   const [qrLoaded, setQrLoaded] = useState(false);
   const [lineChecking, setLineChecking] = useState(false);
+  // 問診票（カウンセリングシート）が未記入なら true（トップにバナーを出す）
+  const [needsIntake, setNeedsIntake] = useState(false);
 
   useEffect(() => {
     if (!customer) return;
@@ -123,6 +125,12 @@ function MyPageInner() {
     const r = await api("me");
     const c = r.data?.customer;
     if (!r.ok || !c?.id) return false;
+    // 問診票の画面から来た方（/mypage?next=/mypage/monshin）は、ログイン後に問診票へ戻す
+    if (new URLSearchParams(window.location.search).get("next") === "/mypage/monshin") {
+      window.location.replace("/mypage/monshin");
+      return true;
+    }
+    setNeedsIntake(r.data?.has_intake === false);
     setCustomer(c);
     setProfileForm({
       name: c.name || "",
@@ -441,6 +449,13 @@ function MyPageInner() {
           ))}
           </div>
         </div>
+
+        {needsIntake && (
+          <a href="/mypage/monshin" style={{ display: "block", textDecoration: "none", background: "#eef5ef", border: "2px solid " + LIGHT_GREEN, borderRadius: 14, padding: "14px 16px", marginBottom: 20, color: GREEN }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>📝 カウンセリングシートのご記入をお願いします</div>
+            <div style={{ fontSize: 12, color: "#555", marginTop: 4 }}>ご来院前にご記入いただくと、当日スムーズにご案内できます（約5分）。こちらから記入できます ›</div>
+          </a>
+        )}
 
                 {activeTab === "booking" && (
           <div>

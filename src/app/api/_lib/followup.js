@@ -14,8 +14,8 @@ import { SUPABASE_URL, sbHeaders, sbSelect, q, jstDateString, contactChannel, se
 
 const BOOKING_URL = "https://liff.line.me/2010179815-wwzNljOX";
 const UPCOMING_STATUSES = "(pending,confirmed,received,treatment_done)";
-// 「来院」として数える会計済の記録。管理画面の「物販のみ」（course_name=物販）は施術の来院ではないので除く
-const VISIT = `status=eq.completed&or=(course_name.is.null,course_name.neq.${encodeURIComponent("物販")})`;
+// 「来院」として数える会計済の記録（問診票の案内の判定 _lib/intake.js でも使う）。管理画面の「物販のみ」（course_name=物販）は施術の来院ではないので除く
+export const VISIT = `status=eq.completed&or=(course_name.is.null,course_name.neq.${encodeURIComponent("物販")})`;
 
 const storeLabel = (storeId) => (storeId === "toda" ? "戸田院" : "南浦和院");
 

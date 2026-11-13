@@ -689,6 +689,11 @@ function AppInner() {
         setLoading(false);
         return;
       }
+      // 初めての方（問診票が未記入・来院実績なし）には、カウンセリングシートの事前記入を案内する
+      const intakeInvite = "初めてご来院の方へ：カウンセリングシートを事前にご記入いただくと、当日スムーズにご案内できます（約5分）。";
+      const intakeWebUrl = "https://yurari-booking.vercel.app/mypage/monshin";
+      const intakeLineUrl = process.env.NEXT_PUBLIC_LIFF_ID_MYPAGE ? "https://liff.line.me/" + process.env.NEXT_PUBLIC_LIFF_ID_MYPAGE + "/monshin" : intakeWebUrl;
+      const needsIntake = createData?.needs_intake === true;
       // 元の予約のキャンセルは booking-create が新しい予約の登録成功後に行う
       if (changeBookingId && !createData?.change_cancelled) console.error("元の予約のキャンセルに失敗しました");
       if (profile.email && notificationMethod === "email") {
@@ -700,7 +705,7 @@ function AppInner() {
             body: JSON.stringify({
               to: profile.email,
               subject: "ご予約確定のお知らせ｜整体院 癒楽里",
-              html: "<div style='font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;'><h2 style='color:#3a5a3a;'>ご予約確定のお知らせ</h2><p>" + profile.name + " 様</p><p>ご予約が確定しました。</p><div style='background:#f9f6f2;border-radius:8px;padding:16px;margin:20px 0;'><table style='width:100%;border-collapse:collapse;'><tr><td style='padding:6px 0;color:#7a9a7a;width:120px;'>予約番号</td><td style='padding:6px 0;'>" + num + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>店舗</td><td style='padding:6px 0;'>整体院 癒楽里 " + storeName + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>日時</td><td style='padding:6px 0;'>" + formatDate(date) + " " + time + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>コース</td><td style='padding:6px 0;'>" + course.name + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>担当</td><td style='padding:6px 0;'>" + staff.name + "</td></tr></table></div><p>ご来院をお待ちしております。</p><div style='background:#f0f8f4;border-radius:8px;padding:14px 16px;margin:20px 0;font-size:13px;color:#555;'>📱 スマホのホーム画面に「癒楽里」のアイコンを置くと、予約・マイページがアプリのようにすぐ開けます。<br><a href='https://yurari-booking.vercel.app/app-guide' style='color:#3a5a3a;font-weight:bold;'>追加のしかたはこちら</a></div><p style='color:#aaa;font-size:12px;'>整体院 癒楽里</p></div>",
+              html: "<div style='font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;'><h2 style='color:#3a5a3a;'>ご予約確定のお知らせ</h2><p>" + profile.name + " 様</p><p>ご予約が確定しました。</p><div style='background:#f9f6f2;border-radius:8px;padding:16px;margin:20px 0;'><table style='width:100%;border-collapse:collapse;'><tr><td style='padding:6px 0;color:#7a9a7a;width:120px;'>予約番号</td><td style='padding:6px 0;'>" + num + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>店舗</td><td style='padding:6px 0;'>整体院 癒楽里 " + storeName + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>日時</td><td style='padding:6px 0;'>" + formatDate(date) + " " + time + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>コース</td><td style='padding:6px 0;'>" + course.name + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>担当</td><td style='padding:6px 0;'>" + staff.name + "</td></tr></table></div><p>ご来院をお待ちしております。</p>" + (needsIntake ? "<div style='background:#fff8ec;border:1px solid #f0d58a;border-radius:8px;padding:14px 16px;margin:20px 0;font-size:13px;color:#555;'>" + intakeInvite + "<br>▶ <a href='" + intakeWebUrl + "' style='color:#3a5a3a;font-weight:bold;'>" + intakeWebUrl + "</a></div>" : "") + "<div style='background:#f0f8f4;border-radius:8px;padding:14px 16px;margin:20px 0;font-size:13px;color:#555;'>📱 スマホのホーム画面に「癒楽里」のアイコンを置くと、予約・マイページがアプリのようにすぐ開けます。<br><a href='https://yurari-booking.vercel.app/app-guide' style='color:#3a5a3a;font-weight:bold;'>追加のしかたはこちら</a></div><p style='color:#aaa;font-size:12px;'>整体院 癒楽里</p></div>",
             }),
           });
         } catch (mailErr) {
@@ -717,7 +722,7 @@ function AppInner() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 to: liffLineUserId,
-                messages: [{ type: "text", text: "ご予約が確定しました！\n\n予約番号：" + num + "\n店舗：整体院 癒楽里 " + storeName + "\n日時：" + formatDate(date) + " " + time + "\nコース：" + course.name + "\n担当：" + staff.name + "\n\nご来院をお待ちしております。" }],
+                messages: [{ type: "text", text: "ご予約が確定しました！\n\n予約番号：" + num + "\n店舗：整体院 癒楽里 " + storeName + "\n日時：" + formatDate(date) + " " + time + "\nコース：" + course.name + "\n担当：" + staff.name + "\n\nご来院をお待ちしております。" + (needsIntake ? "\n\n" + intakeInvite + "\n▶ " + intakeLineUrl : "") }],
               }),
             });
           } catch (lineErr) {

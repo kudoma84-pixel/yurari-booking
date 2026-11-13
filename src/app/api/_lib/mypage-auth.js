@@ -75,8 +75,10 @@ export function clientIp(request) {
   return "unknown";
 }
 
-function ipHash(ip) {
-  return crypto.createHmac("sha256", sessionSecret() || "").update("mypage-login:" + ip).digest("hex");
+// scope ごとに別のハッシュになるので、同じテーブルでも用途ごとに別々に数えられる
+// （問診票の送信は "intake"。マイページのログインの回数とは混ざらない）
+function ipHash(ip, scope = "mypage-login") {
+  return crypto.createHmac("sha256", sessionSecret() || "").update(scope + ":" + ip).digest("hex");
 }
 
 const memoryAttempts = new Map(); // ipHash -> 試行時刻の配列
@@ -95,8 +97,8 @@ function memoryRateLimited(hash) {
 }
 
 // 今回の試行を記録し、上限を超えていれば true を返す。
-export async function recordAttemptAndCheckLimit(request, headers) {
-  const hash = ipHash(clientIp(request));
+export async function recordAttemptAndCheckLimit(request, headers, scope = "mypage-login") {
+  const hash = ipHash(clientIp(request), scope);
   try {
     const ins = await fetch(`${SUPABASE_URL}/rest/v1/mypage_login_attempts`, {
       method: "POST", headers, body: JSON.stringify({ ip_hash: hash }), cache: "no-store",
