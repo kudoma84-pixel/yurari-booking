@@ -219,6 +219,9 @@ export default function AdminPage() {
   const [extensions, setExtensions] = useState([]);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+  // 受付の「LINE連携QR」（30分有効）。{ customerId, name, qr, url, expiresAt, already, error }
+  const [lineLinkQr, setLineLinkQr] = useState(null);
+  const [lineLinkPw, setLineLinkPw] = useState("");
   // 窓口での新規顧客登録（スマホで登録できないお客様の代わりにスタッフが登録する）
   const [newCustomerForm, setNewCustomerForm] = useState(null); // null のときはフォームを閉じている
   const [newCustomerError, setNewCustomerError] = useState("");
@@ -1885,6 +1888,28 @@ const handleAdminQrInput = async (value) => {
   };
 
   // 顧客詳細から「この方の予約を入れる」：カレンダーへ移り、空き枠を選ぶと直接予約入力にこの方が入る
+  // 受付でお客様に読み取ってもらう「LINE連携QR」を発行する。読み取ると友だち追加とLINE連携が一度に済む。
+  const openLineLinkQr = async (cust, pw) => {
+    const usePw = pw ?? password;
+    setLineLinkQr({ customerId: cust.id, name: cust.name, loading: true });
+    if (!usePw) { setLineLinkQr({ customerId: cust.id, name: cust.name, needPassword: true }); return; }
+    try {
+      const r = await fetch("/api/admin/line-link-token", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_id: cust.id, store: currentStore?.id, password: usePw }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.status === 401) { setLineLinkQr({ customerId: cust.id, name: cust.name, needPassword: true, error: data.error }); return; }
+      if (!r.ok) { setLineLinkQr({ customerId: cust.id, name: cust.name, error: data.error || "QRコードを作れませんでした" }); return; }
+      if (pw) setPassword(pw);
+      const QRCode = (await import("qrcode")).default;
+      const qr = await QRCode.toDataURL(data.url, { width: 320, margin: 1 });
+      setLineLinkQr({ customerId: cust.id, name: cust.name, qr, url: data.url, expiresAt: data.expires_at, already: data.already_linked });
+    } catch (e) {
+      setLineLinkQr({ customerId: cust.id, name: cust.name, error: "QRコードを作れませんでした：" + e.message });
+    }
+  };
+
   const startBookingForCustomer = (c) => {
     const note = justRegisteredCustomer?.id === c.id ? justRegisteredCustomer.note : "";
     setBookingForCustomer({ id: c.id, name: c.name || "", kana: c.kana || "", tel: c.tel || "", note });
@@ -3975,6 +4000,41 @@ const handleAdminQrInput = async (value) => {
           <button onClick={() => startBookingForCustomer(selectedCustomer)} style={{ width: "100%", padding: "12px", marginBottom: 12, borderRadius: 12, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
             📅 この方の予約を入れる
           </button>
+        )}
+        {!selectedCustomer.is_deleted && (
+          <button onClick={() => openLineLinkQr(selectedCustomer)} style={{ width: "100%", padding: "12px", marginBottom: 12, borderRadius: 12, border: "2px solid #06C755", background: "white", color: "#06C755", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+            {selectedCustomer.line_user_id ? "LINE連携済み（QRを再表示）" : "📱 LINE連携QRを表示"}
+          </button>
+        )}
+        {lineLinkQr && lineLinkQr.customerId === selectedCustomer.id && (
+          <div onClick={() => setLineLinkQr(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: "white", borderRadius: 16, padding: "24px 20px", width: "100%", maxWidth: 400, textAlign: "center" }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a", marginBottom: 4 }}>LINE連携QR</div>
+              <div style={{ fontSize: 14, color: "#333", marginBottom: 12 }}>{lineLinkQr.name} 様</div>
+              {lineLinkQr.loading && <div style={{ fontSize: 13, color: "#888", padding: 40 }}>作成中…</div>}
+              {lineLinkQr.needPassword && (
+                <div style={{ textAlign: "left" }}>
+                  <div style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>確認のため、管理画面のパスワードを入力してください。</div>
+                  <input type="password" value={lineLinkPw} onChange={e => setLineLinkPw(e.target.value)} onKeyDown={e => e.key === "Enter" && openLineLinkQr(selectedCustomer, lineLinkPw)} style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
+                  <button onClick={() => openLineLinkQr(selectedCustomer, lineLinkPw)} style={{ width: "100%", marginTop: 10, padding: "12px", borderRadius: 12, border: "none", background: "#3a5a3a", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>QRを表示</button>
+                </div>
+              )}
+              {lineLinkQr.error && <div style={{ fontSize: 13, color: "#c0392b", marginTop: 10, lineHeight: 1.6 }}>{lineLinkQr.error}</div>}
+              {lineLinkQr.qr && (
+                <>
+                  <img src={lineLinkQr.qr} alt="LINE連携QR" style={{ width: 260, height: 260, display: "block", margin: "0 auto" }} />
+                  <div style={{ fontSize: 13, color: "#555", lineHeight: 1.8, marginTop: 12, textAlign: "left" }}>
+                    ① お客様のスマホのカメラで読み取ってもらう<br />
+                    ② LINEが開いたら、そのまま「許可する」「友だち追加」へ進んでもらう<br />
+                    ③ お名前を確認して「連携する」を押してもらう
+                  </div>
+                  {lineLinkQr.already && <div style={{ fontSize: 12, color: "#06C755", marginTop: 8 }}>この方はすでにLINE連携済みです（読み取るとマイページにログインできます）</div>}
+                  <div style={{ fontSize: 11, color: "#999", marginTop: 8 }}>このQRは {new Date(lineLinkQr.expiresAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })} まで有効です。この方専用なので、他の方には見せないでください。</div>
+                </>
+              )}
+              <button onClick={() => { setLineLinkQr(null); fetchCustomers(); }} style={{ width: "100%", marginTop: 16, padding: "12px", borderRadius: 12, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, cursor: "pointer" }}>閉じる</button>
+            </div>
+          </div>
         )}
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24, background: "#f9f6f2", borderRadius: 12, padding: 16 }}>
           {[
