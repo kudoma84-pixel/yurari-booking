@@ -130,7 +130,8 @@ function MyPageInner() {
       window.location.replace("/mypage/monshin");
       return true;
     }
-    setNeedsIntake(r.data?.has_intake === false);
+    // 案内の対象（2026/11/14 以降に登録・未記入・来院実績なし）かはサーバーで判定する（me の needs_intake）
+    setNeedsIntake(r.data?.needs_intake === true);
     setCustomer(c);
     setProfileForm({
       name: c.name || "",

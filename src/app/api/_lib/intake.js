@@ -5,6 +5,14 @@ import crypto from "crypto";
 import { SUPABASE_URL } from "./server";
 import { sbFetch } from "./mypage-auth";
 import { VISIT } from "./followup";
+import { parseTimestamp } from "./modify-deadline";
+
+// デジタル問診票の案内を始めた日時。これより前に登録された顧客（customers.created_at がこれより前）は
+// 来院時に紙の問診票を書いているため、マイページのバナー・予約確定時の案内・前日リマインドの案内を出さず、
+// 管理画面のカレンダーにも「問診票：未記入」を出さない（記入済みなら「記入済」は出す）。
+// 受付からの入口（「📝 新規の方の問診票」・顧客詳細の「📝 問診票」）は登録日に関係なく使える。
+// customers.created_at はタイムゾーン表記の無い UTC の値なので parseTimestamp で解釈する。
+export const INTAKE_START_AT = "2026-11-14T00:00:00+09:00";
 
 export const digits = (v) => String(v ?? "").replace(/[^0-9]/g, "");
 const isUuid = (v) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
@@ -113,29 +121,43 @@ export async function fetchAllRowsServer(headers, path, label = "fetchAllRowsSer
   return all;
 }
 
-// 顧客IDのうち「問診票あり」「来院実績あり（会計済・物販のみは除く）」のものを返す。
+// 登録日時が INTAKE_START_AT 以降か（＝デジタル問診票の案内の対象になりうる顧客か）。
+// 登録日時が無い・読めない場合は既存の顧客とみなす（案内しない側に倒す）。
+export function registeredOnOrAfterIntakeStart(createdAt) {
+  const t = parseTimestamp(createdAt);
+  return Number.isFinite(t) && t >= Date.parse(INTAKE_START_AT);
+}
+
+// 顧客IDのうち「問診票あり」「来院実績あり（会計済・物販のみは除く）」
+// 「INTAKE_START_AT より前に登録（紙の問診票の方）」のものを返す。
 // 取得に失敗したら例外を投げる（呼び出し側で「案内しない」「表示しない」に倒す）。
 export async function intakeAndVisitStatus(headers, customerIds) {
   const ids = [...new Set((customerIds || []).filter(isUuid))];
   const withIntake = new Set();
   const visited = new Set();
+  const beforeStart = new Set();
   for (let i = 0; i < ids.length; i += 80) {
-    const list = ids.slice(i, i + 80).join(",");
-    const [forms, visits] = await Promise.all([
+    const chunk = ids.slice(i, i + 80);
+    const list = chunk.join(",");
+    const [forms, visits, customers] = await Promise.all([
       fetchAllRowsServer(headers, `intake_forms?customer_id=in.(${list})&select=id,customer_id&order=id.asc`, "intake-status:forms"),
       fetchAllRowsServer(headers, `bookings?${VISIT}&customer_id=in.(${list})&select=id,customer_id&order=id.asc`, "intake-status:visits"),
+      fetchAllRowsServer(headers, `customers?id=in.(${list})&select=id,created_at&order=id.asc`, "intake-status:customers"),
     ]);
-    if (!forms || !visits) throw new Error("問診票・来院実績の取得に失敗しました");
+    if (!forms || !visits || !customers) throw new Error("問診票・来院実績・顧客の取得に失敗しました");
     forms.forEach((r) => withIntake.add(String(r.customer_id)));
     visits.forEach((r) => visited.add(String(r.customer_id)));
+    // 顧客の行が見つからない ID も、登録日時が分からないので「基準日時より前」として扱う
+    const createdAt = new Map(customers.map((r) => [String(r.id), r.created_at]));
+    chunk.forEach((id) => { if (!registeredOnOrAfterIntakeStart(createdAt.get(id))) beforeStart.add(id); });
   }
-  return { withIntake, visited };
+  return { withIntake, visited, beforeStart };
 }
 
-// 案内の対象（問診票が未記入 かつ 来院実績なし）の顧客IDの Set
+// 案内の対象（INTAKE_START_AT 以降に登録 かつ 問診票が未記入 かつ 来院実績なし）の顧客IDの Set
 export async function customersNeedingIntake(headers, customerIds) {
-  const { withIntake, visited } = await intakeAndVisitStatus(headers, customerIds);
-  return new Set([...new Set((customerIds || []).filter(isUuid))].filter((id) => !withIntake.has(id) && !visited.has(id)));
+  const { withIntake, visited, beforeStart } = await intakeAndVisitStatus(headers, customerIds);
+  return new Set([...new Set((customerIds || []).filter(isUuid))].filter((id) => !beforeStart.has(id) && !withIntake.has(id) && !visited.has(id)));
 }
 
 // ── 入力値の検査 ──────────────────────────────────────

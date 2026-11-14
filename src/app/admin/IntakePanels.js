@@ -290,11 +290,14 @@ export function IntakeCustomerSection({ customer, storeId, password, setPassword
 }
 
 // ── 予約カード・予約詳細：初回の方の「問診票：未記入／記入済」 ─────────────
-// status: { withIntake: {id:true}, visited: {id:true}, loaded: {id:true} }
+// status: { withIntake: {id:true}, visited: {id:true}, beforeStart: {id:true}, loaded: {id:true} }
 export function intakeLabelFor(status, customerId) {
   if (!customerId || !status?.loaded?.[customerId]) return null;
   if (status.visited[customerId]) return null; // 来院実績のある方には出さない（初回の方だけ）
-  return status.withIntake[customerId] ? "記入済" : "未記入";
+  if (status.withIntake[customerId]) return "記入済";
+  // 2026/11/14（INTAKE_START_AT）より前に登録された方は紙の問診票なので「未記入」は出さない
+  if (status.beforeStart?.[customerId]) return null;
+  return "未記入";
 }
 
 export function IntakeCardMark({ status, customerId }) {

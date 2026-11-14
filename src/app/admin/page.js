@@ -313,7 +313,7 @@ export default function AdminPage() {
   // カレンダーの予約カードに出す金券状況 { customerId: { purchaseActive, purchaseTotal, presentActive, presentTotal } }
   const [bookingTicketInfo, setBookingTicketInfo] = useState({});
   // 予約カードの「問診票：未記入／記入済」（初回の方だけに出す）。サーバーAPIから ID だけを受け取る
-  const [intakeStatus, setIntakeStatus] = useState({ withIntake: {}, visited: {}, loaded: {} });
+  const [intakeStatus, setIntakeStatus] = useState({ withIntake: {}, visited: {}, beforeStart: {}, loaded: {} });
   const passwordRef = useRef("");
   passwordRef.current = password; // 自動更新（20秒ごと）の古いクロージャからも最新のパスワードを使う
   const [isSavingPayment, setIsSavingPayment] = useState(false);
@@ -2478,11 +2478,11 @@ const handleAdminQrInput = async (value) => {
     try {
       const r = await fetch("/api/admin/intake/status", { method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", body: JSON.stringify({ customer_ids: list, store: currentStore.id, password: pw }) });
       const d = await r.json().catch(() => null);
-      if (!r.ok || !d || !Array.isArray(d.with_intake) || !Array.isArray(d.visited)) { console.error("[管理画面] 問診票の記入状況を取得できませんでした", r.status); return; }
-      const withI = new Set(d.with_intake.map(String)), vis = new Set(d.visited.map(String));
+      if (!r.ok || !d || !Array.isArray(d.with_intake) || !Array.isArray(d.visited) || !Array.isArray(d.before_start)) { console.error("[管理画面] 問診票の記入状況を取得できませんでした", r.status); return; }
+      const withI = new Set(d.with_intake.map(String)), vis = new Set(d.visited.map(String)), before = new Set(d.before_start.map(String));
       setIntakeStatus(prev => {
-        const n = { withIntake: { ...prev.withIntake }, visited: { ...prev.visited }, loaded: { ...prev.loaded } };
-        list.forEach(id => { n.loaded[id] = true; n.withIntake[id] = withI.has(id); n.visited[id] = vis.has(id); });
+        const n = { withIntake: { ...prev.withIntake }, visited: { ...prev.visited }, beforeStart: { ...prev.beforeStart }, loaded: { ...prev.loaded } };
+        list.forEach(id => { n.loaded[id] = true; n.withIntake[id] = withI.has(id); n.visited[id] = vis.has(id); n.beforeStart[id] = before.has(id); });
         return n;
       });
     } catch (e) {

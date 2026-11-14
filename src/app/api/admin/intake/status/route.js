@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 // カレンダーの予約カード用：表示中の日の customer_id をまとめて受け取り、
 //   with_intake … 問診票が1件以上ある顧客ID
 //   visited     … 来院実績（会計済・物販のみは除く）がある顧客ID
+//   before_start … INTAKE_START_AT より前に登録された顧客ID（紙の問診票の方。「未記入」を出さない）
 // を返す。返すのは ID だけ（問診票の中身は返さない）。
 export async function POST(request) {
   const headers = serviceRoleHeaders();
@@ -20,8 +21,8 @@ export async function POST(request) {
   }
   const ids = Array.isArray(customer_ids) ? [...new Set(customer_ids.filter(isUuid))].slice(0, 500) : [];
   try {
-    const { withIntake, visited } = await intakeAndVisitStatus(headers, ids);
-    return NextResponse.json({ with_intake: [...withIntake], visited: [...visited] }, { headers: { "Cache-Control": "no-store" } });
+    const { withIntake, visited, beforeStart } = await intakeAndVisitStatus(headers, ids);
+    return NextResponse.json({ with_intake: [...withIntake], visited: [...visited], before_start: [...beforeStart] }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     console.error("[admin/intake/status]", e.message);
     return NextResponse.json({ error: "問診票の記入状況を読み込めませんでした" }, { status: 500 });

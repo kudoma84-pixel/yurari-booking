@@ -26,7 +26,7 @@ function deadlineMs(bookingDate, deadlineTime) {
 
 // created_at を UTC のエポックミリ秒にする。タイムゾーン表記の無い値は（Supabase の既定どおり）UTC とみなす。
 // Date.parse はタイムゾーン表記が無いとサーバーのローカル時刻として解釈するため、そのままでは使わない。
-function parseTimestamp(v) {
+export function parseTimestamp(v) {
   const s = String(v ?? "").trim().replace(" ", "T");
   if (!s) return NaN;
   return Date.parse(/(Z|[+-]\d{2}(:?\d{2})?)$/.test(s) ? s : s + "Z");
