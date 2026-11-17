@@ -3804,13 +3804,13 @@ const handleAdminQrInput = async (value) => {
                 // 初回の方（来院実績なし）だけ、問診票の記入状況を出す
                 ...(selectedBooking.customer_id ? (() => {
                   const l = intakeLabelFor(intakeStatus, selectedBooking.customer_id);
-                  if (l) return [{ label: "問診票", value: l === "未記入" ? "未記入（初回の方）" : "記入済（初回の方）" }];
-                  if (!intakeStatus.loaded[selectedBooking.customer_id]) return [{ label: "問診票", value: password ? "確認中…" : "確認できません（顧客詳細の問診票欄でパスワードを入力すると表示されます）" }];
+                  if (l) return [{ label: "カウンセリングシート", value: l === "未記入" ? "未記入（初回の方）" : "記入済（初回の方）" }];
+                  if (!intakeStatus.loaded[selectedBooking.customer_id]) return [{ label: "カウンセリングシート", value: password ? "確認中…" : "確認できません（顧客詳細のカウンセリングシート欄でパスワードを入力すると表示されます）" }];
                   return [];
                 })() : []),
               ].map((row, i) => (
                 <div key={i} style={{ display: "flex", borderBottom: "1px solid #f0ebe4", paddingBottom: 8 }}>
-                  <div style={{ fontSize: 12, color: "#7a9a7a", fontWeight: 700, width: 80, flexShrink: 0 }}>{row.label}</div>
+                  <div style={{ fontSize: 12, color: "#7a9a7a", fontWeight: 700, minWidth: 80, paddingRight: 12, boxSizing: "border-box", whiteSpace: "nowrap", flexShrink: 0 }}>{row.label}</div>
                   {row.isName && selectedBooking.customer_id ? (
                     <div>
                     {/* 顧客番号は氏名の上に小さく出す。未設定（NULL・空文字）でも行は消さず「未設定」を薄く出す */}

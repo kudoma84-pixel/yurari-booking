@@ -140,7 +140,7 @@ function TokenModal({ title, sub, state, onClose, onPassword }) {
         {!state.needPassword && state.error && <div style={{ fontSize: 13, color: "#c0392b", marginTop: 10 }}>{state.error}</div>}
         {state.qr && (
           <>
-            <img src={state.qr} alt="問診票のQR" style={{ width: 260, height: 260, display: "block", margin: "0 auto" }} />
+            <img src={state.qr} alt="カウンセリングシートのQR" style={{ width: 260, height: 260, display: "block", margin: "0 auto" }} />
             <div style={{ fontSize: 13, color: "#555", lineHeight: 1.8, marginTop: 12, textAlign: "left" }}>お客様のスマホのカメラで読み取ってもらってください。</div>
             <div style={{ fontSize: 11, color: "#999", marginTop: 8 }}>このQRは {new Date(state.expiresAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })} まで有効です。</div>
           </>
@@ -190,12 +190,12 @@ export function NewIntakeButton({ storeId, password, setPassword }) {
   const btn = { width: "100%", padding: "14px", borderRadius: 12, border: "none", background: GREEN, color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer", marginTop: 10 };
   return (
     <>
-      <button onClick={() => setOpen(true)} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #5a9e7a", background: "white", color: "#3a5a3a", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>📝 新規の方の問診票</button>
+      <button onClick={() => setOpen(true)} style={{ padding: "8px 16px", borderRadius: 10, border: "2px solid #5a9e7a", background: "white", color: "#3a5a3a", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>📝 新規の方のカウンセリングシート</button>
       {open && !tok.state && (
         <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: "white", borderRadius: 16, padding: "24px 20px", width: "100%", maxWidth: 420 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: GREEN, marginBottom: 6 }}>📝 新規の方の問診票</div>
-            <div style={{ fontSize: 13, color: "#666", lineHeight: 1.7 }}>初めての方（未登録）に、問診票とお客様登録を一度に入力していただきます。</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: GREEN, marginBottom: 6 }}>📝 新規の方のカウンセリングシート</div>
+            <div style={{ fontSize: 13, color: "#666", lineHeight: 1.7 }}>初めての方（未登録）に、カウンセリングシートとお客様登録を一度に入力していただきます。</div>
             <button style={btn} onClick={() => tok.issue({ kind: "counter", kiosk: false })}>📱 お客様のスマホ用QRを表示（2時間有効）</button>
             <button style={{ ...btn, background: "#5a9e7a" }} onClick={() => tok.issue({ kind: "counter", kiosk: true })}>🖥 このタブレットで受付モードを開く（14時間有効）</button>
             <button onClick={close} style={{ ...btn, background: "white", color: "#888", border: "2px solid #e8ddd0" }}>閉じる</button>
@@ -203,7 +203,7 @@ export function NewIntakeButton({ storeId, password, setPassword }) {
         </div>
       )}
       {open && tok.state && (
-        <TokenModal title="📝 新規の方の問診票" sub="お客様のスマホで読み取ってもらうQR" state={tok.state} onClose={close}
+        <TokenModal title="📝 新規の方のカウンセリングシート" sub="お客様のスマホで読み取ってもらうQR" state={tok.state} onClose={close}
           onPassword={(pw) => tok.issue(tok.state.params, pw)} />
       )}
     </>
@@ -222,7 +222,7 @@ export function IntakeCustomerSection({ customer, storeId, password, setPassword
     setData({ loading: true });
     const r = await postJson("/api/admin/intake", { customer_id: customer.id, store: storeId, password: usePw }).catch(() => ({ ok: false, data: {} }));
     if (r.status === 401) { setData({ needPassword: true, error: r.data.error }); return; }
-    if (!r.ok) { setData({ error: r.data?.error || "問診票を読み込めませんでした" }); return; }
+    if (!r.ok) { setData({ error: r.data?.error || "カウンセリングシートを読み込めませんでした" }); return; }
     if (pw) setPassword(pw);
     setData({ forms: Array.isArray(r.data.forms) ? r.data.forms : [], customer: r.data.customer || customer });
     setOpenIdx(0);
@@ -235,7 +235,7 @@ export function IntakeCustomerSection({ customer, storeId, password, setPassword
 
   return (
     <div style={box}>
-      <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 8 }}>📝 問診票</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 8 }}>📝 カウンセリングシート</div>
       {!data || data.loading ? <div style={{ fontSize: 13, color: "#888" }}>読み込み中…</div> : null}
       {data?.needPassword && <PasswordBox onSubmit={(pw) => load(pw)} error={data.error} />}
       {data?.error && !data.needPassword && (
@@ -246,7 +246,7 @@ export function IntakeCustomerSection({ customer, storeId, password, setPassword
           <div style={{ fontSize: 13, color: "#a33", marginBottom: 8 }}>未記入です</div>
           {!customer.is_deleted && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button style={small} onClick={() => tok.issue({ kind: "customer", customer_id: customer.id, kiosk: false })}>📱 この方の問診票を開く（QR）</button>
+              <button style={small} onClick={() => tok.issue({ kind: "customer", customer_id: customer.id, kiosk: false })}>📱 この方のカウンセリングシートを開く（QR）</button>
               <button style={small} onClick={() => tok.issue({ kind: "customer", customer_id: customer.id, kiosk: true })}>🖥 このタブレットで開く</button>
             </div>
           )}
@@ -282,7 +282,7 @@ export function IntakeCustomerSection({ customer, storeId, password, setPassword
         </>
       )}
       {tok.state && (
-        <TokenModal title="📝 この方の問診票" sub={customer.name + " 様（この方専用・2時間有効）"} state={tok.state} onClose={() => tok.setState(null)}
+        <TokenModal title="📝 この方のカウンセリングシート" sub={customer.name + " 様（この方専用・2時間有効）"} state={tok.state} onClose={() => tok.setState(null)}
           onPassword={(pw) => tok.issue(tok.state.params, pw)} />
       )}
     </div>
