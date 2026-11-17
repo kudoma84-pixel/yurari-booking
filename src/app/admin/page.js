@@ -196,13 +196,42 @@ const bookingCardTitle = (booking) => [
 ].filter(Boolean).join("\n");
 
 // 会計画面・顧客詳細：その顧客の保有金券（fetchCustomerTickets）を読み込めなかったときの赤い帯
-function TicketLoadErrorBand() {
+// ── 一覧の取得（共通） ─────────────────────────────
+// Supabase（PostgREST）から一覧を取得する。通信エラー・HTTPエラー・配列でない応答のときは null を返す（例外は投げない）。
+// 呼び出し側は null のとき、空配列で上書きせず前の状態を保ち、エラーの印を立てて赤い帯（LoadErrorBand）を出すこと。
+// （以前は失敗すると [] をセットしていたため、金券・顧客・シフトなどが「0件」に見えて誤った操作につながった）
+async function fetchJsonArray(url, headers, label = "一覧の取得") {
+  try {
+    const res = await fetch(url, { headers, cache: "no-store" });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !Array.isArray(data)) {
+      console.error(`[管理画面] ${label}に失敗しました`, res.status, JSON.stringify(data)?.slice(0, 200));
+      return null;
+    }
+    return data;
+  } catch (e) {
+    console.error(`[管理画面] ${label}に失敗しました`, e);
+    return null;
+  }
+}
+
+// 取得に失敗したときの赤い帯（共通）
+function LoadErrorBand({ children }) {
   return (
     <div style={{ background: "#fdecea", border: "1px solid #e57373", color: "#b71c1c", borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, fontWeight: 700, lineHeight: 1.6 }}>
+      {children}
+    </div>
+  );
+}
+
+// 会計画面・顧客詳細：その顧客の保有金券（fetchCustomerTickets）を読み込めなかったときの赤い帯
+function TicketLoadErrorBand() {
+  return (
+    <LoadErrorBand>
       金券の保有状況を読み込めませんでした。<br />
       このまま進めると、実際にお持ちの金券が減りません。<br />
       画面を開き直してください。
-    </div>
+    </LoadErrorBand>
   );
 }
 
@@ -367,6 +396,14 @@ export default function AdminPage() {
   // 会計画面・顧客詳細の「その顧客の使える金券」（fetchCustomerTickets）を読み込めなかったか。
   // customerTicketsError（顧客一覧の保有枚数の集計）とは別物。true の間は金券の枚数を増やせない。
   const [customerTicketsLoadError, setCustomerTicketsLoadError] = useState(false);
+  // 一覧の取得に失敗したときの印（fetchJsonArray が null を返したとき true。次に取得できたら false）
+  const [customerSearchError, setCustomerSearchError] = useState(false);   // 予約登録の顧客検索
+  const [notifySearchError, setNotifySearchError] = useState(false);       // お知らせの顧客検索
+  const [shareGroupLoadError, setShareGroupLoadError] = useState(false);   // 金券共有グループのメンバー
+  const [shiftLoadError, setShiftLoadError] = useState(false);             // カレンダーのシフト（本院）
+  const [blockLoadError, setBlockLoadError] = useState(false);             // カレンダーのブロック（本院）
+  const [bookingTicketInfoError, setBookingTicketInfoError] = useState(false); // 予約カードの金券マーク
+  const [customerHistoryError, setCustomerHistoryError] = useState(false); // 顧客詳細の来院履歴
   const [expandedGiftCustomer, setExpandedGiftCustomer] = useState(null);
   const [notifyTarget, setNotifyTarget] = useState("all"); // all / individual
   const [notifyCustomerId, setNotifyCustomerId] = useState("");
@@ -558,6 +595,18 @@ const handleAdminQrInput = async (value) => {
 
   const revertPayment = async (booking) => {
     if (!window.confirm("この会計を取り消します。\n\nこの会計で行った金券の使用・販売・プレゼントもすべて取り消されます。\n再会計時に金券操作もやり直してください。\n\nよろしいですか？")) return;
+    // ポイント特典の金券は取り消しでは削除しない（残す）。再会計で再び20Pに達しても、
+    // この会計（booking_id）の特典は発行済みとして再発行しないので、残しておけば1枚のままになる。
+    const issueMarks = Object.keys(CHECKOUT_ISSUE_LABELS).filter(a => a !== POINT_REWARD_CHECKOUT_ACTION);
+    const issuedHereFilter = `notes=in.${encodeURIComponent(`(${issueMarks.map(a => `"${checkoutIssueNotes(a, booking.id)}"`).join(",")})`)}`;
+    // この会計で発行した金券のうち、別の会計ですでに使われたもの（③）を、何かを削除・変更する前に確認する。
+    // 確認できなかったときは「他で使われた金券なし」とみなさず、取り消しそのものを中止する。
+    const issuedUsed = await fetchJsonArray(`${SUPABASE_URL}/rest/v1/gift_tickets?${issuedHereFilter}&status=eq.used&select=id,booking_id`, headers, "会計取り消し：金券の使用状況の確認");
+    if (issuedUsed === null) {
+      alert("金券の使用状況を確認できませんでした。取り消しを中止しました。\nもう一度お試しください");
+      return;
+    }
+    const usedElsewhere = issuedUsed.filter(t => String(t.booking_id) !== String(booking.id));
     if (booking.payment) {
       await fetch(`${SUPABASE_URL}/rest/v1/payment_items?payment_id=eq.${booking.payment.id}`, { method: "DELETE", headers });
       await fetch(`${SUPABASE_URL}/rest/v1/payment_methods?payment_id=eq.${booking.payment.id}`, { method: "DELETE", headers });
@@ -578,15 +627,10 @@ const handleAdminQrInput = async (value) => {
     //       （削除すると、使った会計の支払いの参照先が失われる）
     //   ④この会計で使った金券（booking_id がこの会計で used）→ 削除せず active に戻し、used_at/booking_id をクリア
     //       notes の記録がない古い金券で「この会計で発行・使用」か「別の会計で発行・この会計で使用」か判別できないものもここに入り、残る。
-    // ポイント特典の金券は取り消しでは削除しない（残す）。再会計で再び20Pに達しても、
-    // この会計（booking_id）の特典は発行済みとして再発行しないので、残しておけば1枚のままになる。
-    const issueMarks = Object.keys(CHECKOUT_ISSUE_LABELS).filter(a => a !== POINT_REWARD_CHECKOUT_ACTION);
-    const issuedHereFilter = `notes=in.${encodeURIComponent(`(${issueMarks.map(a => `"${checkoutIssueNotes(a, booking.id)}"`).join(",")})`)}`;
+    // （issueMarks・issuedHereFilter・usedElsewhere は冒頭の確認で用意したもの）
     await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${issuedHereFilter}&status=eq.active`, { method: "DELETE", headers });
     await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?booking_id=eq.${booking.id}&checkout_action=in.(${issueMarks.join(",")})&notes=is.null&status=eq.active`, { method: "DELETE", headers });
     await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${issuedHereFilter}&booking_id=eq.${booking.id}&status=eq.used`, { method: "DELETE", headers });
-    const usedElsewhereRes = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${issuedHereFilter}&status=eq.used&select=id`, { headers });
-    const usedElsewhere = usedElsewhereRes.ok ? await usedElsewhereRes.json() : [];
     await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?booking_id=eq.${booking.id}&status=eq.used`, {
       method: "PATCH", headers,
       body: JSON.stringify({ status: "active", used_at: null, booking_id: null }),
@@ -1202,9 +1246,11 @@ const handleAdminQrInput = async (value) => {
   };
 
  const fetchCustomerHistory = async (customerId) => {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?customer_id=eq.${customerId}&order=booking_date.desc&select=*`, { headers });
-    const data = await res.json();
-    setCustomerHistory(Array.isArray(data) ? data : []);
+    // 失敗したら前の状態を保ち、帯を出す（0件に見えると初回の方と誤認するため）
+    const data = await fetchJsonArray(`${SUPABASE_URL}/rest/v1/bookings?customer_id=eq.${customerId}&order=booking_date.desc&select=*`, headers, "来院履歴の取得");
+    if (data === null) { setCustomerHistoryError(true); return; }
+    setCustomerHistory(data);
+    setCustomerHistoryError(false);
   };
 
   const fetchVisitDetail = async (bookingId) => {
@@ -1223,9 +1269,11 @@ const handleAdminQrInput = async (value) => {
   const fetchBlocks = async (date) => {
     if (!date) return;
     const d = formatDate(date);
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/blocks?store_id=eq.${currentStore.id}&block_date=eq.${d}`, { headers });
-    const data = await res.json();
-    setBlocks(Array.isArray(data) ? data : []);
+    // 失敗したら前の状態を保ち、カレンダーに帯を出す（ブロックが消えて見えると、予約不可の枠に予約を入れてしまう）
+    const data = await fetchJsonArray(`${SUPABASE_URL}/rest/v1/blocks?store_id=eq.${currentStore.id}&block_date=eq.${d}`, headers, "ブロックの取得");
+    if (data === null) { setBlockLoadError(true); return; }
+    setBlocks(data);
+    setBlockLoadError(false);
   };
 
   const toggleBlock = async (staffId, time) => {
@@ -1354,10 +1402,17 @@ const handleAdminQrInput = async (value) => {
   const fetchShifts = async (date) => {
     if (!date) return;
     const d = formatDate(date);
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&work_date=eq.${d}`, { headers });
-    const data = await res.json();
-    setShifts(Array.isArray(data) ? data : []);
+    // 失敗したら前の状態を保ち、カレンダーに帯を出す（シフトが空に見えると、空き枠の判断を誤る）
+    const data = await fetchJsonArray(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${currentStore.id}&work_date=eq.${d}`, headers, "シフトの取得");
+    if (data === null) { setShiftLoadError(true); return; }
+    setShifts(data);
+    setShiftLoadError(false);
   };
+
+  // 予約登録の画面を閉じたら、顧客検索の失敗の印を下ろす
+  useEffect(() => {
+    if (!directBookingModal) setCustomerSearchError(false);
+  }, [directBookingModal]);
 
   const fetchExtensions = async (date) => {
     if (!date) return;
@@ -1443,10 +1498,12 @@ const handleAdminQrInput = async (value) => {
   };
 
   const fetchShareGroupMembers = async (customer) => {
-    if (!customer?.share_group_id) { setShareGroupMembers([]); return; }
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?share_group_id=eq.${customer.share_group_id}&select=id,name,customer_number`, { headers });
-    const data = await res.json();
-    setShareGroupMembers(Array.isArray(data) ? data : []);
+    if (!customer?.share_group_id) { setShareGroupMembers([]); setShareGroupLoadError(false); return; }
+    // 失敗したら前の状態を保ち、帯を出す（メンバーが0人に見えると、ご家族の金券が無いように見える）
+    const data = await fetchJsonArray(`${SUPABASE_URL}/rest/v1/customers?share_group_id=eq.${customer.share_group_id}&select=id,name,customer_number`, headers, "共有グループの取得");
+    if (data === null) { setShareGroupLoadError(true); return; }
+    setShareGroupMembers(data);
+    setShareGroupLoadError(false);
   };
 
   const searchShareCustomer = async (query) => {
@@ -1580,10 +1637,8 @@ const handleAdminQrInput = async (value) => {
     if (!customerId) return;
     const today = formatDate(new Date());
     const getJsonArray = async (url) => {
-      const r = await fetch(url, { headers });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const d = await r.json();
-      if (!Array.isArray(d)) throw new Error("応答が配列ではありません");
+      const d = await fetchJsonArray(url, headers, "保有金券の取得");
+      if (d === null) throw new Error("取得に失敗しました");
       return d;
     };
     try {
@@ -1817,9 +1872,16 @@ const handleAdminQrInput = async (value) => {
     const url = isNumber
       ? `${SUPABASE_URL}/rest/v1/customers?customer_number=eq.${encodeURIComponent(query)}`
       : `${SUPABASE_URL}/rest/v1/customers?name=ilike.*${kw}*&limit=50`;
-    const res = await fetch(url, { headers });
-    const data = await res.json();
-    if (Array.isArray(data) && data.length > 0) {
+    // 失敗したら「該当なし」と出さない（新規顧客として登録されて二重登録になる）。帯を出し、新規登録を止める
+    const data = await fetchJsonArray(url, headers, "顧客の検索");
+    if (data === null) {
+      setCustomerSearchError(true);
+      setCustomerSearchResults([]);
+      setCustomerSearchResult(null);
+      return;
+    }
+    setCustomerSearchError(false);
+    if (data.length > 0) {
       setCustomerSearchResults(data);
       setCustomerSearchResult(data[0]);
       if (data.length === 1) {
@@ -1982,7 +2044,17 @@ const handleAdminQrInput = async (value) => {
     const f = directBookingForm;
     if (directBookingMode === "normal" && (!f.customer_name || !f.course_id || !f.staff_id)) return;
     if (directBookingMode === "product" && (!f.customer_name || !directBookingProducts.some(p => p.name && p.price))) return;
+    // 顧客検索に失敗したまま顧客を選ばずに登録すると、既存の方が新規顧客として二重登録される
+    if (customerSearchError && !f.customer_id) {
+      alert("顧客を検索できませんでした。もう一度お試しください");
+      return;
+    }
     const targetStoreId = directBookingStore || currentStore.id;
+    // 本院のシフト・ブロックを読み込めていない間は、空き枠の判断を誤るので施術の予約は入れない
+    if (directBookingMode === "normal" && targetStoreId === currentStore.id && (shiftLoadError || blockLoadError)) {
+      alert("シフトを読み込めませんでした。表示されている空き枠は正しくない可能性があります。再読み込みしてください");
+      return;
+    }
     const targetStaffPool = targetStoreId === subStoreId ? subStaffMembers : staffMembers;
     // 担当スタッフがメニューを担当できるか（専任スタッフ → 担当カテゴリ）。物販のみはメニューが無いので対象外
     if (directBookingMode === "normal") {
@@ -2156,9 +2228,9 @@ const handleAdminQrInput = async (value) => {
   const searchGiftCustomer = async (query) => {
     if (!query) { setGiftCustomerResult(null); return; }
     const kw = encodeURIComponent(sanitizeSearch(query));
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?or=(name.ilike.*${kw}*,tel.ilike.*${kw}*)&select=id,name,tel,email,notification_method,line_user_id&limit=5`, { headers });
-    const data = await res.json();
-    setGiftCustomerResult(Array.isArray(data) ? data : []);
+    const data = await fetchJsonArray(`${SUPABASE_URL}/rest/v1/customers?or=(name.ilike.*${kw}*,tel.ilike.*${kw}*)&select=id,name,tel,email,notification_method,line_user_id&limit=5`, headers, "顧客の検索");
+    if (data === null) return; // 失敗したら前の状態を保つ（「該当なし」にしない）
+    setGiftCustomerResult(data);
   };
 
   const issueGiftTickets = async () => {
@@ -2416,9 +2488,11 @@ const handleAdminQrInput = async (value) => {
   const searchNotifyCustomer = async (query) => {
     if (!query) { setNotifyCustomerResult(null); return; }
     const kw = encodeURIComponent(sanitizeSearch(query));
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/customers?or=(name.ilike.*${kw}*,kana.ilike.*${kw}*,tel.ilike.*${kw}*,customer_number.ilike.*${kw}*)&is_deleted=eq.false&select=id,customer_number,name,tel,email,line_user_id,notification_method&order=customer_number.asc&limit=30`, { headers });
-    const data = await res.json();
-    setNotifyCustomerResult(Array.isArray(data) ? data : []);
+    const url = `${SUPABASE_URL}/rest/v1/customers?or=(name.ilike.*${kw}*,kana.ilike.*${kw}*,tel.ilike.*${kw}*,customer_number.ilike.*${kw}*)&is_deleted=eq.false&select=id,customer_number,name,tel,email,line_user_id,notification_method&order=customer_number.asc&limit=30`;
+    const data = await fetchJsonArray(url, headers, "顧客の検索");
+    if (data === null) { setNotifySearchError(true); setNotifyCustomerResult(null); return; }
+    setNotifySearchError(false);
+    setNotifyCustomerResult(data);
   };
 
   const fetchMonthCalendarData = async (month) => {
@@ -2449,17 +2523,17 @@ const handleAdminQrInput = async (value) => {
     const ids = [...new Set((customerIds || []).filter(Boolean))];
     if (ids.length === 0) return;
     const today = formatDate(new Date());
+    // どれか1つでも取得に失敗したら、前の表示を保ってカレンダーに帯を出す（金券マークが消えて「金券なし」に見えるため）
     // 1) 対象顧客の共有グループを1回で取得
-    const custRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=in.(${ids.join(",")})&select=id,share_group_id`, { headers });
-    const custData = await custRes.json();
-    const customers = Array.isArray(custData) ? custData : [];
+    const customers = await fetchJsonArray(`${SUPABASE_URL}/rest/v1/customers?id=in.(${ids.join(",")})&select=id,share_group_id`, headers, "予約カードの金券：顧客の取得");
+    if (customers === null) { setBookingTicketInfoError(true); return; }
     const groupIds = [...new Set(customers.map(c => c.share_group_id).filter(Boolean))];
     // 2) 共有グループがあれば、そのメンバー全員を1回で取得
     const membersByGroup = {};
     if (groupIds.length > 0) {
-      const groupRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?share_group_id=in.(${groupIds.join(",")})&select=id,share_group_id`, { headers });
-      const groupData = await groupRes.json();
-      if (Array.isArray(groupData)) {
+      const groupData = await fetchJsonArray(`${SUPABASE_URL}/rest/v1/customers?share_group_id=in.(${groupIds.join(",")})&select=id,share_group_id`, headers, "予約カードの金券：共有グループの取得");
+      if (groupData === null) { setBookingTicketInfoError(true); return; }
+      {
         groupData.forEach(m => {
           if (!membersByGroup[m.share_group_id]) membersByGroup[m.share_group_id] = [];
           membersByGroup[m.share_group_id].push(m.id);
@@ -2469,9 +2543,8 @@ const handleAdminQrInput = async (value) => {
     // 3) 金券を1回で取得（statusは絞らず、集計はクライアント側で行う）
     const ticketIds = new Set(ids);
     Object.values(membersByGroup).forEach(list => list.forEach(id => ticketIds.add(id)));
-    const tRes = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?customer_id=in.(${[...ticketIds].join(",")})&select=customer_id,ticket_type,status,expires_at`, { headers });
-    const tData = await tRes.json();
-    const tickets = Array.isArray(tData) ? tData : [];
+    const tickets = await fetchJsonArray(`${SUPABASE_URL}/rest/v1/gift_tickets?customer_id=in.(${[...ticketIds].join(",")})&select=customer_id,ticket_type,status,expires_at`, headers, "予約カードの金券：金券の取得");
+    if (tickets === null) { setBookingTicketInfoError(true); return; }
     // 顧客ごとに集計（cancelledは歴にも残枚数にも含めない／期限切れは残枚数に含めない）
     const perCustomer = {};
     tickets.forEach(t => {
@@ -2502,6 +2575,7 @@ const handleAdminQrInput = async (value) => {
     });
     // 本院・サブ院それぞれから呼ばれるため、置き換えずにマージする
     setBookingTicketInfo(prev => ({ ...prev, ...map }));
+    setBookingTicketInfoError(false);
   };
 
   // 表示中の日の予約の顧客について、問診票の有無・来院実績の有無をまとめて問い合わせる。
@@ -2573,6 +2647,25 @@ const handleAdminQrInput = async (value) => {
       }
     }
   };
+
+  // シフト・ブロック・予約カードの金券マークの取得に失敗したときの赤い帯（本院のカレンダーの上に出す）
+  const renderScheduleLoadError = () => {
+    if (!shiftLoadError && !blockLoadError && !bookingTicketInfoError) return null;
+    const reload = () => fetchAll(selectedDate || new Date()); // シフト・ブロック・金券マークもまとめて取り直す
+    return (
+      <div style={{ background: "#fdecea", border: "2px solid #d32f2f", borderRadius: 12, padding: "12px 16px", marginBottom: 12, fontSize: 13, fontWeight: 700, color: "#d32f2f", lineHeight: 1.6 }}>
+        {shiftLoadError && <div>⚠ シフトを読み込めませんでした。表示されている空き枠は正しくない可能性があります。再読み込みしてください</div>}
+        {blockLoadError && <div>⚠ 予約不可の枠（ブロック）を読み込めませんでした。表示されている空き枠は正しくない可能性があります。再読み込みしてください</div>}
+        {bookingTicketInfoError && <div>⚠ 予約カードの金券の保有状況を読み込めませんでした。金券マークが表示されていない可能性があります。</div>}
+        <button onClick={reload} style={{ marginTop: 6, padding: "4px 12px", borderRadius: 8, border: "2px solid #d32f2f", background: "white", color: "#d32f2f", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>再読み込み</button>
+        {(shiftLoadError || blockLoadError) && <div style={{ fontSize: 11, fontWeight: 400, color: "#a33", marginTop: 4 }}>読み込めるまで、このカレンダーからの予約登録（施術）はできません。</div>}
+      </div>
+    );
+  };
+
+  // 予約登録のボタンを押せなくする条件：顧客検索に失敗したまま顧客を選んでいない／本院のシフト・ブロックを読み込めていない（施術の予約）
+  const directBookingBlockedByLoadError = (customerSearchError && !directBookingForm.customer_id)
+    || ((directBookingStore || currentStore?.id) === currentStore?.id && (shiftLoadError || blockLoadError));
 
   // 予約の取得に失敗したときの赤い帯（カレンダー・予約一覧の上に出す）。includeSub=false なら本院分だけ見る
   const renderBookingLoadError = (includeSub = true) => {
@@ -3478,7 +3571,8 @@ const handleAdminQrInput = async (value) => {
                   </div>
                 )}
                 {customerSearchResults.length === 1 && customerSearchResult && <div style={{ marginTop: 8, padding: "10px 14px", background: "#eaf5ec", borderRadius: 10, fontSize: 13, color: "#3a5a3a" }}>✓ {customerSearchResult.name}（{customerSearchResult.kana}）{customerSearchResult.tel}</div>}
-                {customerSearchQuery && !customerSearchResult && <div style={{ marginTop: 8, fontSize: 12, color: "#e0a040" }}>該当なし → 下に手入力すると新規顧客として登録されます</div>}
+                {customerSearchError && <div style={{ marginTop: 8 }}><LoadErrorBand>顧客を検索できませんでした。もう一度お試しください</LoadErrorBand></div>}
+                {customerSearchQuery && !customerSearchResult && !customerSearchError && <div style={{ marginTop: 8, fontSize: 12, color: "#e0a040" }}>該当なし → 下に手入力すると新規顧客として登録されます</div>}
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>お名前 <span style={{ color: "#e07070" }}>*</span></label>
@@ -3589,9 +3683,9 @@ const handleAdminQrInput = async (value) => {
             <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
               <button onClick={() => { setDirectBookingModal(null); setDirectBookingMode("normal"); setDirectBookingProducts([{ name: "", price: "", quantity: 1 }]); setDirectBookingPayMethod("cash"); }} style={{ flex: 1, padding: "14px", borderRadius: 14, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>キャンセル</button>
               {directBookingMode === "normal" ? (
-                <button onClick={saveDirectBooking} disabled={isSavingDirectBooking || !directBookingForm.customer_name || !directBookingForm.course_id || !directBookingForm.staff_id} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id && directBookingForm.staff_id ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id && directBookingForm.staff_id ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id && directBookingForm.staff_id ? "pointer" : "not-allowed" }}>{isSavingDirectBooking ? "登録中..." : "予約を登録する"}</button>
+                <button onClick={saveDirectBooking} disabled={isSavingDirectBooking || !directBookingForm.customer_name || !directBookingForm.course_id || !directBookingForm.staff_id || directBookingBlockedByLoadError} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id && directBookingForm.staff_id ? "linear-gradient(135deg, #5a9e7a, #3a7a5a)" : "#e8ddd0", color: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id && directBookingForm.staff_id ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: !isSavingDirectBooking && directBookingForm.customer_name && directBookingForm.course_id && directBookingForm.staff_id ? "pointer" : "not-allowed" }}>{isSavingDirectBooking ? "登録中..." : "予約を登録する"}</button>
               ) : (
-                <button onClick={saveDirectBooking} disabled={isSavingDirectBooking || !directBookingForm.customer_name || !directBookingProducts.some(p => p.name && p.price)} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: !isSavingDirectBooking && directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "linear-gradient(135deg, #e07b39, #c05a20)" : "#e8ddd0", color: !isSavingDirectBooking && directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: !isSavingDirectBooking && directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "pointer" : "not-allowed" }}>{isSavingDirectBooking ? "登録中..." : "物販を登録する"}</button>
+                <button onClick={saveDirectBooking} disabled={isSavingDirectBooking || !directBookingForm.customer_name || !directBookingProducts.some(p => p.name && p.price) || (customerSearchError && !directBookingForm.customer_id)} style={{ flex: 2, padding: "14px", borderRadius: 14, border: "none", background: !isSavingDirectBooking && directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "linear-gradient(135deg, #e07b39, #c05a20)" : "#e8ddd0", color: !isSavingDirectBooking && directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "white" : "#bbb", fontSize: 15, fontWeight: 700, cursor: !isSavingDirectBooking && directBookingForm.customer_name && directBookingProducts.some(p => p.name && p.price) ? "pointer" : "not-allowed" }}>{isSavingDirectBooking ? "登録中..." : "物販を登録する"}</button>
               )}
             </div>
           </div>
@@ -4207,7 +4301,9 @@ const handleAdminQrInput = async (value) => {
       {/* 金券共有グループ */}
       <div style={{ marginBottom: 20, padding: "14px 18px", background: "#f9f6f2", borderRadius: 12 }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 10 }}>👨‍👩‍👧 金券共有グループ</div>
-        {shareGroupMembers.length > 0 ? (
+        {shareGroupLoadError ? (
+          <LoadErrorBand>共有グループのメンバーを読み込めませんでした。ご家族の金券が表示されていない可能性があります。画面を開き直してください。</LoadErrorBand>
+        ) : shareGroupMembers.length > 0 ? (
           <div style={{ marginBottom: 10 }}>
             {shareGroupMembers.map(m => (
               <div key={m.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", background: "white", borderRadius: 8, marginBottom: 4 }}>
@@ -4233,10 +4329,11 @@ const handleAdminQrInput = async (value) => {
         )}
       </div>
 
-      <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>予約履歴（{customerHistory.length}件）</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 12 }}>予約履歴（{customerHistoryError ? "—" : customerHistory.length}件）</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {customerHistory.length === 0 && <div style={{ color: "#aaa", fontSize: 13 }}>来院履歴がありません</div>}
-        {customerHistory.map((b, i) => (
+        {customerHistoryError && <LoadErrorBand>来院履歴を読み込めませんでした。初回の方とは限りません。画面を開き直してください。</LoadErrorBand>}
+        {!customerHistoryError && customerHistory.length === 0 && <div style={{ color: "#aaa", fontSize: 13 }}>来院履歴がありません</div>}
+        {!customerHistoryError && customerHistory.map((b, i) => (
           <div key={i}>
             <div onClick={() => { if (b.status === "completed") { setSelectedVisit(selectedVisit?.id === b.id ? null : b); fetchVisitDetail(b.id); } }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", background: "#f5f5f5", borderRadius: 10, cursor: b.status === "completed" ? "pointer" : "default" }}>
               <div>
@@ -5887,6 +5984,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                 </div>
                 {loading ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div> : (<>
                   {renderBookingLoadError(true)}
+                  {renderScheduleLoadError()}
                   {(() => {
                     // 枠に載らない予約（非在籍スタッフ担当・時刻の列がない・前の予約と重なる等）も見落とさないよう一覧で出す
                     const hidden = [
@@ -6206,6 +6304,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                         <button onClick={() => searchNotifyCustomer(notifyCustomerSearch)}
                           style={{ padding: "10px 16px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #5a9e7a, #3a7a5a)", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>検索</button>
                       </div>
+                      {notifySearchError && <LoadErrorBand>顧客を検索できませんでした。もう一度お試しください</LoadErrorBand>}
                       {notifyCustomerResult && notifyCustomerResult.map(c => (
                         <div key={c.id} onClick={() => { setNotifyCustomerId(c.id); setNotifyCustomerResult(null); setNotifyCustomerSearch(c.name); }}
                           style={{ padding: "10px 14px", background: notifyCustomerId === c.id ? "#eaf5ec" : "#f9f6f2", borderRadius: 10, cursor: "pointer", marginBottom: 4, fontSize: 13 }}>
