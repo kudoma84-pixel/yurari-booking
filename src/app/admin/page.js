@@ -263,6 +263,8 @@ export default function AdminPage() {
   const [importResult, setImportResult] = useState(null);
   const [importLoading, setImportLoading] = useState(false);
   const [dailyReport, setDailyReport] = useState(null);
+  // 日報の会計・予約のどちらかを読み込めなかったか。true の間は数字を一切出さない（0円が本物に見えるため）
+  const [dailyReportError, setDailyReportError] = useState(false);
   const [reportDate, setReportDate] = useState(jstToday());
   const [blockModal, setBlockModal] = useState(null);
   const [changeBookingModal, setChangeBookingModal] = useState(null);
@@ -402,6 +404,9 @@ export default function AdminPage() {
   const [shareGroupLoadError, setShareGroupLoadError] = useState(false);   // 金券共有グループのメンバー
   const [shiftLoadError, setShiftLoadError] = useState(false);             // カレンダーのシフト（本院）
   const [blockLoadError, setBlockLoadError] = useState(false);             // カレンダーのブロック（本院）
+  const [subStaffLoadError, setSubStaffLoadError] = useState(false);       // カレンダーのスタッフ（サブ院）
+  const [subShiftLoadError, setSubShiftLoadError] = useState(false);       // カレンダーのシフト（サブ院）
+  const [subBlockLoadError, setSubBlockLoadError] = useState(false);       // カレンダーのブロック（サブ院）
   const [bookingTicketInfoError, setBookingTicketInfoError] = useState(false); // 予約カードの金券マーク
   const [customerHistoryError, setCustomerHistoryError] = useState(false); // 顧客詳細の来院履歴
   const [expandedGiftCustomer, setExpandedGiftCustomer] = useState(null);
@@ -607,11 +612,10 @@ const handleAdminQrInput = async (value) => {
       return;
     }
     const usedElsewhere = issuedUsed.filter(t => String(t.booking_id) !== String(booking.id));
-    if (booking.payment) {
-      await fetch(`${SUPABASE_URL}/rest/v1/payment_items?payment_id=eq.${booking.payment.id}`, { method: "DELETE", headers });
-      await fetch(`${SUPABASE_URL}/rest/v1/payment_methods?payment_id=eq.${booking.payment.id}`, { method: "DELETE", headers });
-      await fetch(`${SUPABASE_URL}/rest/v1/payments?id=eq.${booking.payment.id}`, { method: "DELETE", headers });
-    }
+    // ── 取り消しの各処理 ──
+    // 1つずつ成否を確認し、失敗したらそこで止めて「終わった処理／終わっていない処理」を表示する
+    // （すべてを元に戻すのは難しいため、スタッフが手で直せるよう、どこまで進んだかを残す）。
+    // 途中で止まったときは再会計の画面には進まない。
     // 金券の戻し処理（方針）:
     // 金券を使うと booking_id は「使った会計」のものに書き換わるため、booking_id だけでは
     // 「この会計で発行した金券」と「この会計で使った金券」を区別できない。
@@ -628,23 +632,65 @@ const handleAdminQrInput = async (value) => {
     //   ④この会計で使った金券（booking_id がこの会計で used）→ 削除せず active に戻し、used_at/booking_id をクリア
     //       notes の記録がない古い金券で「この会計で発行・使用」か「別の会計で発行・この会計で使用」か判別できないものもここに入り、残る。
     // （issueMarks・issuedHereFilter・usedElsewhere は冒頭の確認で用意したもの）
-    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${issuedHereFilter}&status=eq.active`, { method: "DELETE", headers });
-    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?booking_id=eq.${booking.id}&checkout_action=in.(${issueMarks.join(",")})&notes=is.null&status=eq.active`, { method: "DELETE", headers });
-    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${issuedHereFilter}&booking_id=eq.${booking.id}&status=eq.used`, { method: "DELETE", headers });
-    await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?booking_id=eq.${booking.id}&status=eq.used`, {
-      method: "PATCH", headers,
-      body: JSON.stringify({ status: "active", used_at: null, booking_id: null }),
-    });
-    await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${booking.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "treatment_done", completed_at: null }) });
     // ポイントを1点戻す。ポイントが付かない会計（物販のみ・施術がしきい値以下）は加算していないので戻さない。
     // 明細が読めていない場合は従来どおり戻す。
     const pointWasAdded = Array.isArray(booking.paymentItems) ? isPointEligibleItems(booking.paymentItems) : true;
-    if (booking.customer_id && pointWasAdded) {
-      const ptRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${booking.customer_id}&select=points`, { headers });
-      const ptData = await ptRes.json();
-      if (ptData && ptData[0] && ptData[0].points > 0) {
-        await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${booking.customer_id}`, { method: "PATCH", headers, body: JSON.stringify({ points: ptData[0].points - 1 }) });
+    const req = (url, init) => async () => (await fetch(url, init)).ok;
+    const steps = [
+      ...(booking.payment ? [
+        { label: "会計の明細の削除", run: req(`${SUPABASE_URL}/rest/v1/payment_items?payment_id=eq.${booking.payment.id}`, { method: "DELETE", headers }) },
+        { label: "会計の支払い方法の削除", run: req(`${SUPABASE_URL}/rest/v1/payment_methods?payment_id=eq.${booking.payment.id}`, { method: "DELETE", headers }) },
+        { label: "会計そのものの削除", run: req(`${SUPABASE_URL}/rest/v1/payments?id=eq.${booking.payment.id}`, { method: "DELETE", headers }) },
+      ] : []),
+      // ①
+      { label: "この会計で発行した未使用の金券の削除", run: req(`${SUPABASE_URL}/rest/v1/gift_tickets?${issuedHereFilter}&status=eq.active`, { method: "DELETE", headers }) },
+      { label: "この会計で発行した未使用の金券（発行元の記録がない古い金券）の削除", run: req(`${SUPABASE_URL}/rest/v1/gift_tickets?booking_id=eq.${booking.id}&checkout_action=in.(${issueMarks.join(",")})&notes=is.null&status=eq.active`, { method: "DELETE", headers }) },
+      // ②（④より先に行う）
+      { label: "この会計で発行して、この会計で使った金券の削除", run: req(`${SUPABASE_URL}/rest/v1/gift_tickets?${issuedHereFilter}&booking_id=eq.${booking.id}&status=eq.used`, { method: "DELETE", headers }) },
+      // ④
+      { label: "この会計で使った金券を未使用に戻す", run: req(`${SUPABASE_URL}/rest/v1/gift_tickets?booking_id=eq.${booking.id}&status=eq.used`, {
+        method: "PATCH", headers,
+        body: JSON.stringify({ status: "active", used_at: null, booking_id: null }),
+      }) },
+      { label: "予約を会計前（施術済み）に戻す", run: req(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${booking.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "treatment_done", completed_at: null }) }) },
+      ...(booking.customer_id && pointWasAdded ? [
+        { label: "ポイントを1戻す", run: async () => {
+          const ptRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${booking.customer_id}&select=points`, { headers });
+          if (!ptRes.ok) return false;
+          const ptData = await ptRes.json();
+          if (!Array.isArray(ptData)) return false;
+          if (ptData[0] && ptData[0].points > 0) {
+            return (await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${booking.customer_id}`, { method: "PATCH", headers, body: JSON.stringify({ points: ptData[0].points - 1 }) })).ok;
+          }
+          return true;
+        } },
+      ] : []),
+    ];
+    const doneLabels = [];
+    for (let i = 0; i < steps.length; i++) {
+      let ok = false;
+      try {
+        ok = await steps[i].run();
+      } catch (e) {
+        console.error("[会計取り消し] 処理に失敗しました", steps[i].label, e);
       }
+      if (!ok) {
+        const notDone = steps.slice(i).map((st, k) => k === 0 ? `${st.label}（ここで失敗）` : st.label);
+        console.error("[会計取り消し] 途中で止まりました", { booking_id: booking.id, payment_id: booking.payment?.id, done: doneLabels, not_done: notDone });
+        const who = [booking.customers?.name && `${booking.customers.name}様`, booking.booking_date, booking.booking_time && String(booking.booking_time).slice(0, 5)].filter(Boolean).join(" ");
+        alert(
+          "会計の取り消しが途中で止まりました。\n" +
+          (who ? `対象：${who}\n` : "") +
+          `\n終わった処理：${doneLabels.length ? "\n・" + doneLabels.join("\n・") : "なし"}` +
+          `\n\n終わっていない処理：\n・${notDone.join("\n・")}` +
+          "\n\n画面を開き直して、状態を確認してください。"
+        );
+        setSelectedCompletedPayment(null);
+        fetchCompletedBookings();
+        fetchTodayBookings();
+        return;
+      }
+      doneLabels.push(steps[i].label);
     }
     if (Array.isArray(usedElsewhere) && usedElsewhere.length > 0) {
       alert(`この会計で発行した金券のうち${usedElsewhere.length}枚は、すでに別の会計で使用済みのため回収できません。\n（再会計で金券の販売・プレゼントをやり直すと、その分多く発行されます）`);
@@ -939,15 +985,19 @@ const handleAdminQrInput = async (value) => {
 
   const fetchDailyReport = async (dateStr) => {
     // 売上は売上計上日（sales_date）で集計する（会計一覧と同じ基準）
-    const [paymentsRes, bookingsRes] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&${salesDateRangeFilter(dateStr, dateStr)}&select=*,payment_methods(method,amount)`, { headers }),
-      fetch(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${dateStr}&select=*,customers(name)`, { headers }),
+    // 会計・予約のどちらか1つでも読み込めなければ、日報全体を出さない（「売上だけ0」のような表示にしない）
+    const [payments, bookings] = await Promise.all([
+      fetchJsonArray(`${SUPABASE_URL}/rest/v1/payments?store_id=eq.${currentStore.id}&${salesDateRangeFilter(dateStr, dateStr)}&select=*,payment_methods(method,amount)`, headers, "日報：会計の取得"),
+      fetchJsonArray(`${SUPABASE_URL}/rest/v1/bookings?store_id=eq.${currentStore.id}&booking_date=eq.${dateStr}&select=*,customers(name)`, headers, "日報：予約の取得"),
     ]);
-    const payments = await paymentsRes.json();
-    const bookings = await bookingsRes.json();
+    if (payments === null || bookings === null) {
+      setDailyReportError(true);
+      return;
+    }
+    setDailyReportError(false);
 
-    const validPayments = Array.isArray(payments) ? payments : [];
-    const validBookings = Array.isArray(bookings) ? bookings : [];
+    const validPayments = payments;
+    const validBookings = bookings;
 
     // 売上集計
     const totalSales = validPayments.reduce((s, p) => s + (p.total || 0), 0);
@@ -2050,8 +2100,8 @@ const handleAdminQrInput = async (value) => {
       return;
     }
     const targetStoreId = directBookingStore || currentStore.id;
-    // 本院のシフト・ブロックを読み込めていない間は、空き枠の判断を誤るので施術の予約は入れない
-    if (directBookingMode === "normal" && targetStoreId === currentStore.id && (shiftLoadError || blockLoadError)) {
+    // その院（本院・サブ院）のシフト・ブロックを読み込めていない間は、空き枠の判断を誤るので施術の予約は入れない
+    if (directBookingMode === "normal" && scheduleLoadErrorFor(targetStoreId)) {
       alert("シフトを読み込めませんでした。表示されている空き枠は正しくない可能性があります。再読み込みしてください");
       return;
     }
@@ -2626,10 +2676,15 @@ const handleAdminQrInput = async (value) => {
       get(`${SUPABASE_URL}/rest/v1/shifts?store_id=eq.${subStoreId}&work_date=eq.${d}`),
       get(`${SUPABASE_URL}/rest/v1/blocks?store_id=eq.${subStoreId}&block_date=eq.${d}`),
     ]);
-    // スタッフ・シフト・ブロックは従来どおり（通信自体が失敗したときだけ前の値を残す）
-    if (!staffR.error) setSubStaffMembers(Array.isArray(staffR.data) ? staffR.data : []);
-    if (!shiftR.error) setSubShifts(Array.isArray(shiftR.data) ? shiftR.data : []);
-    if (!blockR.error) setSubBlocks(Array.isArray(blockR.data) ? blockR.data : []);
+    // スタッフ・シフト・ブロックは、取得に失敗したら（通信エラー・HTTPエラー・配列でない応答）前の値を保ち、カレンダーに帯を出す。
+    // 以前は HTTPエラーのとき空配列で上書きしており、スタッフ行が消える・シフトが空に見える事故につながった（本院と同じ扱い）。
+    const okArray = (r) => r.ok && Array.isArray(r.data);
+    if (okArray(staffR)) { setSubStaffMembers(staffR.data); setSubStaffLoadError(false); }
+    else { console.error("[管理画面] サブ院のスタッフの取得に失敗しました", key, staffR.status, staffR.error || JSON.stringify(staffR.data)?.slice(0, 200)); setSubStaffLoadError(true); }
+    if (okArray(shiftR)) { setSubShifts(shiftR.data); setSubShiftLoadError(false); }
+    else { console.error("[管理画面] サブ院のシフトの取得に失敗しました", key, shiftR.status, shiftR.error || JSON.stringify(shiftR.data)?.slice(0, 200)); setSubShiftLoadError(true); }
+    if (okArray(blockR)) { setSubBlocks(blockR.data); setSubBlockLoadError(false); }
+    else { console.error("[管理画面] サブ院のブロックの取得に失敗しました", key, blockR.status, blockR.error || JSON.stringify(blockR.data)?.slice(0, 200)); setSubBlockLoadError(true); }
     // 予約は失敗しても黙って空にしない（メイン院の fetchBookings と同じ扱い）
     if (bookR.ok && Array.isArray(bookR.data)) {
       subBookingsKeyRef.current = key;
@@ -2650,22 +2705,33 @@ const handleAdminQrInput = async (value) => {
 
   // シフト・ブロック・予約カードの金券マークの取得に失敗したときの赤い帯（本院のカレンダーの上に出す）
   const renderScheduleLoadError = () => {
-    if (!shiftLoadError && !blockLoadError && !bookingTicketInfoError) return null;
-    const reload = () => fetchAll(selectedDate || new Date()); // シフト・ブロック・金券マークもまとめて取り直す
+    const subErr = !!subStoreId && (subStaffLoadError || subShiftLoadError || subBlockLoadError);
+    if (!shiftLoadError && !blockLoadError && !bookingTicketInfoError && !subErr) return null;
+    // シフト・ブロック・金券マーク（本院）と、サブ院のスタッフ・シフト・ブロックをまとめて取り直す
+    const reload = () => { const d = selectedDate || new Date(); fetchAll(d); fetchSubAll(d); };
+    const subName = subStoreName || "サブ院";
     return (
       <div style={{ background: "#fdecea", border: "2px solid #d32f2f", borderRadius: 12, padding: "12px 16px", marginBottom: 12, fontSize: 13, fontWeight: 700, color: "#d32f2f", lineHeight: 1.6 }}>
         {shiftLoadError && <div>⚠ シフトを読み込めませんでした。表示されている空き枠は正しくない可能性があります。再読み込みしてください</div>}
         {blockLoadError && <div>⚠ 予約不可の枠（ブロック）を読み込めませんでした。表示されている空き枠は正しくない可能性があります。再読み込みしてください</div>}
         {bookingTicketInfoError && <div>⚠ 予約カードの金券の保有状況を読み込めませんでした。金券マークが表示されていない可能性があります。</div>}
+        {subStoreId && subStaffLoadError && <div>⚠ {subName}のスタッフを読み込めませんでした。スタッフの行が表示されていない可能性があります。再読み込みしてください</div>}
+        {subStoreId && subShiftLoadError && <div>⚠ {subName}のシフトを読み込めませんでした。表示されている空き枠は正しくない可能性があります。再読み込みしてください</div>}
+        {subStoreId && subBlockLoadError && <div>⚠ {subName}の予約不可の枠（ブロック）を読み込めませんでした。表示されている空き枠は正しくない可能性があります。再読み込みしてください</div>}
         <button onClick={reload} style={{ marginTop: 6, padding: "4px 12px", borderRadius: 8, border: "2px solid #d32f2f", background: "white", color: "#d32f2f", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>再読み込み</button>
-        {(shiftLoadError || blockLoadError) && <div style={{ fontSize: 11, fontWeight: 400, color: "#a33", marginTop: 4 }}>読み込めるまで、このカレンダーからの予約登録（施術）はできません。</div>}
+        {(shiftLoadError || blockLoadError || subErr) && <div style={{ fontSize: 11, fontWeight: 400, color: "#a33", marginTop: 4 }}>読み込めるまで、{[(shiftLoadError || blockLoadError) && currentStore?.name, subErr && subName].filter(Boolean).join("・")}の予約登録（施術）はできません。20秒ごとに自動で取り直します。</div>}
       </div>
     );
   };
 
+  // その院のスタッフ・シフト・ブロックを読み込めていないか（読み込めていない間は施術の予約を入れない）
+  const scheduleLoadErrorFor = (storeId) => storeId && storeId === subStoreId
+    ? (subStaffLoadError || subShiftLoadError || subBlockLoadError)
+    : (shiftLoadError || blockLoadError);
+
   // 予約登録のボタンを押せなくする条件：顧客検索に失敗したまま顧客を選んでいない／本院のシフト・ブロックを読み込めていない（施術の予約）
   const directBookingBlockedByLoadError = (customerSearchError && !directBookingForm.customer_id)
-    || ((directBookingStore || currentStore?.id) === currentStore?.id && (shiftLoadError || blockLoadError));
+    || scheduleLoadErrorFor(directBookingStore || currentStore?.id);
 
   // 予約の取得に失敗したときの赤い帯（カレンダー・予約一覧の上に出す）。includeSub=false なら本院分だけ見る
   const renderBookingLoadError = (includeSub = true) => {
@@ -4715,7 +4781,13 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
               <input type="date" value={reportDate} onChange={e => { setReportDate(e.target.value); fetchDailyReport(e.target.value); }}
                 style={{ padding: "8px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14 }} />
             </div>
-            {!dailyReport ? (
+            {dailyReportError ? (
+              <div style={{ background: "#fdecea", border: "2px solid #d32f2f", borderRadius: 12, padding: "16px 20px", fontSize: 14, fontWeight: 700, color: "#d32f2f", lineHeight: 1.7 }}>
+                ⚠ 日報を読み込めませんでした。数字は表示していません。<br />
+                再読み込みしてください。
+                <div><button onClick={() => fetchDailyReport(reportDate)} style={{ marginTop: 8, padding: "6px 16px", borderRadius: 8, border: "2px solid #d32f2f", background: "white", color: "#d32f2f", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>再読み込み</button></div>
+              </div>
+            ) : !dailyReport ? (
               <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>読み込み中...</div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
