@@ -195,6 +195,17 @@ const bookingCardTitle = (booking) => [
   booking.booking_time,
 ].filter(Boolean).join("\n");
 
+// 会計画面・顧客詳細：その顧客の保有金券（fetchCustomerTickets）を読み込めなかったときの赤い帯
+function TicketLoadErrorBand() {
+  return (
+    <div style={{ background: "#fdecea", border: "1px solid #e57373", color: "#b71c1c", borderRadius: 8, padding: "10px 12px", marginBottom: 8, fontSize: 13, fontWeight: 700, lineHeight: 1.6 }}>
+      金券の保有状況を読み込めませんでした。<br />
+      このまま進めると、実際にお持ちの金券が減りません。<br />
+      画面を開き直してください。
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [currentStore, setCurrentStore] = useState(null);
@@ -353,6 +364,9 @@ export default function AdminPage() {
   // 顧客一覧・保有金券数の取得に失敗したとき（一覧は前のまま残し、顧客一覧の先頭に帯を出す）
   const [customersError, setCustomersError] = useState(false);
   const [customerTicketsError, setCustomerTicketsError] = useState(false);
+  // 会計画面・顧客詳細の「その顧客の使える金券」（fetchCustomerTickets）を読み込めなかったか。
+  // customerTicketsError（顧客一覧の保有枚数の集計）とは別物。true の間は金券の枚数を増やせない。
+  const [customerTicketsLoadError, setCustomerTicketsLoadError] = useState(false);
   const [expandedGiftCustomer, setExpandedGiftCustomer] = useState(null);
   const [notifyTarget, setNotifyTarget] = useState("all"); // all / individual
   const [notifyCustomerId, setNotifyCustomerId] = useState("");
@@ -525,12 +539,18 @@ const handleAdminQrInput = async (value) => {
       if (Array.isArray(bData)) bData.forEach(b => { bookingMap[b.id] = b; });
     }
     const rows = await Promise.all(payments.map(async payment => {
-      const piRes = await fetch(`${SUPABASE_URL}/rest/v1/payment_items?payment_id=eq.${payment.id}&select=*`, { headers });
-      const piData = await piRes.json();
+      // 明細を読めなかったときは null にする（空配列にすると、会計取り消しで「ポイント加算の対象外だった」と誤判定してポイントを戻さない）
+      let piData = null;
+      try {
+        const piRes = await fetch(`${SUPABASE_URL}/rest/v1/payment_items?payment_id=eq.${payment.id}&select=*`, { headers });
+        if (piRes.ok) piData = await piRes.json();
+      } catch (e) {
+        console.error("[会計一覧] 明細を読み込めませんでした", payment.id, e);
+      }
       const b = bookingMap[payment.booking_id];
       // 予約に紐づかない会計も日報の合計に含まれるため一覧に出す（修正は予約単位のため不可）
       const base = b || { id: `payment_${payment.id}`, noBooking: true, customer_id: payment.customer_id, customers: null, booking_time: "", course_name: "予約なしの会計", staff_name: "" };
-      return { ...base, payment, paymentItems: Array.isArray(piData) ? piData : [], salesDate: paymentSalesDate(payment) };
+      return { ...base, payment, paymentItems: Array.isArray(piData) ? piData : null, salesDate: paymentSalesDate(payment) };
     }));
     rows.sort((a, b) => (a.booking_time || "").localeCompare(b.booking_time || ""));
     setCompletedBookings(rows);
@@ -1551,24 +1571,39 @@ const handleAdminQrInput = async (value) => {
     }
   };
 
+  // その顧客の使える金券（共有グループ分を含む・期限の近い順）を読み込む。
+  // 会計画面は「保有を超えた枚数は未登録の紙の金券」とみなすため、取得に失敗して0枚に見えると実在する金券が減らない。
+  // そのため失敗したら customerTickets を書き換えず（前の状態を保つ）、customerTicketsLoadError を立てて赤い帯を出す。
+  // 共有グループ（本人の share_group_id・グループのメンバー）の取得失敗も同じ扱い（ご家族の金券が見えなくなるため）。
+  // 複数箇所から try/catch なしで呼ばれるので、例外は投げない。
   const fetchCustomerTickets = async (customerId) => {
     if (!customerId) return;
     const today = formatDate(new Date());
-    // 共有グループを確認
-    const custRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}&select=share_group_id`, { headers });
-    const custData = await custRes.json();
-    const shareGroupId = custData?.[0]?.share_group_id;
-    let idList = [customerId];
-    if (shareGroupId) {
-      // 同じグループの全メンバーを取得
-      const groupRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?share_group_id=eq.${shareGroupId}&select=id`, { headers });
-      const groupData = await groupRes.json();
-      if (Array.isArray(groupData) && groupData.length > 0) idList = groupData.map(c => c.id);
+    const getJsonArray = async (url) => {
+      const r = await fetch(url, { headers });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      if (!Array.isArray(d)) throw new Error("応答が配列ではありません");
+      return d;
+    };
+    try {
+      // 共有グループを確認
+      const custData = await getJsonArray(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customerId}&select=share_group_id`);
+      const shareGroupId = custData[0]?.share_group_id;
+      let idList = [customerId];
+      if (shareGroupId) {
+        // 同じグループの全メンバーを取得
+        const groupData = await getJsonArray(`${SUPABASE_URL}/rest/v1/customers?share_group_id=eq.${shareGroupId}&select=id`);
+        if (groupData.length > 0) idList = groupData.map(c => c.id);
+      }
+      const idFilter = idList.length > 1 ? `customer_id=in.(${idList.join(",")})` : `customer_id=eq.${customerId}`;
+      const data = await getJsonArray(`${SUPABASE_URL}/rest/v1/gift_tickets?${idFilter}&status=eq.active&expires_at=gte.${today}&select=*,customers(name)&order=expires_at.asc`);
+      setCustomerTickets(data);
+      setCustomerTicketsLoadError(false);
+    } catch (e) {
+      console.error("[金券] 保有金券を読み込めませんでした", customerId, e);
+      setCustomerTicketsLoadError(true);
     }
-    const idFilter = idList.length > 1 ? `customer_id=in.(${idList.join(",")})` : `customer_id=eq.${customerId}`;
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?${idFilter}&status=eq.active&expires_at=gte.${today}&select=*,customers(name)&order=expires_at.asc`, { headers });
-    const data = await res.json();
-    setCustomerTickets(Array.isArray(data) ? data : []);
   };
 
   const fetchAllCustomerTickets = async () => {
@@ -2864,6 +2899,11 @@ const handleAdminQrInput = async (value) => {
       alert("施術やメニューが1つも選択されていません");
       return;
     }
+    // 保有金券を読み込めていないときに金券払いで確定すると、実在する金券を「未登録の紙の金券」として扱ってしまうので止める
+    if (customerTicketsLoadError && ticketPayCounts.purchase + ticketPayCounts.present > 0) {
+      alert("金券の保有状況を読み込めませんでした。\nこのまま進めると、実際にお持ちの金券が減りません。\n画面を開き直してください。\n\n会計は確定していません。");
+      return;
+    }
     // 保有枚数を超える金券払いは、未登録の紙の金券の可能性があるため確認のうえ続行できるようにする
     if (ticketOverCounts.purchase + ticketOverCounts.present > 0) {
       const lines = [];
@@ -4147,6 +4187,7 @@ const handleAdminQrInput = async (value) => {
       {/* 保有金券 */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 10 }}>保有金券</div>
+        {customerTicketsLoadError && <TicketLoadErrorBand />}
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1, background: "#f0f8f4", borderRadius: 12, padding: "12px 16px", textAlign: "center" }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: "#5a9e7a", marginBottom: 4 }}>A. 購入金券</div>
@@ -5222,7 +5263,8 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                           </div>
                           {selectedCompletedPayment?.id === b.id && b.payment && (
                             <div style={{ marginTop: 12, padding: "12px", background: "#f9f6f2", borderRadius: 10 }}>
-                              {b.paymentItems.map((item, i) => (
+                              {!Array.isArray(b.paymentItems) && <div style={{ fontSize: 12, color: "#b71c1c", fontWeight: 700, padding: "4px 0" }}>明細を読み込めませんでした。画面を開き直してください。</div>}
+                              {(b.paymentItems || []).map((item, i) => (
                                 <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0", borderBottom: "1px solid #f0e8d8" }}>
                                   <span>{item.item_name}</span>
                                   <span>¥{(item.price * item.quantity).toLocaleString()}</span>
@@ -5386,6 +5428,7 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                         </div>
                         {isTicket && (
                           <div style={{ marginTop: 6, background: "#f9f6f2", borderRadius: 10, padding: "10px 12px" }}>
+                            {customerTicketsLoadError && <TicketLoadErrorBand />}
                             <div style={{ fontSize: 12, color: "#555", marginBottom: 8 }}>
                               保有：購入 <b>{heldPurchaseTickets.length}</b>枚／プレゼント <b>{heldPresentTickets.length}</b>枚
                               {hasSharedTickets && <span style={{ fontSize: 10, color: "#888" }}>　※共有グループ含む</span>}
@@ -5396,7 +5439,8 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                   <button onClick={() => changeTicketCountAt(idx, r.key, -1)} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${r.border}`, background: "white", cursor: "pointer", fontSize: 15, color: r.color }}>－</button>
                                   <span style={{ fontSize: 18, fontWeight: 700, color: "#3a5a3a", minWidth: 24, textAlign: "center" }}>{pm[r.key] || 0}</span>
-                                  <button onClick={() => changeTicketCountAt(idx, r.key, 1)} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${r.border}`, background: "white", cursor: "pointer", fontSize: 15, color: r.color }}>＋</button>
+                                  {/* 保有金券を読み込めていない間は増やせない（実在する金券が未登録扱いになるため） */}
+                                  <button disabled={customerTicketsLoadError} onClick={() => { if (!customerTicketsLoadError) changeTicketCountAt(idx, r.key, 1); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${r.border}`, background: customerTicketsLoadError ? "#eee" : "white", cursor: customerTicketsLoadError ? "not-allowed" : "pointer", fontSize: 15, color: customerTicketsLoadError ? "#bbb" : r.color }}>＋</button>
                                   <span style={{ fontSize: 11, color: "#888" }}>枚</span>
                                 </div>
                               </div>
@@ -5509,7 +5553,8 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                         {/* 保有枚数（使用は「支払い方法」で金券を選び、枚数で指定する） */}
                         <div style={{ marginBottom: 16 }}>
                           <div style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", marginBottom: 8 }}>保有枚数</div>
-                          {customerTickets.length === 0 ? (
+                          {customerTicketsLoadError && <TicketLoadErrorBand />}
+                          {customerTicketsLoadError ? null : customerTickets.length === 0 ? (
                             <div style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: 12 }}>金券がありません</div>
                           ) : (
                             <>
