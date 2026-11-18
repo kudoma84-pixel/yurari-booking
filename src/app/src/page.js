@@ -215,6 +215,10 @@ function AppInner() {
   const shiftReqRef = useRef(0);
   const [bookedSlots, setBookedSlots] = useState([]);
   const [bookedSlots2, setBookedSlots2] = useState([]);
+  // 確定の直前に枠が埋まっていたとき、サーバーが返す近い空き時刻（確認画面に「この時間はいかがですか」として出す）
+  const [slotAlternatives, setSlotAlternatives] = useState([]);
+  // 確認画面を離れたら（日時の選び直しなど）出していた空き時刻は消す
+  useEffect(() => { if (step !== 3) setSlotAlternatives([]); }, [step]);
   const [showAddEsthe, setShowAddEsthe] = useState(false);
   const [course2, setCourse2] = useState(null);
   const [courseVisitType2, setCourseVisitType2] = useState(null);
@@ -635,6 +639,7 @@ function AppInner() {
   const handleSubmit = async () => {
     setLoading(true);
     setError("");
+    setSlotAlternatives([]);
     const num = "YR-" + Date.now().toString().slice(-6);
     try {
       // 顧客はログイン・登録の段階で確定している必要がある。
@@ -689,8 +694,16 @@ function AppInner() {
           : createRes.status === 409
           ? "お客様情報が確認できなかったため、予約を登録できませんでした。お手数ですが最初からやり直してください。"
           : createRes.status === 422 && createData?.error
-            ? createData.error // 担当スタッフがメニューを担当できない・受付時間外
+            ? createData.error // 担当スタッフがメニューを担当できない・受付時間外・確定の直前に枠が埋まった
             : "予約の登録に失敗しました。通信状態をご確認のうえ、もう一度お試しください。");
+        if (createRes.status === 422 && createData?.code === "slot_taken") {
+          // 近い空き時刻があればボタンで出す。日時を選び直しに戻ったときに埋まった枠が選べないよう、空き枠も取り直す
+          setSlotAlternatives(Array.isArray(createData.alternatives) ? createData.alternatives.filter((t) => TIME_SLOTS.includes(t)).slice(0, 3) : []);
+          if (store && staff && date) {
+            fetchBookedSlots(staff.id, store.id, formatDate(date));
+            if (course2 && staff2) fetchBookedSlots(staff2.id, store.id, formatDate(date), setBookedSlots2);
+          }
+        }
         setLoading(false);
         return;
       }
@@ -1444,6 +1457,21 @@ function AppInner() {
               )}
             </div>
             {error && <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#cc4444", whiteSpace: "pre-line" }}>{error}</div>}
+            {/* 確定の直前に枠が埋まったとき：近い空き時刻を出し、押すと時刻だけ差し替えてこの確認画面のまま（店舗・メニュー・担当・お客様情報はそのまま） */}
+            {slotAlternatives.length > 0 && !loading && (
+              <div style={{ background: "white", border: "2px solid " + LIGHT_GREEN, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: GREEN, marginBottom: 10 }}>この時間はいかがですか</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {slotAlternatives.map((t) => (
+                    <button key={t} onClick={() => { setTime(t); setError(""); setSlotAlternatives([]); }}
+                      style={{ padding: "10px 18px", borderRadius: 10, border: "2px solid " + GREEN, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>
+                      {t}〜
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: "#888", marginTop: 8 }}>押すと時間だけ変わります。内容をご確認のうえ、もう一度「確定する」を押してください。</div>
+              </div>
+            )}
             <button onClick={handleSubmit} disabled={loading} style={{ width: "100%", padding: "18px", borderRadius: 14, border: "none", cursor: loading ? "not-allowed" : "pointer", background: loading ? "#aaa" : GREEN, color: "white", fontSize: 16, fontWeight: 700 }}>
               {loading ? "送信中..." : changeBookingId ? "✓ この内容で予約を変更する" : "✓ この内容で予約を確定する"}
             </button>
