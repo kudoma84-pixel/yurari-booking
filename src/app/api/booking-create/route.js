@@ -36,6 +36,110 @@ const fail = (status, error, log, code) => {
   return NextResponse.json(code ? { error, code } : { error }, { status });
 };
 
+// ── 空き枠の再確認で使う部品 ─────────────────────────
+// 予約フォームの時刻の選択肢（src/app/src/page.js の TIME_SLOTS と同じ。10:00〜19:00 の30分刻み）
+const TIME_SLOTS = Array.from({ length: 19 }, (_, i) => fromMin(600 + i * 30));
+// 有効な予約の状態（画面の空き枠 /api/booking-form/booked-slots と同じ。キャンセル・会計済みなどは含めない）
+const ACTIVE_STATUSES = "confirmed,received,treatment_done";
+// 休憩（13:30〜14:30）。time_extensions で解放されていなければ予約できない（画面と同じ）
+const BREAK_SLOTS = [["13:30", "break_released_1330"], ["14:00", "break_released_1400"], ["14:30", "break_released_1430"]];
+
+function toMin(t) {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(t ?? ""));
+  return m ? Number(m[1]) * 60 + Number(m[2]) : NaN;
+}
+function fromMin(n) {
+  return String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
+}
+// 所要時間は「30分」「90」などの表記ゆれがあるため、画面と同じく数字だけを取り出して分とする（読めなければ30分）
+function durationMin(d) {
+  return parseInt(String(d ?? "").replace(/[^0-9]/g, ""), 10) || 30;
+}
+// 予約 w（担当・日・開始・所要時間）と時間帯が重なる予約があるか
+function overlapsAny(existing, w) {
+  return existing.some((r) => String(r.staff_id) === String(w.staff_id) && r.booking_date === w.date
+    && r.start < w.start + w.dur && w.start < r.start + r.dur);
+}
+
+// 対象の担当・日の有効な予約（変更元の予約は除く）。所要時間が入っていない予約はコースの所要時間で補う（booked-slots と同じ）
+async function fetchActiveBookings(headers, slots, changeBookingId) {
+  if (slots.length === 0) return [];
+  const staffIds = [...new Set(slots.map((x) => x.staff_id))].join(",");
+  const dates = [...new Set(slots.map((x) => x.date))].join(",");
+  const exclude = changeBookingId ? `&id=neq.${encodeURIComponent(changeBookingId)}` : "";
+  const rows = await sbFetch(headers,
+    `bookings?staff_id=in.(${staffIds})&booking_date=in.(${dates})&status=in.(${ACTIVE_STATUSES})${exclude}` +
+    `&select=id,staff_id,booking_date,booking_time,course_id,course_duration`);
+  const list = Array.isArray(rows) ? rows : [];
+  const missing = [...new Set(list.filter((r) => !r.course_duration && r.course_id).map((r) => String(r.course_id)))].filter(isSafeId);
+  let courses = [];
+  if (missing.length > 0) {
+    const c = await sbFetch(headers, `course_menus?id=in.(${missing.join(",")})&select=id,duration`);
+    courses = Array.isArray(c) ? c : [];
+  }
+  return list
+    .map((r) => ({
+      ...r,
+      start: toMin(r.booking_time),
+      dur: durationMin(r.course_duration || courses.find((c) => String(c.id) === String(r.course_id))?.duration),
+    }))
+    .filter((r) => Number.isFinite(r.start));
+}
+
+// 同じ日・同じ担当で、希望の時刻に近い空き時刻を最大3つ（早い順）。
+// 予約フォームで選べる時刻と同じ条件で絞る：時刻の選択肢・受付時間（シフト）・休院日・休憩・ブロック・当日の受付締切・他の予約。
+// 連続予約は、1件目の開始時刻をずらし、2件目は今までどおり1件目の終了時刻から始まるものとして確認する。
+async function findAlternatives(headers, bookings, want, existing) {
+  const first = bookings[0];
+  const storeId = first?.store_id;
+  const date = first?.booking_date;
+  if (!isSafeId(storeId) || !isDate(date) || bookings.some((b) => b?.store_id !== storeId || b?.booking_date !== date)) return [];
+  const staffIds = [...new Set([...want.map((w) => w.staff_id).filter((id) => id !== "any"), "closed"])];
+  const [shiftRows, extRows, blockRows, settingRows] = await Promise.all([
+    sbFetch(headers, `shifts?store_id=eq.${storeId}&work_date=eq.${date}&staff_id=in.(${staffIds.join(",")})&select=staff_id,start_time,end_time`),
+    sbFetch(headers, `time_extensions?store_id=eq.${storeId}&extension_date=eq.${date}&order=created_at.desc&limit=1`),
+    sbFetch(headers, `blocks?store_id=eq.${storeId}&block_date=eq.${date}&select=staff_id,block_time`),
+    sbFetch(headers, `store_settings?store_id=eq.${storeId}&select=same_day_lead_time`),
+  ]);
+  const shifts = Array.isArray(shiftRows) ? shiftRows : [];
+  if (shifts.some((r) => r.staff_id === "closed")) return [];
+  const ext = Array.isArray(extRows) ? extRows[0] || null : null;
+  const blocks = Array.isArray(blockRows) ? blockRows : [];
+  const leadMin = Number(Array.isArray(settingRows) ? settingRows[0]?.same_day_lead_time : NaN);
+  const lead = Number.isFinite(leadMin) ? leadMin : 60; // 画面の既定値と同じ
+  const blockedFor = (staffId) => {
+    const set = new Set(BREAK_SLOTS.filter(([, key]) => !ext?.[key]).map(([t]) => t));
+    for (const b of blocks) if (b.staff_id === staffId || b.staff_id === "all") { const t = String(b.block_time || "").slice(0, 5); if (t) set.add(t); }
+    return set;
+  };
+  // 今日なら、受付締切（同日の何分前まで）を過ぎた時刻は出さない（日本時間で判定）
+  const nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const isToday = nowJst.toISOString().slice(0, 10) === date;
+  const nowMin = nowJst.getUTCHours() * 60 + nowJst.getUTCMinutes();
+
+  const offsets = want.map((w) => w.start - want[0].start); // 2件目は1件目の終了時刻から（今までと同じずれ）
+  const okAt = (t0) => want.every((w, i) => {
+    const start = t0 + offsets[i];
+    if (i === 0) {
+      // 1件目は、所要時間ぶんの枠がすべて時刻の選択肢に収まること（画面と同じ）
+      for (let m = start; m < start + w.dur; m += 30) if (!TIME_SLOTS.includes(fromMin(m))) return false;
+      if (isToday && start - nowMin < lead) return false;
+    }
+    if (w.staff_id === "any") return true;
+    const shift = shifts.find((r) => String(r.staff_id) === String(w.staff_id));
+    if (!isWithinShift(shift, fromMin(start))) return false;
+    const blocked = blockedFor(String(w.staff_id));
+    for (let m = start; m < start + w.dur; m += 30) if (blocked.has(fromMin(m))) return false;
+    return !overlapsAny(existing, { ...w, start });
+  });
+  return TIME_SLOTS.map(toMin)
+    .filter((t) => t !== want[0].start && okAt(t))
+    .sort((a, b) => Math.abs(a - want[0].start) - Math.abs(b - want[0].start) || a - b)
+    .slice(0, 3)
+    .sort((a, b) => a - b)
+    .map(fromMin);
+}
+
 export async function POST(request) {
   const s = requireServiceHeaders();
   if (s.error) return s.error;
@@ -163,6 +267,42 @@ export async function POST(request) {
     }
   } catch (e) {
     console.error("[booking-create] シフトの確認に失敗", e.message);
+    return fail(500, "予約内容の確認に失敗しました", log);
+  }
+
+  // ── 空き枠の再確認 ─────────────────────────────
+  // 日時を選んでから確定するまでの間に、受付（管理画面）が同じ枠に予約を入れた場合に二重に入らないようにする。
+  // 同じ担当・同じ日で、時間帯（開始時刻〜所要時間）が重なる有効な予約があれば登録しない。
+  //   ・有効な予約：画面の空き枠（/api/booking-form/booked-slots）と同じ confirmed・received・treatment_done
+  //   ・予約変更のときは変更元の予約を除く（同じ時間のままメニューだけ変える場合に自分自身とぶつかるため）
+  //   ・連続予約（2件）は、それぞれの担当・時間帯で確認する
+  //   ・指名なし（"any"）は担当が決まっていないため対象外（シフトの検証と同じ）
+  // 埋まっていたら、同じ日・同じ担当で近い空き時刻（最大3つ）を alternatives として返す。
+  try {
+    const existing = await fetchActiveBookings(headers, slots, change_booking_id);
+    const want = bookings.map((b) => ({
+      staff_id: b?.staff_id, date: b?.booking_date,
+      start: toMin(b?.booking_time), dur: durationMin(b?.course_duration),
+    }));
+    const hit = want.find((w) => w.staff_id !== "any" && overlapsAny(existing, w));
+    if (hit) {
+      let alternatives = [];
+      try {
+        alternatives = await findAlternatives(headers, bookings, want, existing);
+      } catch (e) {
+        console.error("[booking-create] 近い空き時刻の確認に失敗", e.message);
+      }
+      console.error("[booking-create] 登録拒否", JSON.stringify({
+        status: 422, ...log, reason: "slot_taken", staff_id: hit.staff_id, booking_date: hit.date,
+        booking_time: fromMin(hit.start), duration_min: hit.dur, alternatives,
+      }));
+      return NextResponse.json({
+        error: "申し訳ございません。ご希望の時間は、ちょうど他の方のご予約が入りました。\nお手数ですが、日時を選び直してください。",
+        code: "slot_taken", alternatives,
+      }, { status: 422 });
+    }
+  } catch (e) {
+    console.error("[booking-create] 空き枠の確認に失敗", e.message);
     return fail(500, "予約内容の確認に失敗しました", log);
   }
 
