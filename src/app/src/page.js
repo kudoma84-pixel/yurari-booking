@@ -1220,7 +1220,7 @@ function AppInner({ entry = "src" }) {
                 <button onClick={() => setIntakeView("later")} style={{ display: "block", width: "100%", marginTop: 10, padding: "10px", borderRadius: 12, border: "2px solid #e3e3dc", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>あとで記入する</button>
               </div>}
               <div style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)", borderRadius: 16 }}>
-                <IntakeForm entry="token" k={intakeToken} embedded onExpired={() => setIntakeView("expired")} onDone={() => setIntakeView("done")} />
+                <IntakeForm entry="token" k={intakeToken} embedded priorConsent={termsAgreement} onExpired={() => setIntakeView("expired")} onDone={() => setIntakeView("done")} />
               </div>
             </div>
           )}
