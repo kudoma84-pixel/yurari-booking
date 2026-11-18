@@ -51,6 +51,41 @@ function formatDate(d) {
 
 const bookingSteps = ["店舗選択","コース選択","スタッフ・日時","確認"];
 
+// ── 予約フォームの到達数・完了数の記録（/api/form-events → public.form_events） ──
+// 同じセッションで「入口に着いた（arrive）／予約が確定した（done）」を1回ずつ送り、素直な通過率を出す。
+// 記録は予約の邪魔をしてはいけない：
+//   ・送信は投げっぱなし（await しない）。失敗しても画面には何も出さない
+//   ・この関数の中で起きたエラーはすべて握りつぶす（sessionStorage が使えない端末・crypto.randomUUID が無い環境など）
+// session_key は sessionStorage に1つ作って使い回す（タブを閉じるまで同じ）。kind ごとに送信済みの印を持ち、二度送らない。
+// 注意：LINEで登録・ログインするとLINEアプリに移るため、戻ってきたときに sessionStorage が引き継がれず、
+// 別のセッションとして数えられることがある（arrive が増え、done が別のセッションに付く）。そういうものとして読むこと。
+// 予約変更（?change=）も同じように記録する。区別は後から bookings 側で付ける。
+const FORM_ROUTE = "/src"; // 段階3で新しい入口ができたら、そこからは別の値を渡す
+const FORM_SESSION_KEY = "yurari_form_session_key";
+const BOT_UA = /bot|crawler|spider|slurp|facebookexternalhit/i;
+function sendFormEvent(kind, route = FORM_ROUTE) {
+  try {
+    if (typeof window === "undefined" || BOT_UA.test(navigator.userAgent || "")) return;
+    const ss = window.sessionStorage;
+    const sentMark = "yurari_form_event_sent_" + kind;
+    if (ss.getItem(sentMark)) return;
+    let key = ss.getItem(FORM_SESSION_KEY);
+    if (!key) {
+      key = window.crypto.randomUUID();
+      ss.setItem(FORM_SESSION_KEY, key);
+    }
+    ss.setItem(sentMark, "1");
+    fetch("/api/form-events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, session_key: key, route }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    // 記録できなくても何もしない
+  }
+}
+
 function AppInner() {
   const { data: session, status: sessionStatus } = useSession();
   const searchParams = useSearchParams();
@@ -170,6 +205,9 @@ function AppInner() {
 
   // NextAuthのLINEログイン復帰中（?notify=line）はローディング表示
   const [screen, setScreen] = useState(notifyFromUrl === 'line' ? "loading" : "top");
+  // 到達数・完了数の記録（投げっぱなし。sendFormEvent の説明を参照）
+  useEffect(() => { sendFormEvent("arrive"); }, []);
+  useEffect(() => { if (screen === "complete") sendFormEvent("done"); }, [screen]);
   const [notificationMethod, setNotificationMethod] = useState(null);
   const [step, setStep] = useState(0);
   const [store, setStore] = useState(null);
