@@ -6,6 +6,7 @@ import { canStaffHandleCourse } from "../../_lib/staff-eligibility";
 import { isWithinShift } from "../../_lib/shift-hours";
 import { canCustomerModify, fetchDeadlineSettings, deadlinePassedBody } from "../_lib/modify-deadline";
 import { customersNeedingIntake, createCustomerToken } from "../_lib/intake";
+import { TERMS_VERSION, termsToSave } from "../../_lib/terms";
 
 // 顧客向け予約フォームからの予約登録。
 // 登録の直前に「customer_id が、フォームで確定した顧客本人か」をサーバー側で再検証する。
@@ -165,7 +166,7 @@ export async function POST(request) {
   } catch {
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
-  const { customer_id, tel, match, bookings, change_booking_id } = payload || {};
+  const { customer_id, tel, match, bookings, change_booking_id, terms } = payload || {};
 
   const lineUserId = await verifiedLineUserId(request);
 
@@ -448,6 +449,23 @@ export async function POST(request) {
     });
   } catch (e) {
     console.error("[booking-create] 管理画面への通知に失敗", e.message);
+  }
+
+  // ── 予約前の同意（/first の②はじめにお読みください）の保存 ──
+  // LINEで既存の方と分かった場合などは登録API（booking-form/register）を通らないため、予約が確定したこの時点で保存する。
+  // 画面から terms が届いたときだけ（/src からは届かない）。この版の同意がまだ保存されていない場合だけ書く
+  // （登録APIで保存済みの時刻は上書きしない）。失敗しても予約は成立しているので、ログに残すだけ。
+  const termsRow = termsToSave(terms);
+  if (termsRow) {
+    try {
+      const updated = await sbFetch(headers,
+        `customers?id=eq.${encodeURIComponent(c.id)}&or=(terms_version.is.null,terms_version.neq.${encodeURIComponent(`"${TERMS_VERSION}"`)})&select=id`, {
+          method: "PATCH", prefer: "return=representation", body: JSON.stringify(termsRow),
+        });
+      console.log("[booking-create] 同意の保存", JSON.stringify({ customer_id: c.id, version: termsRow.terms_version, saved: Array.isArray(updated) && updated.length === 1 }));
+    } catch (e) {
+      console.error("[booking-create] 同意の保存に失敗しました（予約は登録済み）", JSON.stringify({ customer_id: c.id, error: e.message }));
+    }
   }
 
   // 問診票（カウンセリングシート）が未記入 かつ 来院実績なし（物販のみは来院としない）の方には、

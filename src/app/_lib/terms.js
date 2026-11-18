@@ -32,3 +32,14 @@ export const TERMS_NOTES = [
   "当院では初回を含めて6回の施術を改善の目安としております。（初回から3回目までは3日〜4日毎、4回〜6回目は1週間毎が基本）",
   "施術後には、その方の状態に合わせて最適なご予約の日程をご提案します。",
 ];
+
+// 画面から届いた同意 { version, agreed_at } を、customers に保存する値にする（サーバーの登録API・予約登録APIで共通）。
+//   ・版は今の TERMS_VERSION と同じものだけ受け付ける（それ以外・空なら null＝保存しない）
+//   ・時刻は画面で同意した時刻。読めない・未来すぎる（5分超）・古すぎる（24時間超）場合はサーバーの今の時刻にする
+export function termsToSave(t) {
+  if (!t || typeof t !== "object" || t.version !== TERMS_VERSION) return null;
+  const now = Date.now();
+  const at = typeof t.agreed_at === "string" ? Date.parse(t.agreed_at) : NaN;
+  const ok = Number.isFinite(at) && at <= now + 5 * 60 * 1000 && at >= now - 24 * 60 * 60 * 1000;
+  return { terms_version: TERMS_VERSION, terms_agreed_at: new Date(ok ? at : now).toISOString() };
+}

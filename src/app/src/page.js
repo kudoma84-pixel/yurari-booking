@@ -762,6 +762,8 @@ function AppInner({ entry = "src" }) {
           match: customerMatchRef.current,
           bookings: bookingBodies,
           change_booking_id: changeBookingId || null,
+          // /first で同意した版と時刻（LINEで既存の方と分かった場合など、登録APIを通らない方の分をここで保存する）。/src では送らない
+          ...(termsAgreement ? { terms: termsAgreement } : {}),
         }),
       });
       const createData = await createRes.json().catch(() => ({}));
