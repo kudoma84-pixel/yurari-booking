@@ -5,7 +5,7 @@ import {
 import { canStaffHandleCourse } from "../../_lib/staff-eligibility";
 import { isWithinShift } from "../../_lib/shift-hours";
 import { canCustomerModify, fetchDeadlineSettings, deadlinePassedBody } from "../_lib/modify-deadline";
-import { customersNeedingIntake } from "../_lib/intake";
+import { customersNeedingIntake, createCustomerToken } from "../_lib/intake";
 
 // 顧客向け予約フォームからの予約登録。
 // 登録の直前に「customer_id が、フォームで確定した顧客本人か」をサーバー側で再検証する。
@@ -284,6 +284,20 @@ export async function POST(request) {
     console.error("[booking-create] 問診票の記入状況を確認できませんでした", e.message);
   }
 
-  console.log("[booking-create] 予約登録", JSON.stringify({ customer_id: c.id, booking_id: b1.id, booking2_id: booking2Id, change_cancelled: changeCancelled, needs_intake: needsIntake }));
-  return NextResponse.json({ ok: true, customer_id: c.id, booking_id: b1.id, booking2_id: booking2Id, change_cancelled: changeCancelled, needs_intake: needsIntake });
+  // 記入が必要な方にだけ、予約完了画面でその場で記入できるよう顧客限定トークン（2時間）を渡す。
+  // 既存の /api/monshin/context・/api/monshin/submit がそのまま使える。作れなければ（設定不備など）渡さない。
+  let intakeToken = null;
+  if (needsIntake) {
+    try {
+      intakeToken = createCustomerToken(c.id, first.store_id, false).token || null;
+    } catch (e) {
+      console.error("[booking-create] カウンセリングシートのトークンを作れませんでした", e.message);
+    }
+  }
+
+  console.log("[booking-create] 予約登録", JSON.stringify({ customer_id: c.id, booking_id: b1.id, booking2_id: booking2Id, change_cancelled: changeCancelled, needs_intake: needsIntake, intake_token: !!intakeToken }));
+  return NextResponse.json({
+    ok: true, customer_id: c.id, booking_id: b1.id, booking2_id: booking2Id, change_cancelled: changeCancelled, needs_intake: needsIntake,
+    ...(intakeToken ? { intake_token: intakeToken } : {}),
+  });
 }

@@ -124,6 +124,9 @@ const CSS = `
 .ms .editlink{border:none;background:none;color:var(--green);font:inherit;font-weight:700;text-decoration:underline;cursor:pointer;padding:0;margin-top:12px}
 .ms .notice{background:#fff3cd;color:#6b4e00;border:1px solid #f0d58a;border-radius:10px;padding:8px 12px;font-size:.85em;margin-bottom:12px}
 .ms .submiterr{background:#fdecea;color:var(--warn);border:1px solid #f5c2bd;border-radius:10px;padding:10px 12px;font-size:.9em;margin-bottom:12px}
+.ms.embed{min-height:0;text-align:left;border-radius:16px;scroll-margin-top:12px}
+.ms.embed .wrap{padding:16px 14px 4px}
+.ms.embed .btns{position:sticky;bottom:0;padding:18px 0 calc(12px + env(safe-area-inset-bottom));margin:0 14px;border-radius:0 0 16px 16px}
 `;
 
 function Chips({ value, options, multi, onChange }) {
@@ -165,7 +168,11 @@ function stateFromProfile(p) {
 const profileComplete = (p) => !!(p?.name && p?.kana && /^\d{4}-\d{2}-\d{2}$/.test(p?.birthday || "")
   && String(p?.tel || "").replace(/\D/g, "").length >= 10);
 
-export default function IntakeForm({ entry }) {
+// k        … 受付トークンを直接渡すとき（予約完了画面に埋め込む場合）。渡されなければ今までどおり URL の ?k= を読む
+// embedded … 予約完了画面などページの一部として表示する（全画面用の高さ・下に固定のボタンをやめる）
+// onExpired … トークンの期限切れ（code: "expired"）のとき、エラー画面の代わりに呼ぶ（埋め込み先で案内に切り替える）
+// onDone   … 送信が終わったとき（埋め込み先で「あとで記入する」などを片付ける）
+export default function IntakeForm({ entry, k: kProp, embedded = false, onExpired, onDone }) {
   const [phase, setPhase] = useState("loading"); // loading | ready | error | closed
   const [errorMsg, setErrorMsg] = useState("");
   const [ctx, setCtx] = useState(null); // { mode, kiosk, profile, next_booking, k }
@@ -178,14 +185,16 @@ export default function IntakeForm({ entry }) {
   const [left, setLeft] = useState(0);
   const timerRef = useRef(null);
   const bodyRef = useRef(null);
+  const rootRef = useRef(null);
 
   const set = (patch) => setS((s) => ({ ...s, ...patch }));
-  const top = () => window.scrollTo(0, 0);
+  // 埋め込みのときはページの先頭ではなく、このフォームの先頭へ（上の予約内容は残す）
+  const top = () => (embedded && rootRef.current ? rootRef.current.scrollIntoView({ block: "start" }) : window.scrollTo(0, 0));
 
   // ── 読み込み（どの入口か判定） ─────────────────────
   useEffect(() => {
     (async () => {
-      const k = entry === "token" ? new URLSearchParams(window.location.search).get("k") || "" : "";
+      const k = kProp != null ? String(kProp) : entry === "token" ? new URLSearchParams(window.location.search).get("k") || "" : "";
       if (entry === "token" && !k) { setErrorMsg("このページは受付でお渡ししたQRコードから開いてください。"); setPhase("error"); return; }
       const load = () => fetch("/api/monshin/context", {
         method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", body: JSON.stringify({ k }),
@@ -209,6 +218,7 @@ export default function IntakeForm({ entry }) {
           }
           if (r.status === 401) { window.location.replace("/mypage?next=" + encodeURIComponent("/mypage/monshin")); return; }
         }
+        if (r.status === 410 && r.data?.code === "expired" && onExpired) { onExpired(); return; }
         if (!r.ok) { setErrorMsg(r.data?.error || "読み込みに失敗しました。受付でお声がけください。"); setPhase("error"); return; }
         const c = { ...r.data, k };
         setCtx(c);
@@ -226,7 +236,8 @@ export default function IntakeForm({ entry }) {
         setPhase("error");
       }
     })();
-  }, [entry]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry, kProp]);
 
   const kiosk = !!ctx?.kiosk;
   const registered = ctx?.mode === "mypage" || ctx?.mode === "customer";
@@ -321,6 +332,7 @@ export default function IntakeForm({ entry }) {
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {
+        if (r.status === 410 && data.code === "expired" && onExpired) { onExpired(); return; }
         if (r.status === 410) { setErrorMsg(data.error || "このページの有効期限が切れています。受付でお声がけください。"); setPhase("error"); return; }
         setSubmitErr(data.error || "送信できませんでした。もう一度「送信する」を押してください。");
         return;
@@ -332,6 +344,7 @@ export default function IntakeForm({ entry }) {
       }
       setResult({ line_link_url: data.line_link_url || null, qr, line_linked: !!data.line_linked });
       setStep(5); top();
+      if (onDone) onDone();
     } catch (e) {
       console.error(e);
       setSubmitErr("送信できませんでした。通信状態をご確認のうえ、もう一度「送信する」を押してください。");
@@ -368,7 +381,7 @@ export default function IntakeForm({ entry }) {
 
   if (phase !== "ready") {
     return (
-      <div className={"ms" + (kiosk ? " tablet" : "")}>
+      <div ref={rootRef} className={"ms" + (kiosk ? " tablet" : "") + (embedded ? " embed" : "")}>
         <style>{CSS}</style>
         <div className="wrap">
           <header className="brand"><div className="n">整体院 癒楽里</div><div className="t">カウンセリングシート（ご来院前のご記入）</div></header>
@@ -398,7 +411,7 @@ export default function IntakeForm({ entry }) {
   const row = (k, v) => (v ? <><dt>{k}</dt><dd>{v}</dd></> : null);
 
   return (
-    <div className={"ms" + (kiosk ? " tablet" : "")}>
+    <div ref={rootRef} className={"ms" + (kiosk ? " tablet" : "") + (embedded ? " embed" : "")}>
       <style>{CSS}</style>
       <div className="wrap">
         <header className="brand"><div className="n">整体院 癒楽里</div><div className="t">カウンセリングシート（ご来院前のご記入）</div></header>

@@ -6,6 +6,7 @@ import { canStaffHandleCourse } from "../_lib/staff-eligibility";
 import { isWithinShift } from "../_lib/shift-hours";
 import HomeScreenGuide from "../_lib/HomeScreenGuide";
 import { storeTel, formatDeadlineTime } from "../_lib/store-contacts";
+import IntakeForm from "../monshin/IntakeForm";
 
 // 予約フォームのデータはすべて /api/booking-form/* などのサーバーAPIを経由する（Supabase を直接呼ばない）。
 // 本人確認はサーバー側で行う（電話番号の一致／検証済みLINEユーザーID／マイページのセッション）。
@@ -186,6 +187,10 @@ function AppInner() {
     email: "", firstVisit: "初めて", notes: ""
   });
   const [bookingNum, setBookingNum] = useState("");
+  // 予約完了画面に埋め込むカウンセリングシート（booking-create が needs_intake のときだけ返す顧客限定トークン）
+  //   intakeView: "form"（開いている）| "done"（記入が終わった。フォームの完了表示を残す）| "later"（「あとで記入する」で閉じた）| "expired"（トークンの期限切れ）
+  const [intakeToken, setIntakeToken] = useState(null);
+  const [intakeView, setIntakeView] = useState("form");
   // 生年月日3分割入力の自動フォーカス移動用
   const yearRef = useRef(null);
   const monthRef = useRef(null);
@@ -731,6 +736,8 @@ function AppInner() {
         }
       }
       // 管理画面への通知は booking-create がサーバー側で行う
+      setIntakeToken(needsIntake && typeof createData?.intake_token === "string" && createData.intake_token ? createData.intake_token : null);
+      setIntakeView("form");
       setBookingNum(num);
       setScreen("complete");
     } catch (e) {
@@ -749,7 +756,7 @@ function AppInner() {
     setShowAddEsthe(false); setCourse2(null); setCourseVisitType2(null);
     setStaff(null); setStaff2(null); setDate(null); setTime(null);
     setProfile({ name: "", kana: "", zipcode: "", address: "", tel: "", birthYear: "", birthMonth: "", birthDay: "", birthday: "", email: "", firstVisit: "初めて", notes: "" });
-    setBookingNum(""); setError(""); setExistingCustomer(null);
+    setBookingNum(""); setError(""); setIntakeToken(null); setIntakeView("form"); setExistingCustomer(null);
     customerMatchRef.current = null;
     setStaffShiftDates({}); setShiftRows({ shifts: [], activeIds: [] });
   };
@@ -763,7 +770,7 @@ function AppInner() {
     setShowAddEsthe(false); setCourse2(null); setCourseVisitType2(null);
     setStaff(null); setStaff2(null); setDate(null); setTime(null);
     setProfile(p => ({ ...p, notes: "" }));
-    setBookingNum(""); setError("");
+    setBookingNum(""); setError(""); setIntakeToken(null); setIntakeView("form");
     setStaffShiftDates({}); setShiftRows({ shifts: [], activeIds: [] });
     setScreen(existingCustomer ? "booking" : "top");
   };
@@ -1053,6 +1060,26 @@ function AppInner() {
               </div>
             ))}
           </div>
+          {/* 初めての方（記入が必要な方）だけ、予約内容の下にカウンセリングシートを開いた状態で出す */}
+          {intakeToken && (intakeView === "form" || intakeView === "done") && (
+            <div style={{ marginBottom: 28, textAlign: "left" }}>
+              {intakeView === "form" && <div style={{ background: "#fff8ec", border: "1px solid #f0d58a", borderRadius: 16, padding: "14px 18px", marginBottom: 12, fontSize: 13, color: "#555", lineHeight: 1.8 }}>
+                <div style={{ fontWeight: 700, color: GREEN, fontSize: 14 }}>初めてご来院の方へ</div>
+                このままカウンセリングシートをご記入いただくと、当日スムーズにご案内できます（約5分）。
+                <button onClick={() => setIntakeView("later")} style={{ display: "block", width: "100%", marginTop: 10, padding: "10px", borderRadius: 12, border: "2px solid #e3e3dc", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>あとで記入する</button>
+              </div>}
+              <div style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)", borderRadius: 16 }}>
+                <IntakeForm entry="token" k={intakeToken} embedded onExpired={() => setIntakeView("expired")} onDone={() => setIntakeView("done")} />
+              </div>
+            </div>
+          )}
+          {intakeToken && (intakeView === "later" || intakeView === "expired") && (
+            <div style={{ background: "#fff8ec", border: "1px solid #f0d58a", borderRadius: 16, padding: "14px 18px", marginBottom: 28, textAlign: "left", fontSize: 13, color: "#555", lineHeight: 1.8 }}>
+              {intakeView === "expired"
+                ? "カウンセリングシートは、ご予約確定のメッセージからご記入いただけます。"
+                : "カウンセリングシートは、ご予約確定のメッセージからいつでもご記入いただけます。"}
+            </div>
+          )}
           <div style={{ fontSize: 12, color: "#aaa", marginBottom: 24, lineHeight: 1.8 }}>
             当日は予約時間の5分前にお越しください。<br/>
             {formatDeadlineTime(cancelDeadlineTime) ? (
