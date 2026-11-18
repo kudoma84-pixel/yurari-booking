@@ -1897,6 +1897,11 @@ const handleAdminQrInput = async (value) => {
     if (time && !/^\d{2}:\d{2}$/.test(time)) { alert("受付締切の時刻を正しく入力してください"); return; }
     const graceText = String(cancelGraceMinutes).trim();
     if (graceText && !/^\d+$/.test(graceText)) { alert("予約直後の猶予は0以上の整数（分）で入力してください"); return; }
+    // 受付締切の時刻は、予約フォームの同意文（src/app/_lib/terms.js の7番）と両院のHP /flow/ の7番にも文字で書いてある。
+    // 時刻を変えるときは、それらも直す必要があることを保存前に確認する（猶予だけを変えるときは聞かない）。
+    // 保存済みの値が読めていないときは、変わるかどうか分からないので聞く。キャンセルされたら保存しない。
+    const savedTime = storeSettings?.cancel_deadline_time ? String(storeSettings.cancel_deadline_time).slice(0, 5) : (storeSettings ? "" : null);
+    if (time !== savedTime && !window.confirm("受付締切を変更します。同意文（7番）とHPの /flow/ も直す必要があります。よろしいですか？")) return;
     const res = await fetch(`${SUPABASE_URL}/rest/v1/store_settings?store_id=in.(${STORES.map(s => s.id).join(",")})`, {
       method: "PATCH", headers: { ...headers, Prefer: "return=representation" },
       body: JSON.stringify({
@@ -5209,7 +5214,11 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                       style={{ padding: "10px 12px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 15 }} />
                     <span style={{ fontSize: 14, color: "#555" }}>まで</span>
                   </div>
-                  <div style={{ fontSize: 12, color: "#aaa", marginBottom: 18 }}>空欄にすると締切なし（いつでもお客様側で操作できます）</div>
+                  <div style={{ fontSize: 12, color: "#aaa", marginBottom: 8 }}>空欄にすると締切なし（いつでもお客様側で操作できます）</div>
+                  {/* 同意文（予約フォーム /first の7番）と HP /flow/ の7番は、この時刻を文字で書いている。設定を変えても自動では変わらない */}
+                  <div style={{ fontSize: 12, color: "#8a5a00", background: "#fff8e1", border: "1px solid #f0d58a", borderRadius: 8, padding: "8px 12px", marginBottom: 18, lineHeight: 1.6, fontWeight: 700 }}>
+                    ⚠ この時刻を変えたら、予約フォームの同意文（7番）と両院のHP /flow/ の7番も直してください。HP担当への連絡が必要です
+                  </div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#3a5a3a", marginBottom: 6 }}>予約直後の猶予</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                     <span style={{ fontSize: 14, color: "#555" }}>予約してから</span>

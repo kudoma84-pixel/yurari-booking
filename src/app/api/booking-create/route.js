@@ -6,7 +6,8 @@ import { canStaffHandleCourse } from "../../_lib/staff-eligibility";
 import { isWithinShift } from "../../_lib/shift-hours";
 import { canCustomerModify, fetchDeadlineSettings, deadlinePassedBody } from "../_lib/modify-deadline";
 import { customersNeedingIntake, createCustomerToken } from "../_lib/intake";
-import { TERMS_VERSION, termsToSave } from "../../_lib/terms";
+import { TERMS_VERSION, TERMS_CANCEL_DEADLINE, termsToSave } from "../../_lib/terms";
+import { formatDeadlineTime } from "../../_lib/store-contacts";
 
 // 顧客向け予約フォームからの予約登録。
 // 登録の直前に「customer_id が、フォームで確定した顧客本人か」をサーバー側で再検証する。
@@ -466,6 +467,21 @@ export async function POST(request) {
     } catch (e) {
       console.error("[booking-create] 同意の保存に失敗しました（予約は登録済み）", JSON.stringify({ customer_id: c.id, error: e.message }));
     }
+  }
+
+  // ── 同意文の締切（7番の「前日の17:30」）と設定値のズレの検知 ──
+  // 同意文は固定の文字（TERMS_CANCEL_DEADLINE）で出しているため、管理画面で store_settings.cancel_deadline_time を
+  // 変えても同意文は変わらない。予約のたびに両院の設定と照合し、食い違っていればログに警告を出す。予約は止めない。
+  try {
+    const deadlineSettings = await fetchDeadlineSettings(headers, ["minamiurawa", "toda"]);
+    for (const storeId of ["minamiurawa", "toda"]) {
+      const setting = formatDeadlineTime(deadlineSettings[storeId]?.cancel_deadline_time);
+      if (setting !== TERMS_CANCEL_DEADLINE) {
+        console.warn(`[booking-create] 同意文の締切（${TERMS_CANCEL_DEADLINE}）と設定（${setting ?? "読めません"}）が食い違っています`, JSON.stringify({ store_id: storeId, terms_version: TERMS_VERSION }));
+      }
+    }
+  } catch (e) {
+    console.warn("[booking-create] 同意文の締切と設定の照合ができませんでした", e.message);
   }
 
   // 問診票（カウンセリングシート）が未記入 かつ 来院実績なし（物販のみは来院としない）の方には、

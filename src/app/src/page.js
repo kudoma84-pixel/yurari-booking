@@ -222,7 +222,6 @@ function AppInner({ entry = "src" }) {
   // ②はじめにお読みください（/first だけ）：同意した版と時刻（画面の中だけで持ち、登録・電話番号での照合のときに保存する）
   const [termsAgreement, setTermsAgreement] = useState(null); // { version, agreed_at }
   const [termsNext, setTermsNext] = useState(null);           // 同意のあとに進む画面（"register" | "booking"）
-  const [termsDeadlines, setTermsDeadlines] = useState(null); // 院ごとの変更・キャンセルの締切時刻（store_settings.cancel_deadline_time）
   const [notificationMethod, setNotificationMethod] = useState(null);
   const [step, setStep] = useState(0);
   const [store, setStore] = useState(null);
@@ -384,14 +383,6 @@ function AppInner({ entry = "src" }) {
   useEffect(() => {
     if (store) { fetchStaff(store.id); fetchStoreSettings(store.id); }
   }, [store]);
-
-  // ②はじめにお読みください（/first だけ）：変更・キャンセルの締切時刻を両院分読む
-  useEffect(() => {
-    if (screen !== "terms" || termsDeadlines) return;
-    Promise.all(["minamiurawa", "toda"].map(id =>
-      api("booking-form/store-settings?store_id=" + id).then(r => [id, r.ok ? r.data.settings?.cancel_deadline_time ?? null : null]).catch(() => [id, null])
-    )).then(rows => setTermsDeadlines(Object.fromEntries(rows)));
-  }, [screen]);
 
   useEffect(() => {
     if (staff && store) fetchStaffShifts(staff.id, store.id, staff2?.id || null);
@@ -986,11 +977,8 @@ function AppInner({ entry = "src" }) {
   }
 
   // ②はじめにお読みください（/first だけ）。「同意して進む」を押すまで先に進めない
+  // 本文は src/app/_lib/terms.js の固定の文字だけで出す（通信に頼らない。変更・キャンセルの締切は7番に含む）
   if (screen === "terms") {
-    const deadlineRows = termsDeadlines
-      ? [["minamiurawa", "南浦和院"], ["toda", "戸田院"]].map(([id, name]) => ({ name, time: formatDeadlineTime(termsDeadlines[id]) }))
-      : [];
-    const times = [...new Set(deadlineRows.map(r => r.time).filter(Boolean))];
     return (
       <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
         <Header showBack={true} />
@@ -1005,23 +993,9 @@ function AppInner({ entry = "src" }) {
               {TERMS_RULES.map((t, i) => <li key={i} style={{ marginBottom: 4 }}>{t}</li>)}
             </ol>
             <div style={{ fontWeight: 700, marginBottom: 8 }}>{TERMS_NOTES_TITLE}</div>
-            <ul style={{ margin: "0 0 22px", paddingLeft: "1.4em" }}>
+            <ul style={{ margin: 0, paddingLeft: "1.4em" }}>
               {TERMS_NOTES.map((t, i) => <li key={i} style={{ marginBottom: 4 }}>{t}</li>)}
             </ul>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>■ 変更・キャンセルについて ■</div>
-            {termsDeadlines === null ? (
-              <div style={{ color: "#888" }}>読み込み中...</div>
-            ) : times.length === 1 ? (
-              <div>ご予約の変更・キャンセルは前日{times[0]}まで承ります。<br />当日の変更・キャンセルは、お電話でご連絡ください。</div>
-            ) : times.length > 1 ? (
-              <div>
-                ご予約の変更・キャンセルは、次の時刻まで承ります。<br />
-                {deadlineRows.map(r => <span key={r.name}>{r.name}：{r.time ? "前日" + r.time + "まで" : "マイページからご確認ください"}<br /></span>)}
-                当日の変更・キャンセルは、お電話でご連絡ください。
-              </div>
-            ) : (
-              <div>変更・キャンセルはマイページから承ります。<br />当日の変更・キャンセルは、お電話でご連絡ください。</div>
-            )}
           </div>
           <button onClick={() => {
             setTermsAgreement({ version: TERMS_VERSION, agreed_at: new Date().toISOString() });
