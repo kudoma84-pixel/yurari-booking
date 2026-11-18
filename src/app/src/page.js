@@ -57,7 +57,8 @@ const bookingSteps = ["店舗選択","コース選択","スタッフ・日時","
 // 記録は予約の邪魔をしてはいけない：
 //   ・送信は投げっぱなし（await しない）。失敗しても画面には何も出さない
 //   ・この関数の中で起きたエラーはすべて握りつぶす（sessionStorage が使えない端末・crypto.randomUUID が無い環境など）
-// session_key は sessionStorage に1つ作って使い回す（タブを閉じるまで同じ）。kind ごとに送信済みの印を持ち、二度送らない。
+// session_key は sessionStorage に1つ作って使い回す（タブを閉じるまで同じ）。kind と route の組ごとに送信済みの印を持ち、二度送らない
+// （同じタブで /src を見たあとに /first を開いても、/first の arrive は別に送る。form_events の一意制約も (session_key, kind, route)）。
 // 注意：LINEで登録・ログインするとLINEアプリに移るため、戻ってきたときに sessionStorage が引き継がれず、
 // 別のセッションとして数えられることがある（arrive が増え、done が別のセッションに付く）。そういうものとして読むこと。
 // 予約変更（?change=）も同じように記録する。区別は後から bookings 側で付ける。
@@ -69,7 +70,7 @@ function sendFormEvent(kind, route = FORM_ROUTE) {
   try {
     if (typeof window === "undefined" || BOT_UA.test(navigator.userAgent || "")) return;
     const ss = window.sessionStorage;
-    const sentMark = "yurari_form_event_sent_" + kind;
+    const sentMark = "yurari_form_event_sent_" + kind + "_" + route;
     if (ss.getItem(sentMark)) return;
     let key = ss.getItem(FORM_SESSION_KEY);
     if (!key) {
