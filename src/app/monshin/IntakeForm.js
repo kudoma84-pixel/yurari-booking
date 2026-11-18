@@ -6,6 +6,7 @@
 // 画面構成・質問項目・文言・必須項目はオーナー承認済みの試作（カウンセリングシート試作 index.html）に合わせている。
 // 入力内容はこの画面の中（メモリ）だけに持ち、送信はサーバーAPI（/api/monshin/submit）経由。
 import { Fragment, useEffect, useRef, useState } from "react";
+import { TERMS_VERSION } from "../_lib/terms";
 
 const STEPS = ["ご確認とご同意", "お客様情報", "生活のこと", "お悩みのこと", "入力内容の確認", "完了"];
 const CIRCLED = "①②③④⑤";
@@ -172,7 +173,12 @@ const profileComplete = (p) => !!(p?.name && p?.kana && /^\d{4}-\d{2}-\d{2}$/.te
 // embedded … 予約完了画面などページの一部として表示する（全画面用の高さ・下に固定のボタンをやめる）
 // onExpired … トークンの期限切れ（code: "expired"）のとき、エラー画面の代わりに呼ぶ（埋め込み先で案内に切り替える）
 // onDone   … 送信が終わったとき（埋め込み先で「あとで記入する」などを片付ける）
-export default function IntakeForm({ entry, k: kProp, embedded = false, onExpired, onDone }) {
+// priorConsent … 予約フォーム /first の②はじめにお読みくださいで同意した { version, agreed_at }（予約完了画面に埋め込むときだけ渡す）。
+//   今の版（TERMS_VERSION）の同意が渡されたときだけ、同じ院のルールに二度同意させないよう1ページ目（ご確認とご同意）を飛ばし、
+//   2ページ目から始める（送信時の consent は true）。渡されない入口（/src からの予約・受付タブレット・マイページ・顧客限定QR）は今までどおり
+export default function IntakeForm({ entry, k: kProp, embedded = false, onExpired, onDone, priorConsent }) {
+  const consentDone = !!(priorConsent && priorConsent.version === TERMS_VERSION && priorConsent.agreed_at);
+  const firstStep = consentDone ? 1 : 0; // 最初に出すページ（同意済みなら「ご確認とご同意」を飛ばす）
   const [phase, setPhase] = useState("loading"); // loading | ready | error | closed
   const [errorMsg, setErrorMsg] = useState("");
   const [ctx, setCtx] = useState(null); // { mode, kiosk, profile, next_booking, k }
@@ -228,7 +234,9 @@ export default function IntakeForm({ entry, k: kProp, embedded = false, onExpire
           // 登録内容に足りない項目（生年月日など）があれば、最初から入力欄で開く
           if (!profileComplete(c.profile)) init.editInfo = true;
         }
+        if (consentDone) init.agree = true; // ②で同意済み（送信時の consent を true にする）
         setS(init);
+        setStep(firstStep);
         setPhase("ready");
       } catch (e) {
         console.error(e);
@@ -359,7 +367,7 @@ export default function IntakeForm({ entry, k: kProp, embedded = false, onExpire
     if (step === 4) { submit(); return; }
     setStep(step + 1); top();
   };
-  const back = () => { if (step > 0 && step < 5) { setErrs({}); setSubmitErr(""); setStep(step - 1); top(); } };
+  const back = () => { if (step > firstStep && step < 5) { setErrs({}); setSubmitErr(""); setStep(step - 1); top(); } };
 
   const onBodyClick = (e) => {
     const el = bodyRef.current;
@@ -415,7 +423,7 @@ export default function IntakeForm({ entry, k: kProp, embedded = false, onExpire
       <style>{CSS}</style>
       <div className="wrap">
         <header className="brand"><div className="n">整体院 癒楽里</div><div className="t">カウンセリングシート（ご来院前のご記入）</div></header>
-        <div className="steps">{STEPS.map((_, i) => <span key={i} className={i <= step ? "on" : ""} />)}</div>
+        <div className="steps">{STEPS.slice(firstStep).map((_, i) => <span key={i} className={i + firstStep <= step ? "on" : ""} />)}</div>
         {registered && p && step < 5 && (
           <div className="prebn">
             <b>{p.name} 様</b>　{nb ? "ご予約ありがとうございます。" : ""}
@@ -423,7 +431,7 @@ export default function IntakeForm({ entry, k: kProp, embedded = false, onExpire
             <br />ご来院前に、カウンセリングシートのご記入をお願いします（約5分）。
           </div>
         )}
-        <div className="stepname">{Math.min(step + 1, STEPS.length)} / {STEPS.length}　{stepNames[step]}</div>
+        <div className="stepname">{Math.min(step + 1, STEPS.length) - firstStep} / {STEPS.length - firstStep}　{stepNames[step]}</div>
 
         {step === 0 && (
           <section className="card">
@@ -638,7 +646,7 @@ export default function IntakeForm({ entry, k: kProp, embedded = false, onExpire
 
       {!(step === 5 && !kiosk) && (
         <div className="btns"><div className="in">
-          {step > 0 && step < 5 && <button className="btn sub" type="button" onClick={back} disabled={submitting}>戻る</button>}
+          {step > firstStep && step < 5 && <button className="btn sub" type="button" onClick={back} disabled={submitting}>戻る</button>}
           {step < 5 && (
             <button className="btn" type="button" onClick={next} disabled={(step === 0 && !S.agree) || submitting}>
               {step === 4 ? (submitting ? "送信しています…" : "送信する") : step === 0 ? "同意して入力へ進む" : "次へ"}

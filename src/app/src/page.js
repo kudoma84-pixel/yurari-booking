@@ -6,6 +6,7 @@ import { canStaffHandleCourse } from "../_lib/staff-eligibility";
 import { isWithinShift } from "../_lib/shift-hours";
 import HomeScreenGuide from "../_lib/HomeScreenGuide";
 import { storeTel, formatDeadlineTime } from "../_lib/store-contacts";
+import { TERMS_VERSION, TERMS_RULES_TITLE, TERMS_RULES, TERMS_NOTES_TITLE, TERMS_NOTES } from "../_lib/terms";
 import IntakeForm from "../monshin/IntakeForm";
 
 // 予約フォームのデータはすべて /api/booking-form/* などのサーバーAPIを経由する（Supabase を直接呼ばない）。
@@ -56,18 +57,20 @@ const bookingSteps = ["店舗選択","コース選択","スタッフ・日時","
 // 記録は予約の邪魔をしてはいけない：
 //   ・送信は投げっぱなし（await しない）。失敗しても画面には何も出さない
 //   ・この関数の中で起きたエラーはすべて握りつぶす（sessionStorage が使えない端末・crypto.randomUUID が無い環境など）
-// session_key は sessionStorage に1つ作って使い回す（タブを閉じるまで同じ）。kind ごとに送信済みの印を持ち、二度送らない。
+// session_key は sessionStorage に1つ作って使い回す（タブを閉じるまで同じ）。kind と route の組ごとに送信済みの印を持ち、二度送らない
+// （同じタブで /src を見たあとに /first を開いても、/first の arrive は別に送る。form_events の一意制約も (session_key, kind, route)）。
 // 注意：LINEで登録・ログインするとLINEアプリに移るため、戻ってきたときに sessionStorage が引き継がれず、
 // 別のセッションとして数えられることがある（arrive が増え、done が別のセッションに付く）。そういうものとして読むこと。
 // 予約変更（?change=）も同じように記録する。区別は後から bookings 側で付ける。
 const FORM_ROUTE = "/src"; // 段階3で新しい入口ができたら、そこからは別の値を渡す
+const FIRST_ROUTE = "/first"; // 初めての方の入口（/first）から送るときの route
 const FORM_SESSION_KEY = "yurari_form_session_key";
 const BOT_UA = /bot|crawler|spider|slurp|facebookexternalhit/i;
 function sendFormEvent(kind, route = FORM_ROUTE) {
   try {
     if (typeof window === "undefined" || BOT_UA.test(navigator.userAgent || "")) return;
     const ss = window.sessionStorage;
-    const sentMark = "yurari_form_event_sent_" + kind;
+    const sentMark = "yurari_form_event_sent_" + kind + "_" + route;
     if (ss.getItem(sentMark)) return;
     let key = ss.getItem(FORM_SESSION_KEY);
     if (!key) {
@@ -86,11 +89,19 @@ function sendFormEvent(kind, route = FORM_ROUTE) {
   }
 }
 
-function AppInner() {
+// entry：入口の違いだけを分ける（予約フォーム本体は /src と /first で共通）。
+//   "src"   … 従来の入口 /src。トップ画面（店舗案内つきの大きな画像）から始まる。今までと同じ動き
+//   "first" … 初めての方の入口 /first（HP の /reserve/「初めての方」から来る）。トップ画面は出さず、
+//             ①ご連絡方法 → ②はじめにお読みください（同意）→ 登録画面／予約画面 の順に進む
+function AppInner({ entry = "src" }) {
   const { data: session, status: sessionStatus } = useSession();
   const searchParams = useSearchParams();
   const changeBookingId = searchParams?.get('change');
   const notifyFromUrl = searchParams?.get('notify');
+  const isFirst = entry === "first";
+  const entryPath = isFirst ? "/first" : "/src";          // URL を戻すとき・LINEログインの戻り先
+  const homeScreen = isFirst ? "auth" : "top";            // 最初の画面・最初からやり直すときの画面
+  const formRoute = isFirst ? FIRST_ROUTE : FORM_ROUTE;   // 計測（form_events）の route
 
   // LIFF（LINEアプリ内）で開かれた場合に検証済みのLINEユーザー情報を入れる
   const [liffUser, setLiffUser] = useState(null);
@@ -204,10 +215,14 @@ function AppInner() {
   const authLineUserId = liffUser?.lineUserId || session?.lineUserId || null;
 
   // NextAuthのLINEログイン復帰中（?notify=line）はローディング表示
-  const [screen, setScreen] = useState(notifyFromUrl === 'line' ? "loading" : "top");
+  const [screen, setScreen] = useState(notifyFromUrl === 'line' ? "loading" : homeScreen);
   // 到達数・完了数の記録（投げっぱなし。sendFormEvent の説明を参照）
-  useEffect(() => { sendFormEvent("arrive"); }, []);
-  useEffect(() => { if (screen === "complete") sendFormEvent("done"); }, [screen]);
+  useEffect(() => { sendFormEvent("arrive", formRoute); }, []);
+  useEffect(() => { if (screen === "complete") sendFormEvent("done", formRoute); }, [screen]);
+  // ②はじめにお読みください（/first だけ）：同意した版と時刻（画面の中だけで持ち、登録・電話番号での照合のときに保存する）
+  const [termsAgreement, setTermsAgreement] = useState(null); // { version, agreed_at }
+  const [termsNext, setTermsNext] = useState(null);           // 同意のあとに進む画面（"register" | "booking"）
+  const [termsDeadlines, setTermsDeadlines] = useState(null); // 院ごとの変更・キャンセルの締切時刻（store_settings.cancel_deadline_time）
   const [notificationMethod, setNotificationMethod] = useState(null);
   const [step, setStep] = useState(0);
   const [store, setStore] = useState(null);
@@ -315,7 +330,7 @@ function AppInner() {
     if (sessionStatus === 'unauthenticated') {
       // pages.signIn:'/src' によりNextAuthが再度ここへリダイレクトしループするのを防ぐ
       // URLからnotify=lineを除去してからエラー表示する
-      if (typeof window !== "undefined") window.history.replaceState({}, "", "/src");
+      if (typeof window !== "undefined") window.history.replaceState({}, "", entryPath);
       setScreen("auth");
       console.error("[LINEログイン] セッションが確立できませんでした。NEXTAUTH_SECRET / NEXTAUTH_URL / LINE_CLIENT_ID / LINE_CLIENT_SECRET の設定とコールバックURLを確認してください。");
       alert("LINEログインに失敗しました。お手数ですが、もう一度お試しください。");
@@ -323,7 +338,7 @@ function AppInner() {
     }
 
     if (!session?.lineUserId) {
-      if (typeof window !== "undefined") window.history.replaceState({}, "", "/src");
+      if (typeof window !== "undefined") window.history.replaceState({}, "", entryPath);
       setScreen("auth");
       console.error("[LINEログイン] lineUserIdが取得できません。セッション:", session);
       alert("LINEログインに失敗しました。お手数ですが、もう一度お試しください。");
@@ -331,13 +346,16 @@ function AppInner() {
     }
 
     // 成功パスでもURLから?notify=lineを除去してループを防ぐ
-    if (typeof window !== "undefined") window.history.replaceState({}, "", "/src");
+    if (typeof window !== "undefined") window.history.replaceState({}, "", entryPath);
     checkExistingCustomer(session.lineUserId, session.user?.name || "");
   }, [notifyFromUrl, session, sessionStatus]);
 
   useEffect(() => {
     if (notifyFromUrl === 'line') return; // NextAuth LINE復帰時はスキップ（上のuseEffectに任せる）
     if (changeBookingId) return; // 予約変更は下の useEffect で扱う
+    // /first（初めての方の入口）では自動ログインしない。①ご連絡方法 → ②同意 を必ず通し、
+    // 登録画面（電話番号での照合）で同意を保存するため
+    if (isFirst) return;
     // 自動ログイン：従来は localStorage の顧客ID／LINEユーザーIDをそのまま信用していたが、
     // サーバーが確認できた本人（マイページのセッション → 検証済みLINEユーザーID）だけを使う。
     const autoLogin = async () => {
@@ -366,6 +384,14 @@ function AppInner() {
   useEffect(() => {
     if (store) { fetchStaff(store.id); fetchStoreSettings(store.id); }
   }, [store]);
+
+  // ②はじめにお読みください（/first だけ）：変更・キャンセルの締切時刻を両院分読む
+  useEffect(() => {
+    if (screen !== "terms" || termsDeadlines) return;
+    Promise.all(["minamiurawa", "toda"].map(id =>
+      api("booking-form/store-settings?store_id=" + id).then(r => [id, r.ok ? r.data.settings?.cancel_deadline_time ?? null : null]).catch(() => [id, null])
+    )).then(rows => setTermsDeadlines(Object.fromEntries(rows)));
+  }, [screen]);
 
   useEffect(() => {
     if (staff && store) fetchStaffShifts(staff.id, store.id, staff2?.id || null);
@@ -549,12 +575,24 @@ function AppInner() {
         birthYear: "", birthMonth: "", birthDay: "",
         birthday: c.birthday || "", firstVisit: "2回目以降", notes: "",
       });
-      setScreen("booking");
+      goAfterAuth("booking");
     } else {
       // 新規ユーザー：LINEの表示名をプリセットして登録画面へ
       setProfile(p => ({ ...p, name: displayName }));
-      setScreen("register");
+      goAfterAuth("register");
     }
+  };
+
+  // ①ご連絡方法が済んだあとの画面へ進む。/first では、同意がまだなら先に②はじめにお読みくださいを出す。
+  // /src では今までどおりそのまま進む
+  const goAfterAuth = (next) => {
+    if (isFirst && !termsAgreement) {
+      setTermsNext(next);
+      setScreen("terms");
+      window.scrollTo(0, 0);
+      return;
+    }
+    setScreen(next);
   };
 
   const handleAuthSelect = (method) => {
@@ -576,7 +614,7 @@ function AppInner() {
         if (initOk && isInClient) {
           // LIFF内でユーザーIDが取れなかった場合は従来どおり（この経路は変更しない）
           // NextAuth LINE OAuth → /src?notify=line に戻り、checkExistingCustomer で処理
-          signIn("line", { callbackUrl: "/src?notify=line" });
+          signIn("line", { callbackUrl: entryPath + "?notify=line" });
           return;
         }
 
@@ -589,7 +627,7 @@ function AppInner() {
           alert("LINEでのご登録はスマートフォンからお願いします。\nパソコンの方はメールでご登録ください。");
           localStorage.removeItem('yurari_notification_method');
           setNotificationMethod("email");
-          setScreen("register");
+          goAfterAuth("register");
           return;
         }
         const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
@@ -598,7 +636,7 @@ function AppInner() {
           alert("ただいまLINEでのご登録をご利用いただけません。\nお手数ですがメールでご登録ください。");
           localStorage.removeItem('yurari_notification_method');
           setNotificationMethod("email");
-          setScreen("register");
+          goAfterAuth("register");
           return;
         }
         // 端末によっては LINEアプリが起動せず、このブラウザで開き直ることがある。
@@ -608,16 +646,20 @@ function AppInner() {
         if (triedBefore && !window.confirm("LINEアプリが開かない場合は、メールでのご登録をお願いします。\n\nもう一度LINEアプリを開きますか？\n（「キャンセル」でメール登録に進みます）")) {
           localStorage.removeItem('yurari_notification_method');
           setNotificationMethod("email");
-          setScreen("register");
+          goAfterAuth("register");
           return;
         }
-        if (!triedBefore && !window.confirm("LINEアプリが開きます。\nLINEアプリ内でもう一度「今すぐ予約する」→「LINEで登録する」を押してお進みください。")) return;
+        if (!triedBefore && !window.confirm(isFirst
+          ? "LINEアプリが開きます。\nLINEアプリ内でもう一度「LINEで登録する」を押してお進みください。"
+          : "LINEアプリが開きます。\nLINEアプリ内でもう一度「今すぐ予約する」→「LINEで登録する」を押してお進みください。")) return;
         try { sessionStorage.setItem("yurari_liff_redirected", "1"); } catch {}
-        window.location.href = `https://liff.line.me/${liffId}`;
+        // /first は LIFF URL の後ろにパス「/first」を付けて開く。LINE は LIFF のエンドポイントURLの後ろにこのパスを足して開くため、
+        // エンドポイントが /src なら /src/first（src/app/src/first/page.js。/first と同じ入口）に着く
+        window.location.href = isFirst ? `https://liff.line.me/${liffId}/first` : `https://liff.line.me/${liffId}`;
       };
       startLineLogin();
     } else {
-      setScreen("register");
+      goAfterAuth("register");
     }
   };
 
@@ -651,6 +693,7 @@ function AppInner() {
         email: profile.email, address: profile.address,
         zipcode: profile.zipcode, birthday: profile.birthday,
         notification_method: notificationMethod || "email",
+        ...(termsAgreement ? { terms: termsAgreement } : {}),
       }),
     });
     // 登録に失敗したまま予約画面へ進むと、予約が顧客に紐づかなくなる
@@ -720,6 +763,8 @@ function AppInner() {
           match: customerMatchRef.current,
           bookings: bookingBodies,
           change_booking_id: changeBookingId || null,
+          // /first で同意した版と時刻（LINEで既存の方と分かった場合など、登録APIを通らない方の分をここで保存する）。/src では送らない
+          ...(termsAgreement ? { terms: termsAgreement } : {}),
         }),
       });
       const createData = await createRes.json().catch(() => ({}));
@@ -801,8 +846,8 @@ function AppInner() {
   };
 
   const reset = () => {
-    window.history.replaceState({}, '', '/src');
-    setScreen("top"); setNotificationMethod(null); setStep(0);
+    window.history.replaceState({}, '', entryPath);
+    setScreen(homeScreen); setNotificationMethod(null); setStep(0);
     setStore(null); setCourse(null); setCourseCategory(null); setCourseVisitType(null);
     setShowAddEsthe(false); setCourse2(null); setCourseVisitType2(null);
     setStaff(null); setStaff2(null); setDate(null); setTime(null);
@@ -815,7 +860,7 @@ function AppInner() {
   // 「別の予約をする」用：確定済みの顧客（existingCustomer・profile・通知方法）は残し、予約内容だけ初期化する。
   // 以前は reset() で顧客まで消したまま予約画面に戻していたため、2件目が電話番号の空の別人に紐づいていた。
   const resetForNextBooking = () => {
-    window.history.replaceState({}, '', '/src');
+    window.history.replaceState({}, '', entryPath);
     setStep(0);
     setStore(null); setCourse(null); setCourseCategory(null); setCourseVisitType(null);
     setShowAddEsthe(false); setCourse2(null); setCourseVisitType2(null);
@@ -823,7 +868,7 @@ function AppInner() {
     setProfile(p => ({ ...p, notes: "" }));
     setBookingNum(""); setError(""); setIntakeToken(null); setIntakeView("form");
     setStaffShiftDates({}); setShiftRows({ shifts: [], activeIds: [] });
-    setScreen(existingCustomer ? "booking" : "top");
+    setScreen(existingCustomer ? "booking" : homeScreen);
   };
 
   // 実在する日付かを検証する（「13月40日」のような値をDBに送らない）
@@ -940,6 +985,56 @@ function AppInner() {
     );
   }
 
+  // ②はじめにお読みください（/first だけ）。「同意して進む」を押すまで先に進めない
+  if (screen === "terms") {
+    const deadlineRows = termsDeadlines
+      ? [["minamiurawa", "南浦和院"], ["toda", "戸田院"]].map(([id, name]) => ({ name, time: formatDeadlineTime(termsDeadlines[id]) }))
+      : [];
+    const times = [...new Set(deadlineRows.map(r => r.time).filter(Boolean))];
+    return (
+      <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
+        <Header showBack={true} />
+        <div style={{ maxWidth: 640, margin: "0 auto", padding: "32px 20px 40px" }}>
+          <div style={{ textAlign: "center", marginBottom: 24 }}>
+            <div style={{ fontSize: 22, fontWeight: 700, color: GREEN, marginBottom: 8 }}>はじめにお読みください</div>
+            <div style={{ fontSize: 13, color: "#888" }}>ご予約の前に、当院からのお願いをご確認ください。</div>
+          </div>
+          <div style={{ background: "white", borderRadius: 16, padding: "20px 22px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", fontSize: 14, color: DARK, lineHeight: 1.85 }}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>{TERMS_RULES_TITLE}</div>
+            <ol style={{ margin: "0 0 22px", paddingLeft: "1.4em" }}>
+              {TERMS_RULES.map((t, i) => <li key={i} style={{ marginBottom: 4 }}>{t}</li>)}
+            </ol>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>{TERMS_NOTES_TITLE}</div>
+            <ul style={{ margin: "0 0 22px", paddingLeft: "1.4em" }}>
+              {TERMS_NOTES.map((t, i) => <li key={i} style={{ marginBottom: 4 }}>{t}</li>)}
+            </ul>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>■ 変更・キャンセルについて ■</div>
+            {termsDeadlines === null ? (
+              <div style={{ color: "#888" }}>読み込み中...</div>
+            ) : times.length === 1 ? (
+              <div>ご予約の変更・キャンセルは前日{times[0]}まで承ります。<br />当日の変更・キャンセルは、お電話でご連絡ください。</div>
+            ) : times.length > 1 ? (
+              <div>
+                ご予約の変更・キャンセルは、次の時刻まで承ります。<br />
+                {deadlineRows.map(r => <span key={r.name}>{r.name}：{r.time ? "前日" + r.time + "まで" : "マイページからご確認ください"}<br /></span>)}
+                当日の変更・キャンセルは、お電話でご連絡ください。
+              </div>
+            ) : (
+              <div>変更・キャンセルはマイページから承ります。<br />当日の変更・キャンセルは、お電話でご連絡ください。</div>
+            )}
+          </div>
+          <button onClick={() => {
+            setTermsAgreement({ version: TERMS_VERSION, agreed_at: new Date().toISOString() });
+            setScreen(termsNext || "register");
+            window.scrollTo(0, 0);
+          }} style={{ width: "100%", marginTop: 24, padding: "16px", borderRadius: 14, border: "none", background: GREEN, color: "white", fontSize: 16, fontWeight: 700, cursor: "pointer" }}>
+            同意して進む
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (screen === "auth") {
     return (
       <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
@@ -965,6 +1060,11 @@ function AppInner() {
               </button>
             ))}
           </div>
+          {isFirst && (
+            <div style={{ textAlign: "center", marginTop: 28, fontSize: 13 }}>
+              <a href="/mypage" style={{ color: GREEN, fontWeight: 700 }}>2回目以降の方はこちら（マイページ）</a>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1120,7 +1220,7 @@ function AppInner() {
                 <button onClick={() => setIntakeView("later")} style={{ display: "block", width: "100%", marginTop: 10, padding: "10px", borderRadius: 12, border: "2px solid #e3e3dc", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>あとで記入する</button>
               </div>}
               <div style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)", borderRadius: 16 }}>
-                <IntakeForm entry="token" k={intakeToken} embedded onExpired={() => setIntakeView("expired")} onDone={() => setIntakeView("done")} />
+                <IntakeForm entry="token" k={intakeToken} embedded priorConsent={termsAgreement} onExpired={() => setIntakeView("expired")} onDone={() => setIntakeView("done")} />
               </div>
             </div>
           )}
@@ -1529,10 +1629,11 @@ function AppInner() {
   );
 }
 
-export default function App() {
+// /src から使うときは entry を渡さない（今までどおり）。/first（src/app/first/page.js）からは entry="first" を渡す
+export default function App({ entry }) {
   return (
     <Suspense fallback={<div style={{ minHeight: "100vh", background: "#fdf8f0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: "#888" }}>読み込み中...</div>}>
-      <AppInner />
+      <AppInner entry={entry === "first" ? "first" : "src"} />
     </Suspense>
   );
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireServiceHeaders, sbFetch, verifiedLine, customerByLineUserId, digits } from "../../_lib/booking-auth";
+import { termsToSave } from "../../../_lib/terms";
 
 // 予約フォームのお客様情報登録。
 // - 同じ電話番号の顧客が既にいる場合は、名前・住所・メールなどを上書きしない（その顧客で予約に進む）。
@@ -12,6 +13,23 @@ import { requireServiceHeaders, sbFetch, verifiedLine, customerByLineUserId, dig
 const REQUIRED = ["name", "kana", "tel", "email", "address", "zipcode", "birthday"];
 const MAX_LENGTH = 200;
 const METHODS = ["line", "email", "none"];
+
+// 予約前の同意（/first の②はじめにお読みください）。画面から { version, agreed_at } が届いたときだけ、
+// 顧客が確定した時点（新規登録・電話番号での照合）で customers.terms_version・terms_agreed_at に保存する。
+//   ・版と時刻の受け付け方は termsToSave（src/app/_lib/terms.js）
+//   ・保存に失敗しても登録・予約は止めない（ログに残すだけ）
+// /src からは terms が届かないので、今までどおり何もしない。
+async function saveTerms(headers, customerId, terms) {
+  if (!terms) return;
+  try {
+    await sbFetch(headers, `customers?id=eq.${encodeURIComponent(customerId)}`, {
+      method: "PATCH", prefer: "return=minimal", body: JSON.stringify(terms),
+    });
+    console.log("[booking-form/register] 同意を保存しました", JSON.stringify({ customer_id: customerId, version: terms.terms_version }));
+  } catch (e) {
+    console.error("[booking-form/register] 同意の保存に失敗しました（登録は続けます）", JSON.stringify({ customer_id: customerId, error: e.message }));
+  }
+}
 
 export async function POST(request) {
   const s = requireServiceHeaders();
@@ -40,6 +58,7 @@ export async function POST(request) {
     return NextResponse.json({ error: "生年月日が正しくありません" }, { status: 400 });
   }
   const notificationMethod = METHODS.includes(body?.notification_method) ? body.notification_method : "email";
+  const terms = termsToSave(body?.terms);
 
   try {
     // 照合条件は従来と同じ（電話番号の完全一致）。削除済みの顧客は対象外
@@ -88,6 +107,7 @@ export async function POST(request) {
           }
         }
       }
+      await saveTerms(s.headers, existing.id, terms);
       return NextResponse.json({ customer_id: existing.id, existed: true, has_line: !!existing.line_user_id || linked, linked });
     }
 
@@ -103,6 +123,7 @@ export async function POST(request) {
     });
     const id = Array.isArray(created) ? created[0]?.id : null;
     if (!id) throw new Error("顧客IDが返りませんでした");
+    await saveTerms(s.headers, id, terms);
     return NextResponse.json({ customer_id: id, existed: false, has_line: !!lineUserId });
   } catch (e) {
     console.error("[booking-form/register]", e.message);
