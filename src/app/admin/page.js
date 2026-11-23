@@ -1716,13 +1716,36 @@ const handleAdminQrInput = async (value) => {
     const today = formatDate(new Date());
     // 有効な金券は増え続けるので全件を分割取得する。失敗時は前の集計を残して帯を出す
     const data = await fetchAllRows(`${SUPABASE_URL}/rest/v1/gift_tickets?status=eq.active&expires_at=gte.${today}&select=id,customer_id,ticket_type&order=id.asc`, headers, "allCustomerTickets");
-    if (data === null) { setCustomerTicketsError(true); return; }
+    // 共有グループに属する顧客の一覧。グループ全員の金券を合算するために使う（人数の制限なし）
+    const groupRows = await fetchAllRows(`${SUPABASE_URL}/rest/v1/customers?share_group_id=not.is.null&select=id,share_group_id&order=id.asc`, headers, "allCustomerTickets:shareGroups");
+    if (data === null || groupRows === null) { setCustomerTicketsError(true); return; }
     setCustomerTicketsError(false);
-    const map = {};
+    // まず顧客本人の名義の枚数を数える（own）
+    const own = {};
     data.forEach(t => {
-      if (!map[t.customer_id]) map[t.customer_id] = { purchase: 0, present: 0 };
-      if (t.ticket_type === "purchase") map[t.customer_id].purchase++;
-      else if (t.ticket_type === "present") map[t.customer_id].present++;
+      if (!own[t.customer_id]) own[t.customer_id] = { purchase: 0, present: 0 };
+      if (t.ticket_type === "purchase") own[t.customer_id].purchase++;
+      else if (t.ticket_type === "present") own[t.customer_id].present++;
+    });
+    // 共有グループごとに全員の枚数を合計する（fetchCustomerTickets と同じ範囲：グループの全メンバーの有効な金券）
+    const groupOf = {};
+    const groupTotal = {};
+    groupRows.forEach(c => {
+      groupOf[c.id] = c.share_group_id;
+      if (!groupTotal[c.share_group_id]) groupTotal[c.share_group_id] = { purchase: 0, present: 0 };
+      const o = own[c.id];
+      if (o) { groupTotal[c.share_group_id].purchase += o.purchase; groupTotal[c.share_group_id].present += o.present; }
+    });
+    // 一覧に出す枚数：共有グループの顧客はグループ全体、それ以外は本人のぶん。
+    // ownPurchase / ownPresent は本人名義の枚数（枚数編集の初期値と確認に使う）
+    const map = {};
+    const ids = new Set([...Object.keys(own), ...Object.keys(groupOf)]);
+    ids.forEach(id => {
+      const o = own[id] || { purchase: 0, present: 0 };
+      const g = groupOf[id] ? groupTotal[groupOf[id]] : null;
+      map[id] = g
+        ? { purchase: g.purchase, present: g.present, ownPurchase: o.purchase, ownPresent: o.present, shared: true }
+        : { purchase: o.purchase, present: o.present, ownPurchase: o.purchase, ownPresent: o.present, shared: false };
     });
     setAllCustomerTickets(map);
   };
@@ -1731,6 +1754,31 @@ const handleAdminQrInput = async (value) => {
     if (!editTicketModal) return;
     const { customer, type, count, date } = editTicketModal;
     const today = formatDate(new Date());
+    // 共有グループに属する顧客のときだけ、保存前にグループ全体の枚数を示して確認する。
+    // この保存は「本人名義の同タイプの有効金券を消して、入力枚数を本人に作り直す」だけで、共有相手の金券には触らない。
+    // 一覧の数字は古いことがあるので、ここで最新の状態を取り直して計算する（fetchCustomerTickets と同じ条件）。
+    const custData = await fetchJsonArray(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customer.id}&select=share_group_id`, headers, "金券の枚数編集：共有グループの確認");
+    if (custData === null) { alert("共有グループの確認に失敗しました。保存していません。もう一度お試しください。"); return; }
+    const shareGroupId = custData[0]?.share_group_id;
+    if (shareGroupId) {
+      const groupData = await fetchJsonArray(`${SUPABASE_URL}/rest/v1/customers?share_group_id=eq.${shareGroupId}&select=id`, headers, "金券の枚数編集：共有グループの取得");
+      const idList = groupData && groupData.length > 0 ? groupData.map(c => c.id) : null;
+      const groupTickets = idList
+        ? await fetchJsonArray(`${SUPABASE_URL}/rest/v1/gift_tickets?customer_id=in.(${idList.join(",")})&ticket_type=eq.${type}&status=eq.active&expires_at=gte.${today}&select=id,customer_id,store_id`, headers, "金券の枚数編集：グループの金券の取得")
+        : null;
+      if (groupTickets === null) { alert("共有グループの金券の確認に失敗しました。保存していません。もう一度お試しください。"); return; }
+      const typeLabel = type === "purchase" ? "A. 購入金券" : "B. プレゼント金券";
+      const groupNow = groupTickets.length;
+      // 下の DELETE で消える本人名義の分（同じ店舗・同タイプ・有効）
+      const ownReplaced = groupTickets.filter(t => t.customer_id === customer.id && t.store_id === currentStore.id).length;
+      const groupAfter = groupNow - ownReplaced + count;
+      const msg = `このお客様はご家族と金券を共有しています。\n` +
+        `グループ全体でいま${groupNow}枚です（${typeLabel}）。\n` +
+        `この操作は共有相手の金券をそのままにして、このお客様に新しく${count}枚を作ります。\n` +
+        (ownReplaced > 0 ? `（このお客様の名義の${ownReplaced}枚は作り直します）\n` : "") +
+        `グループ全体では${groupAfter}枚になります。よろしいですか？`;
+      if (!window.confirm(msg)) return;
+    }
     // 既存の同タイプの有効チケットを削除
     await fetch(`${SUPABASE_URL}/rest/v1/gift_tickets?customer_id=eq.${customer.id}&store_id=eq.${currentStore.id}&ticket_type=eq.${type}&status=eq.active`, {
       method: "DELETE", headers,
@@ -3905,7 +3953,12 @@ const handleAdminQrInput = async (value) => {
             </div>
             <button onClick={() => setEditTicketModal(null)} style={{ border: "none", background: "none", fontSize: 22, cursor: "pointer", color: "#aaa" }}>×</button>
           </div>
-          <div style={{ fontSize: 12, color: "#888", marginBottom: 16 }}>{editTicketModal.customer.name} 様</div>
+          <div style={{ fontSize: 12, color: "#888", marginBottom: editTicketModal.shared ? 8 : 16 }}>{editTicketModal.customer.name} 様</div>
+          {editTicketModal.shared && (
+            <div style={{ fontSize: 12, color: "#3a5a3a", background: "#eaf5ec", borderRadius: 8, padding: "8px 12px", marginBottom: 16 }}>
+              ご家族と金券を共有しています。グループ全体で{editTicketModal.groupCount}枚です。<br />下の枚数はこのお客様の名義の分だけです（共有相手の金券は変わりません）。
+            </div>
+          )}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: editTicketModal.type === "purchase" ? "#5a9e7a" : "#e07b39", display: "block", marginBottom: 6 }}>
@@ -6848,7 +6901,8 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                       return 0;
                     })
                     .map((c, i) => {
-                      const tkt = allCustomerTickets[c.id] || { purchase: 0, present: 0 };
+                      // purchase / present は共有グループならグループ全体の枚数。ownPurchase / ownPresent は本人名義の枚数
+                      const tkt = allCustomerTickets[c.id] || { purchase: 0, present: 0, ownPurchase: 0, ownPresent: 0, shared: false };
                       return (
                         <tr key={c.id} style={{ borderTop: "1px solid #f0ebe4", cursor: "pointer" }} onClick={() => { setCustomerTickets([]); setSelectedCustomer(c); fetchCustomerDetail(c.id); fetchCustomerHistory(c.id); fetchCustomerTickets(c.id); }}>
                           <td style={{ padding: "12px 16px", fontSize: 13, color: "#3a5a3a" }}>{c.customer_number || i+1}</td>
@@ -6858,14 +6912,16 @@ input[type=number] { -moz-appearance: textfield; appearance: textfield; }`}</sty
                           <td style={{ padding: "12px 16px", fontSize: 13, color: c.line_user_id ? "#5a9e7a" : "#ccc" }}>{c.line_user_id ? "✓ 連携済" : "未連携"}</td>
                           <td style={{ padding: "8px 16px", fontSize: 12, color: "#3a5a3a" }} onClick={e => e.stopPropagation()}>
                             <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                              <button onClick={() => setEditTicketModal({ customer: c, type: "purchase", count: tkt.purchase, date: formatDate(new Date()) })}
+                              {/* 枚数編集の初期値は本人名義の枚数（そのまま保存しても枚数が変わらないように）。共有の合計は modal に表示する */}
+                              <button onClick={() => setEditTicketModal({ customer: c, type: "purchase", count: tkt.ownPurchase, date: formatDate(new Date()), shared: tkt.shared, groupCount: tkt.purchase })}
                                 style={{ padding: "3px 8px", borderRadius: 6, border: "1px solid #b0d8b8", background: tkt.purchase > 0 ? "#eaf5ec" : "#f5f5f5", color: tkt.purchase > 0 ? "#3a7a5a" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                                 A:{tkt.purchase}
                               </button>
-                              <button onClick={() => setEditTicketModal({ customer: c, type: "present", count: tkt.present, date: formatDate(new Date()) })}
+                              <button onClick={() => setEditTicketModal({ customer: c, type: "present", count: tkt.ownPresent, date: formatDate(new Date()), shared: tkt.shared, groupCount: tkt.present })}
                                 style={{ padding: "3px 8px", borderRadius: 6, border: "1px solid #f0c8a0", background: tkt.present > 0 ? "#fff5ee" : "#f5f5f5", color: tkt.present > 0 ? "#c06020" : "#aaa", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                                 B:{tkt.present}
                               </button>
+                              {tkt.shared && <span title="ご家族と共有している金券を含む、グループ全体の枚数です" style={{ fontSize: 11, color: "#7a9a7a", whiteSpace: "nowrap" }}>（共有）</span>}
                             </div>
                           </td>
                         </tr>

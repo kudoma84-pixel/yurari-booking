@@ -220,7 +220,8 @@ function MyPageInner() {
   const groupTicketsByExpiry = (tickets) => {
     const groups = {};
     tickets.forEach(t => {
-      const key = t.issued_at + "_" + t.expires_at + "_" + t.ticket_name;
+      // 本人の金券とご家族と共有の金券は別の行に分けて表示する
+      const key = t.issued_at + "_" + t.expires_at + "_" + t.ticket_name + "_" + (t.owner === "family" ? "family" : "self");
       if (!groups[key]) groups[key] = { ...t, count: 0 };
       groups[key].count++;
     });
@@ -594,6 +595,7 @@ function MyPageInner() {
                     </div>
                     <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>入手日: {g.issued_at}</div>
                     <div style={{ fontSize: 11, color: g.ticket_type === 'present' ? ORANGE : "#aaa", marginTop: 2 }}>{g.ticket_type === 'present' ? '🎁 プレゼント券' : '🎫 購入券'}</div>
+                    {g.owner === "family" && <div style={{ fontSize: 11, color: GREEN, marginTop: 2 }}>👪 ご家族と共有</div>}
                   </div>
                 ))}
               </div>
