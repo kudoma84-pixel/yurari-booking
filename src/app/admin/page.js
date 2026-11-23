@@ -2104,6 +2104,52 @@ const handleAdminQrInput = async (value) => {
       alert("顧客を検索できませんでした。もう一度お試しください");
       return;
     }
+    // 既存の顧客を選ばずに新規顧客として作る場合だけ確かめる（既存の顧客を選んだ予約はここを通らない）。
+    // 顧客の照合は電話番号だけで行うため、電話番号なしで作ると、後から正しく登録されたときに必ず重複する。
+    // 検証と重複確認は「顧客新規登録」画面（submitNewCustomer）と同じ作り。
+    if (!f.customer_id) {
+      const tel = (f.tel || "").trim();
+      if (!f.customer_name.trim() || !(f.customer_kana || "").trim() || !tel || telDigits(tel).length === 0) {
+        alert("氏名・フリガナ・電話番号を入力してください");
+        return;
+      }
+      const d = telDigits(tel);
+      const pattern = d.split("").join("*"); // 数字の間に区切り文字があっても一致させる
+      let dupRows = null;
+      try {
+        const dupRes = await fetch(`${SUPABASE_URL}/rest/v1/customers?or=(tel.ilike.${pattern},tel2.ilike.${pattern})&select=id,customer_number,name,kana,tel,tel2,is_deleted&limit=20`, { headers });
+        const rows = await dupRes.json().catch(() => null);
+        if (dupRes.ok && Array.isArray(rows)) dupRows = rows;
+        else console.error("[予約登録] 重複確認に失敗", dupRes.status, rows);
+      } catch (e) {
+        console.error("[予約登録] 重複確認で通信エラー", e);
+      }
+      if (!dupRows) {
+        alert("同じ電話番号のお客様がいるか確認できませんでした。入力内容はそのまま残っています。通信状態を確認して、もう一度お試しください");
+        return;
+      }
+      const hits = dupRows.filter(c => telDigits(c.tel) === d || telDigits(c.tel2) === d);
+      if (hits.length > 0) {
+        const list = hits.map(c => `・${c.customer_number || "（番号未採番）"} ${c.name} 様${c.is_deleted ? "（非表示）" : ""}`).join("\n");
+        const active = hits.filter(c => !c.is_deleted);
+        if (active.length === 0) {
+          alert("この電話番号のお客様は既に登録されています\n" + list + "\n\n非表示になっているため、顧客管理で復元してから予約してください。");
+          return;
+        }
+        // 顧客検索で見つかったときと同じ状態にする（1人なら選択済み、複数なら一覧から選ぶ）
+        setCustomerSearchResults(active);
+        setCustomerSearchResult(active[0]);
+        if (active.length === 1) {
+          const c = active[0];
+          setDirectBookingForm(p => ({ ...p, customer_id: c.id, customer_name: c.name, customer_kana: c.kana || "", tel: c.tel || "" }));
+        }
+        alert("この電話番号のお客様は既に登録されています\n" + list + "\n\n"
+          + (active.length === 1
+            ? "このお客様で予約を進めます。内容を確認して、もう一度登録ボタンを押してください。"
+            : "一覧からお客様を選んで、もう一度登録ボタンを押してください。"));
+        return;
+      }
+    }
     const targetStoreId = directBookingStore || currentStore.id;
     // その院（本院・サブ院）のシフト・ブロックを読み込めていない間は、空き枠の判断を誤るので施術の予約は入れない
     if (directBookingMode === "normal" && scheduleLoadErrorFor(targetStoreId)) {
@@ -3650,11 +3696,11 @@ const handleAdminQrInput = async (value) => {
                 <input value={directBookingForm.customer_name || ""} onChange={e => setDirectBookingForm(f => ({ ...f, customer_name: e.target.value }))} placeholder="山田 花子" style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>フリガナ</label>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>フリガナ <span style={{ color: "#e07070", fontWeight: 400 }}>（新規の方は必須）</span></label>
                 <input value={directBookingForm.customer_kana || ""} onChange={e => setDirectBookingForm(f => ({ ...f, customer_kana: e.target.value }))} placeholder="ヤマダ ハナコ" style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>電話番号</label>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "#5a9e7a", display: "block", marginBottom: 6 }}>電話番号 <span style={{ color: "#e07070", fontWeight: 400 }}>（新規の方は必須）</span></label>
                 <input value={directBookingForm.tel || ""} onChange={e => setDirectBookingForm(f => ({ ...f, tel: e.target.value.replace(/[^0-9-]/g, "") }))} placeholder="090-1234-5678" inputMode="tel" style={{ width: "100%", padding: "10px 16px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box" }} />
               </div>
               {/* 通常予約のみ: 担当スタッフ選択（院切替に対応） */}
