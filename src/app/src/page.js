@@ -222,6 +222,7 @@ function AppInner({ entry = "src" }) {
   // ②はじめにお読みください（/first だけ）：同意した版と時刻（画面の中だけで持ち、登録・電話番号での照合のときに保存する）
   const [termsAgreement, setTermsAgreement] = useState(null); // { version, agreed_at }
   const [termsNext, setTermsNext] = useState(null);           // 同意のあとに進む画面（"register" | "booking"）
+  const [termsChecked, setTermsChecked] = useState(false);    // ②の「上記の内容を読み、了承しました」のチェック（入れるまで「同意して進む」は押せない）
   const [notificationMethod, setNotificationMethod] = useState(null);
   const [step, setStep] = useState(0);
   const [store, setStore] = useState(null);
@@ -976,7 +977,8 @@ function AppInner({ entry = "src" }) {
     );
   }
 
-  // ②はじめにお読みください（/first だけ）。「同意して進む」を押すまで先に進めない
+  // ②はじめにお読みください（/first だけ）。「上記の内容を読み、了承しました」にチェックを入れて「同意して進む」を押すまで先に進めない
+  // チェックボックスの見た目はカウンセリングシート（IntakeForm）の同意のページに合わせる
   // 本文は src/app/_lib/terms.js の固定の文字だけで出す（通信に頼らない。変更・キャンセルの締切は7番に含む）
   if (screen === "terms") {
     return (
@@ -996,14 +998,23 @@ function AppInner({ entry = "src" }) {
             <ul style={{ margin: 0, paddingLeft: "1.4em" }}>
               {TERMS_NOTES.map((t, i) => <li key={i} style={{ marginBottom: 4 }}>{t}</li>)}
             </ul>
+            <label style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 14, fontWeight: 700, cursor: "pointer" }}>
+              <input type="checkbox" checked={termsChecked} onChange={(e) => setTermsChecked(e.target.checked)}
+                style={{ width: 24, height: 24, margin: "3px 0 0", flexShrink: 0, accentColor: "#5a9e7a", cursor: "pointer" }} />
+              上記の内容を読み、了承しました
+            </label>
           </div>
-          <button onClick={() => {
+          <button disabled={!termsChecked} onClick={() => {
+            if (!termsChecked) return;
             setTermsAgreement({ version: TERMS_VERSION, agreed_at: new Date().toISOString() });
             setScreen(termsNext || "register");
             window.scrollTo(0, 0);
-          }} style={{ width: "100%", marginTop: 24, padding: "16px", borderRadius: 14, border: "none", background: GREEN, color: "white", fontSize: 16, fontWeight: 700, cursor: "pointer" }}>
+          }} style={{ width: "100%", marginTop: 24, padding: "16px", borderRadius: 14, border: "none", background: GREEN, color: "white", fontSize: 16, fontWeight: 700, cursor: termsChecked ? "pointer" : "default", opacity: termsChecked ? 1 : 0.45 }}>
             同意して進む
           </button>
+          {!termsChecked && (
+            <div style={{ textAlign: "center", marginTop: 10, fontSize: 14, fontWeight: 700, color: "#888" }}>上のチェックを入れてください</div>
+          )}
         </div>
       </div>
     );
