@@ -342,7 +342,7 @@ function MyPageInner() {
             </button>
           </div>
           <div style={{ textAlign: "center", marginTop: 24 }}>
-            <a href="/src" style={{ fontSize: 13, color: LIGHT_GREEN, textDecoration: "none" }}>← 予約ページへ戻る</a>
+            <a href="/first" style={{ fontSize: 13, color: LIGHT_GREEN, textDecoration: "none" }}>初めての方はこちら →</a>
           </div>
         </div>
       </div>
