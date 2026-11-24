@@ -109,6 +109,12 @@ function AppInner({ entry = "src" }) {
   const liffReadyRef = useRef(null);
   // liff.init の結果（「LINEで登録」を押したときの分岐に使う）。init 失敗時は initOk=false のまま
   const liffStateRef = useRef({ initOk: false, isInClient: null });
+  // /first をLIFFで開いたときの①自動通過用。
+  // authStartedRef：①のご登録方法が一度でも選ばれたら true（利用者が押した場合も、自動通過した場合も）。自動通過は1回だけ
+  // handleAuthSelectRef / screenRef：起動時の useEffect から最新の handleAuthSelect と画面を参照するため
+  const authStartedRef = useRef(false);
+  const handleAuthSelectRef = useRef(null);
+  const screenRef = useRef(null);
 
   // LINEアプリ内ブラウザで開かれた場合は外部ブラウザへ引き渡す（LIFFでない場合の従来動作）。
   // 内部ブラウザでLINEログインを始めると、戻り先（Safari等）に state cookie が無く OAuthCallback エラーになるため。
@@ -216,6 +222,7 @@ function AppInner({ entry = "src" }) {
 
   // NextAuthのLINEログイン復帰中（?notify=line）はローディング表示
   const [screen, setScreen] = useState(notifyFromUrl === 'line' ? "loading" : homeScreen);
+  screenRef.current = screen;
   // 到達数・完了数の記録（投げっぱなし。sendFormEvent の説明を参照）
   useEffect(() => { sendFormEvent("arrive", formRoute); }, []);
   useEffect(() => { if (screen === "complete") sendFormEvent("done", formRoute); }, [screen]);
@@ -379,6 +386,26 @@ function AppInner({ entry = "src" }) {
       setScreen(s => (s === "top" ? "booking" : s));
     };
     autoLogin().catch(e => console.error("[自動ログイン] 失敗", e));
+  }, []);
+
+  // /first をLINEアプリ内（LIFF）で開いたときは、①ご登録方法を自動で「LINEで登録する」に進める。
+  // 条件：/first・NextAuthのLINE復帰中ではない・LIFFで lineUserId が取れた・利用者がまだ何も押していない（①のまま）。
+  // 待っている間は①を表示したまま。lineUserId が取れない／liff.init 失敗／タイムアウトのときは何もしない（①のまま）。
+  // 進めるのは①だけ。②はじめにお読みください（同意のチェック）は goAfterAuth で必ず通る。
+  // /src（isFirst=false）では何もしない。
+  useEffect(() => {
+    if (!isFirst) return;
+    if (notifyFromUrl === 'line') return;
+    let cancelled = false;
+    (async () => {
+      let liffData = null;
+      try { liffData = await liffReadyRef.current; } catch { return; }
+      if (cancelled || !liffData?.lineUserId) return;
+      if (authStartedRef.current) return;                // 利用者が先に押した／自動通過済み
+      if (screenRef.current !== homeScreen) return;      // 利用者が別の画面へ進んでいる
+      handleAuthSelectRef.current?.("line");
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -588,6 +615,7 @@ function AppInner({ entry = "src" }) {
   };
 
   const handleAuthSelect = (method) => {
+    authStartedRef.current = true; // /first のLIFF自動通過と二重に進めないための印（自動通過の判定でだけ使う）
     localStorage.removeItem('yurari_customer_id');
     localStorage.removeItem('yurari_login_expire');
     localStorage.removeItem('yurari_line_user_id');
@@ -654,6 +682,7 @@ function AppInner({ entry = "src" }) {
       goAfterAuth("register");
     }
   };
+  handleAuthSelectRef.current = handleAuthSelect; // /first のLIFF自動通過が最新の handleAuthSelect を呼ぶため
 
   const handleRegisterSubmit = async () => {
     if (!profile.name || !profile.kana || !profile.tel || !profile.email || !profile.address || !profile.zipcode) {
