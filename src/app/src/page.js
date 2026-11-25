@@ -52,6 +52,24 @@ function formatDate(d) {
 
 const bookingSteps = ["店舗選択","コース選択","スタッフ・日時","確認"];
 
+// 公式LINEの友だち追加（/signup の完了画面とLINE連携のあとに使う。マイページと同じ扱い）
+const LINE_ADD_FRIEND_URL = "https://line.me/R/ti/p/@fdm5378y";
+// 連携後、公式LINEを友だち追加していなければ案内する（友だちでないとLINEに通知が届かないため）。
+// マイページ（src/app/mypage/page.js）の promptAddFriendIfNeeded と同じ処理
+async function promptAddFriendIfNeeded(liff) {
+  try {
+    const f = await liff.getFriendship();
+    if (f && f.friendFlag === false) {
+      alert("LINEと連携しました。\nお知らせを受け取るため、癒楽里の公式LINEを友だち追加してください。");
+      window.location.href = LINE_ADD_FRIEND_URL;
+      return true;
+    }
+  } catch (e) {
+    console.error("友だち状態の確認に失敗しました:", e);
+  }
+  return false;
+}
+
 // ── 予約フォームの到達数・完了数の記録（/api/form-events → public.form_events） ──
 // 同じセッションで「入口に着いた（arrive）／予約が確定した（done）」を1回ずつ送り、素直な通過率を出す。
 // 記録は予約の邪魔をしてはいけない：
@@ -64,6 +82,7 @@ const bookingSteps = ["店舗選択","コース選択","スタッフ・日時","
 // 予約変更（?change=）も同じように記録する。区別は後から bookings 側で付ける。
 const FORM_ROUTE = "/src"; // 段階3で新しい入口ができたら、そこからは別の値を渡す
 const FIRST_ROUTE = "/first"; // 初めての方の入口（/first）から送るときの route
+const SIGNUP_ROUTE = "/signup"; // 登録とLINE連携だけの入口（/signup）から送るときの route。done は完了画面に着いた時点
 const FORM_SESSION_KEY = "yurari_form_session_key";
 const BOT_UA = /bot|crawler|spider|slurp|facebookexternalhit/i;
 function sendFormEvent(kind, route = FORM_ROUTE) {
@@ -93,15 +112,20 @@ function sendFormEvent(kind, route = FORM_ROUTE) {
 //   "src"   … 従来の入口 /src。トップ画面（店舗案内つきの大きな画像）から始まる。今までと同じ動き
 //   "first" … 初めての方の入口 /first（HP の /reserve/「初めての方」から来る）。トップ画面は出さず、
 //             ①ご連絡方法 → ②はじめにお読みください（同意）→ 登録画面／予約画面 の順に進む
+//   "signup" … 登録とLINE連携だけの入口 /signup（院内のQRから来る）。予約はしない。
+//             ①ご登録方法 → ご来院は初めてですか → 初めて：②同意 → お客様情報 → カウンセリングシート → 完了
+//                                                  2回目以降：8桁コード → LINE連携／メールアドレス → 完了
+//             LINEで照合できた方（連携済み）は①のあとすぐ完了。画面の名前は signup_* と complete（完了）
 function AppInner({ entry = "src" }) {
   const { data: session, status: sessionStatus } = useSession();
   const searchParams = useSearchParams();
   const changeBookingId = searchParams?.get('change');
   const notifyFromUrl = searchParams?.get('notify');
   const isFirst = entry === "first";
-  const entryPath = isFirst ? "/first" : "/src";          // URL を戻すとき・LINEログインの戻り先
-  const homeScreen = isFirst ? "auth" : "top";            // 最初の画面・最初からやり直すときの画面
-  const formRoute = isFirst ? FIRST_ROUTE : FORM_ROUTE;   // 計測（form_events）の route
+  const isSignup = entry === "signup";
+  const entryPath = isFirst ? "/first" : isSignup ? "/signup" : "/src";          // URL を戻すとき・LINEログインの戻り先
+  const homeScreen = (isFirst || isSignup) ? "auth" : "top";                     // 最初の画面・最初からやり直すときの画面
+  const formRoute = isFirst ? FIRST_ROUTE : isSignup ? SIGNUP_ROUTE : FORM_ROUTE; // 計測（form_events）の route
 
   // LIFF（LINEアプリ内）で開かれた場合に検証済みのLINEユーザー情報を入れる
   const [liffUser, setLiffUser] = useState(null);
@@ -226,10 +250,44 @@ function AppInner({ entry = "src" }) {
   // 到達数・完了数の記録（投げっぱなし。sendFormEvent の説明を参照）
   useEffect(() => { sendFormEvent("arrive", formRoute); }, []);
   useEffect(() => { if (screen === "complete") sendFormEvent("done", formRoute); }, [screen]);
+  // /signup の完了画面：LIFFで開かれていて、まだ公式LINEを友だち追加していなければ「友だち追加」のボタンを出す
+  useEffect(() => {
+    if (!isSignup || screen !== "complete") return;
+    let cancelled = false;
+    (async () => {
+      try { await liffReadyRef.current; } catch {}
+      const { initOk, isInClient } = liffStateRef.current;
+      if (!initOk || !isInClient) return;
+      try {
+        const liff = (await import("@line/liff")).default;
+        const f = await liff.getFriendship();
+        if (!cancelled && f && f.friendFlag === false) setSignupNeedFriend(true);
+      } catch (e) {
+        console.error("[signup] 友だち状態の確認に失敗しました", e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [screen]);
   // ②はじめにお読みください（/first だけ）：同意した版と時刻（画面の中だけで持ち、登録・電話番号での照合のときに保存する）
   const [termsAgreement, setTermsAgreement] = useState(null); // { version, agreed_at }
   const [termsNext, setTermsNext] = useState(null);           // 同意のあとに進む画面（"register" | "booking"）
   const [termsChecked, setTermsChecked] = useState(false);    // ②の「上記の内容を読み、了承しました」のチェック（入れるまで「同意して進む」は押せない）
+  // /signup（登録だけの入口）だけで使う状態
+  //   signupResult：完了画面に出す内容 { kind, lineLinked, intakeLater }
+  //     kind … "line_already"（LINEで照合できた＝連携済み）| "existed"（電話番号が既存の方と一致）| "new"（新規登録）| "returning"（2回目以降の方）
+  //   signupCode：2回目以降の方の8桁コード。signupLoggedIn：8桁コードでマイページのセッションが取れたか
+  //   signupLineError：2回目以降の方のLINE連携に失敗したときの文言。signupEmail：2回目以降の方のメールアドレス
+  //   signupNeedFriend：完了画面で「公式LINEを友だち追加する」を出すか（LIFF内で、まだ友だちでない）
+  const [signupResult, setSignupResult] = useState(null);
+  const [signupBusy, setSignupBusy] = useState(false);
+  const [signupCode, setSignupCode] = useState("");
+  const [signupLoggedIn, setSignupLoggedIn] = useState(false);
+  const [signupLineError, setSignupLineError] = useState("");
+  const [signupEmail, setSignupEmail] = useState("");
+  const [signupNeedFriend, setSignupNeedFriend] = useState(false);
+  // 2回目以降の方が8桁コードを使えず（コードが分からない・誕生日が未登録）、初めての方と同じ流れ（同意 → お客様情報）に来たか。
+  // お客様情報の画面に「同じ内容で照合します」の一行を出すために使う
+  const [signupViaFallback, setSignupViaFallback] = useState(false);
   const [notificationMethod, setNotificationMethod] = useState(null);
   const [step, setStep] = useState(0);
   const [store, setStore] = useState(null);
@@ -361,8 +419,8 @@ function AppInner({ entry = "src" }) {
     if (notifyFromUrl === 'line') return; // NextAuth LINE復帰時はスキップ（上のuseEffectに任せる）
     if (changeBookingId) return; // 予約変更は下の useEffect で扱う
     // /first（初めての方の入口）では自動ログインしない。①ご連絡方法 → ②同意 を必ず通し、
-    // 登録画面（電話番号での照合）で同意を保存するため
-    if (isFirst) return;
+    // 登録画面（電話番号での照合）で同意を保存するため。/signup（登録だけの入口）も予約画面へ進めないので自動ログインしない
+    if (isFirst || isSignup) return;
     // 自動ログイン：従来は localStorage の顧客ID／LINEユーザーIDをそのまま信用していたが、
     // サーバーが確認できた本人（マイページのセッション → 検証済みLINEユーザーID）だけを使う。
     const autoLogin = async () => {
@@ -392,9 +450,10 @@ function AppInner({ entry = "src" }) {
   // 条件：/first・NextAuthのLINE復帰中ではない・LIFFで lineUserId が取れた・利用者がまだ何も押していない（①のまま）。
   // 待っている間は①を表示したまま。lineUserId が取れない／liff.init 失敗／タイムアウトのときは何もしない（①のまま）。
   // 進めるのは①だけ。②はじめにお読みください（同意のチェック）は goAfterAuth で必ず通る。
-  // /src（isFirst=false）では何もしない。
+  // /signup（登録だけの入口）でも同じように①を自動で通過する（②同意は「初めてです」を選んだ方だけが通る）。
+  // /src（isFirst=false・isSignup=false）では何もしない。
   useEffect(() => {
-    if (!isFirst) return;
+    if (!isFirst && !isSignup) return;
     if (notifyFromUrl === 'line') return;
     let cancelled = false;
     (async () => {
@@ -604,7 +663,18 @@ function AppInner({ entry = "src" }) {
 
   // ①ご連絡方法が済んだあとの画面へ進む。/first では、同意がまだなら先に②はじめにお読みくださいを出す。
   // /src では今までどおりそのまま進む
+  // /signup では予約へ進まない：LINEで照合できた方（next="booking"）は完了へ、それ以外は「ご来院は初めてですか」へ
   const goAfterAuth = (next) => {
+    if (isSignup) {
+      if (next === "booking") {
+        setSignupResult({ kind: "line_already", lineLinked: true });
+        setScreen("complete");
+      } else {
+        setScreen("signup_visit");
+      }
+      window.scrollTo(0, 0);
+      return;
+    }
     if (isFirst && !termsAgreement) {
       setTermsNext(next);
       setScreen("terms");
@@ -669,13 +739,17 @@ function AppInner({ entry = "src" }) {
           goAfterAuth("register");
           return;
         }
-        if (!triedBefore && !window.confirm(isFirst
+        if (!triedBefore && !window.confirm(isSignup
+          ? "LINEアプリが開きます。\nLINEアプリ内でもう一度「LINEではじめる」を押してお進みください。"
+          : isFirst
           ? "LINEアプリが開きます。\nLINEアプリ内でもう一度「LINEで登録する」を押してお進みください。"
           : "LINEアプリが開きます。\nLINEアプリ内でもう一度「今すぐ予約する」→「LINEで登録する」を押してお進みください。")) return;
         try { sessionStorage.setItem("yurari_liff_redirected", "1"); } catch {}
         // /first は LIFF URL の後ろにパス「/first」を付けて開く。LINE は LIFF のエンドポイントURLの後ろにこのパスを足して開くため、
-        // エンドポイントが /src なら /src/first（src/app/src/first/page.js。/first と同じ入口）に着く
-        window.location.href = isFirst ? `https://liff.line.me/${liffId}/first` : `https://liff.line.me/${liffId}`;
+        // エンドポイントが /src なら /src/first（src/app/src/first/page.js。/first と同じ入口）に着く。/signup も同じ（/src/signup）
+        window.location.href = isFirst ? `https://liff.line.me/${liffId}/first`
+          : isSignup ? `https://liff.line.me/${liffId}/signup`
+          : `https://liff.line.me/${liffId}`;
       };
       startLineLogin();
     } else {
@@ -723,12 +797,142 @@ function AppInner({ entry = "src" }) {
       setError(r.data?.error || "お客様情報の確認に失敗しました。通信状態をご確認のうえ、もう一度お試しください。");
       return;
     }
+    // /signup は予約へ進まず、登録の結果で分ける（既存の方は完了へ、新規の方はカウンセリングシートへ）
+    if (isSignup) {
+      await afterSignupRegister(r.data, tel);
+      return;
+    }
     // 既存の方の登録内容はサーバーから受け取らない（入力された内容で予約・確認メールを送る）
     setExistingCustomer({ id: r.data.customer_id, ...profile, tel, has_line: !!r.data.has_line });
     customerMatchRef.current = r.data.existed
       ? { source: "register_tel", has_tel: true, hits: 1 }
       : { source: "register_new", has_tel: true, hits: 0 };
     setScreen("booking");
+  };
+
+  // ── /signup（登録とLINE連携だけの入口）の処理 ─────────────────────
+  // サーバーは既存のAPIだけを使う（booking-form/register・mypage/login・mypage/line-link・mypage/profile・mypage/notification-method）。
+
+  // 8桁コード（携帯番号の下4桁＋誕生日の月日4桁）でマイページのセッションを作る。成功すると Cookie が発行される
+  const signupMypageLogin = async (code) => {
+    try {
+      const r = await api("mypage/login", { method: "POST", body: JSON.stringify({ code }) });
+      return { ok: r.ok, error: r.data?.error || "" };
+    } catch (e) {
+      console.error("[signup] マイページのログインに失敗", e);
+      return { ok: false, error: "" };
+    }
+  };
+
+  // 初めての方：お客様情報の登録が済んだあと。
+  //   existed（電話番号が既存の方と一致）… カウンセリングシートは出さず完了へ
+  //   新規 … いま登録した本人の8桁コードでマイページのセッションを作り、カウンセリングシートへ。
+  //          セッションが取れなければシートは出さずに完了へ（登録自体は済んでいるので止めない）
+  const afterSignupRegister = async (data, tel) => {
+    const lineLinked = notificationMethod === "line" && !!data.has_line;
+    if (data.existed) {
+      setSignupResult({ kind: "existed", lineLinked });
+      setScreen("complete");
+      window.scrollTo(0, 0);
+      return;
+    }
+    const code = String(tel).replace(/[^0-9]/g, "").slice(-4) + profile.birthday.slice(5, 7) + profile.birthday.slice(8, 10);
+    const lr = await signupMypageLogin(code);
+    if (lr.ok) {
+      setSignupResult({ kind: "new", lineLinked });
+      setScreen("signup_intake");
+    } else {
+      console.error("[signup] 登録直後のマイページのログインに失敗しました（カウンセリングシートは後ほど）");
+      setSignupResult({ kind: "new", lineLinked, intakeLater: true });
+      setScreen("complete");
+    }
+    window.scrollTo(0, 0);
+  };
+
+  // 2回目以降の方：8桁コードで本人確認 → LINEを選んでいればLINE連携、メールならメールアドレスの入力へ
+  const handleSignupCode = async () => {
+    const clean = signupCode.replace(/[^0-9]/g, "");
+    if (clean.length !== 8) {
+      setError("携帯下4桁＋誕生日4桁（合計8桁）を入力してください");
+      return;
+    }
+    setError("");
+    setSignupBusy(true);
+    const lr = await signupMypageLogin(clean);
+    setSignupBusy(false);
+    if (!lr.ok) {
+      setError(lr.error || "コードが正しくありません"); // マイページのログインと同じ文言
+      return;
+    }
+    setSignupLoggedIn(true);
+    if (notificationMethod === "line") await signupLinkLine();
+    else await goSignupEmail();
+  };
+
+  // 2回目以降の方のLINE連携（マイページの「LINE通知」ボタンと同じ処理）。
+  // LIFF のアクセストークンを /api/mypage/line-link に送り、サーバーが検証したLINEユーザーIDを本人に保存する
+  const signupLinkLine = async () => {
+    setSignupLineError("");
+    setSignupBusy(true);
+    try {
+      try { await liffReadyRef.current; } catch {}
+      const { initOk, isInClient } = liffStateRef.current;
+      const liff = initOk && isInClient ? (await import("@line/liff")).default : null;
+      if (!liff || !liff.isLoggedIn()) {
+        setSignupLineError("LINEアプリの中で開かれていないため、LINE連携ができませんでした。");
+        return;
+      }
+      const r = await api("mypage/line-link", { method: "POST", body: JSON.stringify({ accessToken: liff.getAccessToken() }) });
+      if (!r.ok) {
+        setSignupLineError(r.data?.error || "LINE連携に失敗しました");
+        return;
+      }
+      const nm = await api("mypage/notification-method", { method: "POST", body: JSON.stringify({ method: "line" }) });
+      if (!nm.ok) console.error("[signup] 通知方法（LINE）の保存に失敗", nm.status); // line-link でも notification_method は line になっている
+      setSignupResult({ kind: "returning", lineLinked: true });
+      setScreen("complete");
+      window.scrollTo(0, 0);
+      // 友だち追加の案内は完了画面のボタンで出す（初めての方と同じ。ここで強制的に遷移させない）
+    } catch (e) {
+      console.error("[signup] LINE連携に失敗", e);
+      setSignupLineError("LINE連携に失敗しました");
+    } finally {
+      setSignupBusy(false);
+    }
+  };
+
+  // 2回目以降の方のメールアドレス入力へ。登録済みのアドレスがあれば初期値にする
+  const goSignupEmail = async () => {
+    setError("");
+    setNotificationMethod("email");
+    const r = await api("mypage/me");
+    setSignupEmail(r.ok && typeof r.data?.customer?.email === "string" ? r.data.customer.email : "");
+    setScreen("signup_email");
+    window.scrollTo(0, 0);
+  };
+
+  const handleSignupEmail = async () => {
+    const email = signupEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("メールアドレスを正しく入力してください");
+      return;
+    }
+    setError("");
+    setSignupBusy(true);
+    try {
+      const pr = await api("mypage/profile", { method: "POST", body: JSON.stringify({ email }) });
+      if (!pr.ok) { setError(pr.data?.error || "保存に失敗しました"); return; }
+      const nm = await api("mypage/notification-method", { method: "POST", body: JSON.stringify({ method: "email" }) });
+      if (!nm.ok) { setError(nm.data?.error || "保存に失敗しました"); return; }
+      setSignupResult({ kind: "returning", lineLinked: false });
+      setScreen("complete");
+      window.scrollTo(0, 0);
+    } catch (e) {
+      console.error("[signup] メールアドレスの保存に失敗", e);
+      setError("保存に失敗しました");
+    } finally {
+      setSignupBusy(false);
+    }
   };
 
   const canNext = () => {
@@ -876,6 +1080,8 @@ function AppInner({ entry = "src" }) {
     setBookingNum(""); setError(""); setIntakeToken(null); setIntakeView("form"); setExistingCustomer(null);
     customerMatchRef.current = null;
     setStaffShiftDates({}); setShiftRows({ shifts: [], activeIds: [] });
+    // /signup の状態（/src・/first では使っていないので、戻しても何も変わらない）
+    setSignupResult(null); setSignupCode(""); setSignupLoggedIn(false); setSignupLineError(""); setSignupEmail(""); setSignupNeedFriend(false); setSignupViaFallback(false);
   };
 
   // 「別の予約をする」用：確定済みの顧客（existingCustomer・profile・通知方法）は残し、予約内容だけ初期化する。
@@ -1016,7 +1222,7 @@ function AppInner({ entry = "src" }) {
         <div style={{ maxWidth: 640, margin: "0 auto", padding: "32px 20px 40px" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
             <div style={{ fontSize: 22, fontWeight: 700, color: GREEN, marginBottom: 8 }}>はじめにお読みください</div>
-            <div style={{ fontSize: 13, color: "#888" }}>ご予約の前に、当院からのお願いをご確認ください。</div>
+            <div style={{ fontSize: 13, color: "#888" }}>{isSignup ? "ご登録の前に" : "ご予約の前に"}、当院からのお願いをご確認ください。</div>
           </div>
           <div style={{ background: "white", borderRadius: 16, padding: "20px 22px", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", fontSize: 14, color: DARK, lineHeight: 1.85 }}>
             <div style={{ fontWeight: 700, marginBottom: 8 }}>{TERMS_RULES_TITLE}</div>
@@ -1047,6 +1253,181 @@ function AppInner({ entry = "src" }) {
         </div>
       </div>
     );
+  }
+
+  // ── /signup の画面（/src・/first では isSignup が偽なので通らない） ──
+  // 共通の見た目
+  const signupWrap = (children, maxWidth = 480) => (
+    <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "'Noto Sans JP', sans-serif" }}>
+      <Header showBack={true} />
+      <div style={{ maxWidth, margin: "0 auto", padding: "40px 20px 48px" }}>{children}</div>
+    </div>
+  );
+  const signupTitle = (title, sub) => (
+    <div style={{ textAlign: "center", marginBottom: 28 }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color: GREEN, marginBottom: 8 }}>{title}</div>
+      {sub && <div style={{ fontSize: 13, color: "#888", lineHeight: 1.7 }}>{sub}</div>}
+    </div>
+  );
+  const signupError = (msg) => msg ? (
+    <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#cc4444", whiteSpace: "pre-line" }}>{msg}</div>
+  ) : null;
+  const signupMainButton = (label, onClick, { color = GREEN, disabled = false } = {}) => (
+    <button onClick={onClick} disabled={disabled} style={{ width: "100%", padding: "16px", borderRadius: 14, border: "none", background: disabled ? "#aaa" : color, color: "white", fontSize: 16, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer" }}>{label}</button>
+  );
+
+  // 【画面1】ご登録方法。LINE連携が目的なので「LINEではじめる」を大きく、「メールではじめる」は控えめに
+  if (isSignup && screen === "auth") {
+    return signupWrap(<>
+      {signupTitle("ご登録方法を選んでください", "ご予約の確認やリマインドの受け取り方法です")}
+      <button onClick={() => handleAuthSelect("line")} style={{ width: "100%", padding: "22px 20px", borderRadius: 18, border: "none", background: "#06C755", color: "white", cursor: "pointer", boxShadow: "0 4px 16px rgba(6,199,85,0.3)", textAlign: "center" }}>
+        <div style={{ fontSize: 20, fontWeight: 700 }}>💚 LINEではじめる</div>
+        <div style={{ fontSize: 12, marginTop: 6, opacity: 0.95 }}>確認・リマインドをLINEで受け取れます</div>
+      </button>
+      <div style={{ textAlign: "center", marginTop: 28 }}>
+        <button onClick={() => handleAuthSelect("email")} style={{ border: "none", background: "none", color: "#888", fontSize: 14, textDecoration: "underline", cursor: "pointer", padding: 8 }}>
+          LINEを使っていない方は、メールではじめる
+        </button>
+      </div>
+    </>);
+  }
+
+  // 【画面2】ご来院は初めてですか。初めて → ②同意 → お客様情報、2回目以降 → 8桁コード
+  // LINEで照合できなかった方もここに来る（まだLINE連携していない既存の方もいるため、初めてと決めつけない）
+  if (isSignup && screen === "signup_visit") {
+    const choice = (label, sub, onClick) => (
+      <button onClick={onClick} style={{ width: "100%", padding: "20px", borderRadius: 16, border: "2px solid " + GREEN + "30", background: "white", cursor: "pointer", boxShadow: "0 2px 12px rgba(0,0,0,0.06)", textAlign: "center" }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: GREEN }}>{label}</div>
+        {sub && <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>{sub}</div>}
+      </button>
+    );
+    return signupWrap(<>
+      {signupTitle("ご来院は初めてですか？")}
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {choice("初めてです", "お客様情報のご登録に進みます", () => {
+          setError("");
+          setSignupViaFallback(false);
+          if (termsAgreement) setScreen("register");
+          else { setTermsNext("register"); setScreen("terms"); }
+          window.scrollTo(0, 0);
+        })}
+        {choice("2回目以降です", "ご本人確認に進みます", () => { setError(""); setScreen("signup_code"); window.scrollTo(0, 0); })}
+      </div>
+    </>);
+  }
+
+  // 【画面4】カウンセリングシート（新規登録の方）。マイページのセッションで開くので受付トークンは不要。
+  // ②で同意済みなので、シート側の同意のページは priorConsent で飛ばす
+  if (isSignup && screen === "signup_intake") {
+    return signupWrap(<>
+      {signupTitle("カウンセリングシートのご記入", "ご来院前にご記入いただくと、当日スムーズにご案内できます（約5分）。")}
+      <div style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)", borderRadius: 16, textAlign: "left" }}>
+        <IntakeForm entry="mypage" embedded priorConsent={termsAgreement} onDone={() => { setScreen("complete"); window.scrollTo(0, 0); }} />
+      </div>
+      <button onClick={() => { setSignupResult(r => ({ ...(r || { kind: "new" }), intakeLater: true })); setScreen("complete"); window.scrollTo(0, 0); }}
+        style={{ display: "block", width: "100%", marginTop: 16, padding: "12px", borderRadius: 12, border: "2px solid #e3e3dc", background: "white", color: "#888", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+        あとで記入する
+      </button>
+    </>, 640);
+  }
+
+  // 【画面5】2回目以降の方：8桁コードで本人確認（マイページと同じ入力欄）
+  if (isSignup && screen === "signup_code") {
+    // 本人確認は済んだが、LINE連携に失敗した場合
+    if (signupLoggedIn && signupLineError) {
+      return signupWrap(<>
+        {signupTitle("LINE連携ができませんでした")}
+        {signupError(signupLineError)}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {signupMainButton(signupBusy ? "確認中..." : "もう一度LINE連携する", signupLinkLine, { color: "#06C755", disabled: signupBusy })}
+          <button onClick={goSignupEmail} disabled={signupBusy} style={{ width: "100%", padding: "14px", borderRadius: 14, border: "2px solid " + GREEN, background: "white", color: GREEN, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>
+            メールで受け取る
+          </button>
+        </div>
+      </>);
+    }
+    return signupWrap(<>
+      {signupTitle("ご本人確認", "ご登録の携帯番号と誕生日で確認します")}
+      {signupError(error)}
+      <div style={{ background: "white", borderRadius: 20, padding: 28, boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}>
+        <div style={{ marginBottom: 28 }}>
+          <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 8 }}>ログインコード（8桁）</label>
+          <div style={{ fontSize: 12, color: "#888", marginBottom: 10, lineHeight: 1.6 }}>
+            携帯番号の下4桁 ＋ 誕生日（月日）4桁 = 合計8桁
+          </div>
+          <input
+            type="tel"
+            value={signupCode}
+            onChange={e => setSignupCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 8))}
+            onKeyDown={e => e.key === "Enter" && !signupBusy && handleSignupCode()}
+            placeholder="12340804"
+            inputMode="numeric"
+            maxLength={8}
+            style={{ width: "100%", padding: "18px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 24, color: DARK, background: "white", boxSizing: "border-box", outline: "none", letterSpacing: "0.2em", textAlign: "center" }}
+          />
+        </div>
+        {signupMainButton(signupBusy ? "確認中..." : "次へ →", handleSignupCode, { disabled: signupBusy })}
+      </div>
+      {/* 8桁コードを作れない方（誕生日が未登録など）の逃げ道。初めての方と同じ流れ（②同意 → お客様情報）を使う。
+          booking-form/register は電話番号の完全一致で既存の方を照合し、登録内容は上書きしない（existed: true → 完了へ） */}
+      <div style={{ textAlign: "center", marginTop: 24 }}>
+        <button onClick={() => {
+          setError("");
+          setSignupViaFallback(true);
+          if (termsAgreement) setScreen("register");
+          else { setTermsNext("register"); setScreen("terms"); }
+          window.scrollTo(0, 0);
+        }} disabled={signupBusy} style={{ border: "none", background: "none", color: LIGHT_GREEN, fontSize: 13, cursor: "pointer", padding: 8 }}>
+          コードが分からない方・誕生日をご登録でない方はこちら →
+        </button>
+      </div>
+    </>);
+  }
+
+  // 【画面5】2回目以降の方（メールを選んだ方）：メールアドレスの登録。登録済みのアドレスがあれば初期値にして、変更もできる
+  if (isSignup && screen === "signup_email") {
+    return signupWrap(<>
+      {signupTitle("メールアドレスのご登録", "ご予約の確認やリマインドをお送りするメールアドレスです")}
+      {signupError(error)}
+      <div style={{ background: "white", borderRadius: 20, padding: 28, boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}>
+        <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 8 }}>メールアドレス</label>
+        <input type="email" value={signupEmail} onChange={e => setSignupEmail(e.target.value)} placeholder="example@email.com"
+          style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 15, color: DARK, background: "white", boxSizing: "border-box", outline: "none", marginBottom: 24 }} />
+        {signupMainButton(signupBusy ? "保存中..." : "登録する", handleSignupEmail, { disabled: signupBusy })}
+      </div>
+    </>);
+  }
+
+  // 【画面6】完了（/signup）。予約はしていないので、予約の完了画面とは別に出す
+  if (isSignup && screen === "complete") {
+    const r = signupResult || {};
+    const note = r.kind === "line_already" ? "すでにLINE連携がお済みです"
+      : r.kind === "existed" ? "すでにご登録いただいておりました"
+      : null;
+    return signupWrap(<div style={{ textAlign: "center" }}>
+      <div style={{ fontSize: 64, marginBottom: 16 }}>🌿</div>
+      <div style={{ fontSize: 24, fontWeight: 700, color: GREEN, marginBottom: 12 }}>ご登録ありがとうございます</div>
+      {note && <div style={{ fontSize: 14, color: DARK, fontWeight: 700, marginBottom: 12 }}>{note}</div>}
+      <div style={{ background: "#f0f8f4", borderRadius: 16, padding: "16px 20px", margin: "20px 0", fontSize: 14, color: GREEN, fontWeight: 700, lineHeight: 1.7 }}>
+        {r.lineLinked ? "💚 ご予約の確認やリマインドがLINEに届きます" : "📧 ご予約の確認やリマインドをメールでお送りします"}
+      </div>
+      {r.intakeLater && (
+        <div style={{ background: "#fff8ec", border: "1px solid #f0d58a", borderRadius: 16, padding: "14px 18px", marginBottom: 20, fontSize: 13, color: "#555", lineHeight: 1.8, textAlign: "left" }}>
+          カウンセリングシートは、後ほどマイページからご記入いただけます。
+        </div>
+      )}
+      {signupNeedFriend && (
+        <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>友だち追加をしないと、LINEにお知らせが届きません。</div>
+      )}
+      {signupNeedFriend && (
+        <a href={LINE_ADD_FRIEND_URL} style={{ display: "block", width: "100%", padding: "16px", borderRadius: 14, background: "#06C755", color: "white", fontSize: 16, fontWeight: 700, textDecoration: "none", textAlign: "center", marginBottom: 12, boxSizing: "border-box" }}>
+          公式LINEを友だち追加する
+        </a>
+      )}
+      <div style={{ marginTop: 32 }}>
+        <a href="/src" style={{ fontSize: 13, color: LIGHT_GREEN, textDecoration: "none" }}>このままご予約もできます →</a>
+      </div>
+    </div>);
   }
 
   if (screen === "auth") {
@@ -1085,7 +1466,7 @@ function AppInner({ entry = "src" }) {
   }
 
   if (screen === "register") {
-    if (existingCustomer) {
+    if (existingCustomer && !isSignup) {
       setScreen("booking");
       return null;
     }
@@ -1097,6 +1478,13 @@ function AppInner({ entry = "src" }) {
             <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>お客様情報</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>お客様情報をご入力ください</div>
             <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>初回のみ入力が必要です。次回からは自動入力されます。</div>
+            {/* /signup で8桁コードの代わりにこちらへ来た方（既存の方の可能性が高い）に、登録情報が書き換わらないことを伝える。
+                booking-form/register は既存の方の登録内容を上書きしない（照合できない場合は新しい顧客になるので「新しく登録されない」とは言わない） */}
+            {isSignup && signupViaFallback && (
+              <div style={{ fontSize: 13, color: GREEN, background: "#f0f8f4", borderRadius: 10, padding: "10px 14px", marginTop: 12, lineHeight: 1.7 }}>
+                すでにご登録のある方は、お電話番号で照合します。入力された内容で登録情報が上書きされることはありません。
+              </div>
+            )}
           </div>
           {error && <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#cc4444", whiteSpace: "pre-line" }}>{error}</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -1170,6 +1558,8 @@ function AppInner({ entry = "src" }) {
                 <span style={{ fontSize: 13, color: "#888", flexShrink: 0 }}>日</span>
               </div>
             </div>
+            {/* ご来院歴・お悩みは予約のための欄。/signup（予約しない・来院歴は前の画面で答えた）では出さない */}
+            {!isSignup && <>
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: GREEN, display: "block", marginBottom: 6 }}>ご来院歴</label>
               <div style={{ display: "flex", gap: 10 }}>
@@ -1183,13 +1573,24 @@ function AppInner({ entry = "src" }) {
               <textarea value={profile.notes} onChange={e => setProfile({ ...profile, notes: e.target.value })} placeholder="肩こりがひどく、特に右肩が気になります..." rows={3}
                 style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: "2px solid #e8ddd0", fontSize: 14, color: DARK, background: "white", boxSizing: "border-box", outline: "none", resize: "none", fontFamily: "inherit" }} />
             </div>
+            </>}
           </div>
         </div>
         <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "rgba(255,255,255,0.95)", backdropFilter: "blur(12px)", borderTop: "3px solid " + GREEN + "20", padding: "12px 16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom))" }}>
           <div style={{ maxWidth: 640, margin: "0 auto" }}>
+            {isSignup ? (
+              <button onClick={async () => {
+                if (signupBusy) return; // 二度押しで登録を二重に送らない（/signup のときだけ）
+                setSignupBusy(true);
+                try { await handleRegisterSubmit(); } finally { setSignupBusy(false); }
+              }} disabled={signupBusy} style={{ width: "100%", padding: "16px", borderRadius: 14, border: "none", background: signupBusy ? "#aaa" : GREEN, color: "white", fontSize: 16, fontWeight: 700, cursor: signupBusy ? "not-allowed" : "pointer" }}>
+                {signupBusy ? "登録中..." : "登録する"}
+              </button>
+            ) : (
             <button onClick={handleRegisterSubmit} style={{ width: "100%", padding: "16px", borderRadius: 14, border: "none", background: GREEN, color: "white", fontSize: 16, fontWeight: 700, cursor: "pointer" }}>
               次へ → 予約内容を選ぶ
             </button>
+            )}
           </div>
         </div>
       </div>
@@ -1643,11 +2044,12 @@ function AppInner({ entry = "src" }) {
   );
 }
 
-// /src から使うときは entry を渡さない（今までどおり）。/first（src/app/first/page.js）からは entry="first" を渡す
+// /src から使うときは entry を渡さない（今までどおり）。/first（src/app/first/page.js・src/app/src/first/page.js）からは entry="first"、
+// /signup（src/app/signup/page.js・src/app/src/signup/page.js）からは entry="signup" を渡す。それ以外の値と未指定は "src" として扱う
 export default function App({ entry }) {
   return (
     <Suspense fallback={<div style={{ minHeight: "100vh", background: "#fdf8f0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: "#888" }}>読み込み中...</div>}>
-      <AppInner entry={entry === "first" ? "first" : "src"} />
+      <AppInner entry={entry === "first" ? "first" : entry === "signup" ? "signup" : "src"} />
     </Suspense>
   );
 }
