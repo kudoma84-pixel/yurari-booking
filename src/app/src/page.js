@@ -1478,10 +1478,11 @@ function AppInner({ entry = "src" }) {
             <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>お客様情報</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>お客様情報をご入力ください</div>
             <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>初回のみ入力が必要です。次回からは自動入力されます。</div>
-            {/* /signup で8桁コードの代わりにこちらへ来た方（既存の方の可能性が高い）に、二重登録にならないことを伝える */}
+            {/* /signup で8桁コードの代わりにこちらへ来た方（既存の方の可能性が高い）に、登録情報が書き換わらないことを伝える。
+                booking-form/register は既存の方の登録内容を上書きしない（照合できない場合は新しい顧客になるので「新しく登録されない」とは言わない） */}
             {isSignup && signupViaFallback && (
               <div style={{ fontSize: 13, color: GREEN, background: "#f0f8f4", borderRadius: 10, padding: "10px 14px", marginTop: 12, lineHeight: 1.7 }}>
-                すでにご登録のある方は、同じ内容で照合します。新しく登録されることはありません。
+                すでにご登録のある方は、お電話番号で照合します。入力された内容で登録情報が上書きされることはありません。
               </div>
             )}
           </div>
