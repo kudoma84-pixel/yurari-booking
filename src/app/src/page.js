@@ -2020,11 +2020,12 @@ function AppInner({ entry = "src" }) {
   );
 }
 
-// /src から使うときは entry を渡さない（今までどおり）。/first（src/app/first/page.js）からは entry="first" を渡す
+// /src から使うときは entry を渡さない（今までどおり）。/first（src/app/first/page.js・src/app/src/first/page.js）からは entry="first"、
+// /signup（src/app/signup/page.js・src/app/src/signup/page.js）からは entry="signup" を渡す。それ以外の値と未指定は "src" として扱う
 export default function App({ entry }) {
   return (
     <Suspense fallback={<div style={{ minHeight: "100vh", background: "#fdf8f0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: "#888" }}>読み込み中...</div>}>
-      <AppInner entry={entry === "first" ? "first" : "src"} />
+      <AppInner entry={entry === "first" ? "first" : entry === "signup" ? "signup" : "src"} />
     </Suspense>
   );
 }
