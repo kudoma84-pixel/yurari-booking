@@ -889,7 +889,7 @@ function AppInner({ entry = "src" }) {
       setSignupResult({ kind: "returning", lineLinked: true });
       setScreen("complete");
       window.scrollTo(0, 0);
-      await promptAddFriendIfNeeded(liff);
+      // 友だち追加の案内は完了画面のボタンで出す（初めての方と同じ。ここで強制的に遷移させない）
     } catch (e) {
       console.error("[signup] LINE連携に失敗", e);
       setSignupLineError("LINE連携に失敗しました");
@@ -1398,6 +1398,9 @@ function AppInner({ entry = "src" }) {
         <div style={{ background: "#fff8ec", border: "1px solid #f0d58a", borderRadius: 16, padding: "14px 18px", marginBottom: 20, fontSize: 13, color: "#555", lineHeight: 1.8, textAlign: "left" }}>
           カウンセリングシートは、後ほどマイページからご記入いただけます。
         </div>
+      )}
+      {signupNeedFriend && (
+        <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>友だち追加をしないと、LINEにお知らせが届きません。</div>
       )}
       {signupNeedFriend && (
         <a href={LINE_ADD_FRIEND_URL} style={{ display: "block", width: "100%", padding: "16px", borderRadius: 14, background: "#06C755", color: "white", fontSize: 16, fontWeight: 700, textDecoration: "none", textAlign: "center", marginBottom: 12, boxSizing: "border-box" }}>
