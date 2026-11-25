@@ -285,6 +285,9 @@ function AppInner({ entry = "src" }) {
   const [signupLineError, setSignupLineError] = useState("");
   const [signupEmail, setSignupEmail] = useState("");
   const [signupNeedFriend, setSignupNeedFriend] = useState(false);
+  // 2回目以降の方が8桁コードを使えず（コードが分からない・誕生日が未登録）、初めての方と同じ流れ（同意 → お客様情報）に来たか。
+  // お客様情報の画面に「同じ内容で照合します」の一行を出すために使う
+  const [signupViaFallback, setSignupViaFallback] = useState(false);
   const [notificationMethod, setNotificationMethod] = useState(null);
   const [step, setStep] = useState(0);
   const [store, setStore] = useState(null);
@@ -1078,7 +1081,7 @@ function AppInner({ entry = "src" }) {
     customerMatchRef.current = null;
     setStaffShiftDates({}); setShiftRows({ shifts: [], activeIds: [] });
     // /signup の状態（/src・/first では使っていないので、戻しても何も変わらない）
-    setSignupResult(null); setSignupCode(""); setSignupLoggedIn(false); setSignupLineError(""); setSignupEmail(""); setSignupNeedFriend(false);
+    setSignupResult(null); setSignupCode(""); setSignupLoggedIn(false); setSignupLineError(""); setSignupEmail(""); setSignupNeedFriend(false); setSignupViaFallback(false);
   };
 
   // 「別の予約をする」用：確定済みの顧客（existingCustomer・profile・通知方法）は残し、予約内容だけ初期化する。
@@ -1303,6 +1306,7 @@ function AppInner({ entry = "src" }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         {choice("初めてです", "お客様情報のご登録に進みます", () => {
           setError("");
+          setSignupViaFallback(false);
           if (termsAgreement) setScreen("register");
           else { setTermsNext("register"); setScreen("terms"); }
           window.scrollTo(0, 0);
@@ -1363,6 +1367,19 @@ function AppInner({ entry = "src" }) {
           />
         </div>
         {signupMainButton(signupBusy ? "確認中..." : "次へ →", handleSignupCode, { disabled: signupBusy })}
+      </div>
+      {/* 8桁コードを作れない方（誕生日が未登録など）の逃げ道。初めての方と同じ流れ（②同意 → お客様情報）を使う。
+          booking-form/register は電話番号の完全一致で既存の方を照合し、登録内容は上書きしない（existed: true → 完了へ） */}
+      <div style={{ textAlign: "center", marginTop: 24 }}>
+        <button onClick={() => {
+          setError("");
+          setSignupViaFallback(true);
+          if (termsAgreement) setScreen("register");
+          else { setTermsNext("register"); setScreen("terms"); }
+          window.scrollTo(0, 0);
+        }} disabled={signupBusy} style={{ border: "none", background: "none", color: LIGHT_GREEN, fontSize: 13, cursor: "pointer", padding: 8 }}>
+          コードが分からない方・誕生日をご登録でない方はこちら →
+        </button>
       </div>
     </>);
   }
@@ -1461,6 +1478,12 @@ function AppInner({ entry = "src" }) {
             <div style={{ fontSize: 11, color: LIGHT_GREEN, letterSpacing: "0.2em", marginBottom: 4 }}>お客様情報</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: GREEN }}>お客様情報をご入力ください</div>
             <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>初回のみ入力が必要です。次回からは自動入力されます。</div>
+            {/* /signup で8桁コードの代わりにこちらへ来た方（既存の方の可能性が高い）に、二重登録にならないことを伝える */}
+            {isSignup && signupViaFallback && (
+              <div style={{ fontSize: 13, color: GREEN, background: "#f0f8f4", borderRadius: 10, padding: "10px 14px", marginTop: 12, lineHeight: 1.7 }}>
+                すでにご登録のある方は、同じ内容で照合します。新しく登録されることはありません。
+              </div>
+            )}
           </div>
           {error && <div style={{ background: "#fff0f0", border: "1px solid #ffcccc", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#cc4444", whiteSpace: "pre-line" }}>{error}</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
