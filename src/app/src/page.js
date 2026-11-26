@@ -283,11 +283,17 @@ function AppInner({ entry = "src" }) {
     try { lineUserId = localStorage.getItem('yurari_line_user_id'); } catch {}
     if (!lineUserId) return;
     signupWelcomeSentRef.current = true; // 送る前に立てる（送信中に再実行されても二重に送らない）
-    // カウンセリングシートが未記入のまま完了した初めての方だけ、シートの案内を入れる（URLは予約完了の案内と同じ組み立て方）
+    // 本文は3通り：
+    //   すでにLINE連携がお済みの方（line_already）… 何もしていないので「登録・連携が完了しました」とは言わない
+    //   カウンセリングシートが未記入のまま完了した初めての方 … シートの案内を入れる（URLは予約完了の案内と同じ組み立て方）
+    //   それ以外 … リマインドの一文を入れる
     const intakeWebUrl = "https://yurari-booking.vercel.app/mypage/monshin";
     const intakeLineUrl = process.env.NEXT_PUBLIC_LIFF_ID_MYPAGE ? "https://liff.line.me/" + process.env.NEXT_PUBLIC_LIFF_ID_MYPAGE + "/monshin" : intakeWebUrl;
     const needsIntake = signupResult.kind === "new" && !!signupResult.intakeLater;
-    const text = needsIntake
+    const text = signupResult.kind === "line_already"
+      ? "整体院 癒楽里 です。\n\n"
+        + "すでにご登録・LINE連携はお済みです。\nご予約・ご変更は下のメニューからどうぞ。"
+      : needsIntake
       ? "ご登録ありがとうございます。\n整体院 癒楽里 です。\n\n"
         + "LINEとの連携が完了しました。\n次回からこのトークからご予約いただけます。\n\n"
         + "ご来院前に、カウンセリングシート（約5分）の\nご記入をお願いしております。\n▶ " + intakeLineUrl + "\n\n"
