@@ -251,9 +251,12 @@ function AppInner({ entry = "src" }) {
   useEffect(() => { sendFormEvent("arrive", formRoute); }, []);
   useEffect(() => { if (screen === "complete") sendFormEvent("done", formRoute); }, [screen]);
   // /signup の完了画面：LIFFで開かれていて、まだ公式LINEを友だち追加していなければ「友だち追加」のボタンを出す。
-  // 友だち追加済みで、LINEで登録された方には、公式LINEから登録完了のメッセージを1通送る（sendSignupWelcome）
+  // LINEで登録された方には、公式LINEから登録完了のメッセージを1通送る（sendSignupWelcome）。
+  // 送信は友だち判定（friendFlag）とは切り離し、LIFFの準備や getFriendship の成否にかかわらず最初に呼ぶ。
+  // 友だちでない方への送信は /api/send-line が失敗を返すだけで、画面は完了のまま（その方には公式LINEのあいさつが届く）
   useEffect(() => {
     if (!isSignup || screen !== "complete") return;
+    sendSignupWelcome(); // 送る条件・1回だけの判定は sendSignupWelcome の中。例外は中で握りつぶす
     let cancelled = false;
     (async () => {
       try { await liffReadyRef.current; } catch {}
@@ -262,8 +265,8 @@ function AppInner({ entry = "src" }) {
       try {
         const liff = (await import("@line/liff")).default;
         const f = await liff.getFriendship();
+        // friendFlag は「公式LINEを友だち追加する」ボタンを出すかどうかの判定にだけ使う
         if (!cancelled && f && f.friendFlag === false) setSignupNeedFriend(true);
-        if (!cancelled && f && f.friendFlag === true) await sendSignupWelcome();
       } catch (e) {
         console.error("[signup] 友だち状態の確認に失敗しました", e);
       }
@@ -272,7 +275,7 @@ function AppInner({ entry = "src" }) {
   }, [screen]);
   // 登録完了のメッセージ（/signup だけ）。送るのは次をすべて満たすときの1回だけ：
   //   完了画面・画面1で「LINEではじめる」を選んだ（notificationMethod が "line"）・LINE連携が済んだ（signupResult.lineLinked）・
-  //   localStorage に yurari_line_user_id がある・公式LINEの友だち（上の getFriendship で確認済み。友だちでない方へのプッシュはエラーになる）
+  //   localStorage に yurari_line_user_id がある（公式LINEの友だちかどうかは条件にしない。友だちでなければ送信が失敗するだけ）
   // 完了画面の useEffect は再実行されることがあるので、signupWelcomeSentRef で二重送信を防ぐ。
   // 送り方は予約確定のLINE通知と同じ（/api/send-line）。失敗しても画面は完了のまま
   const signupWelcomeSentRef = useRef(false);
