@@ -250,7 +250,8 @@ function AppInner({ entry = "src" }) {
   // 到達数・完了数の記録（投げっぱなし。sendFormEvent の説明を参照）
   useEffect(() => { sendFormEvent("arrive", formRoute); }, []);
   useEffect(() => { if (screen === "complete") sendFormEvent("done", formRoute); }, [screen]);
-  // /signup の完了画面：LIFFで開かれていて、まだ公式LINEを友だち追加していなければ「友だち追加」のボタンを出す
+  // /signup の完了画面：LIFFで開かれていて、まだ公式LINEを友だち追加していなければ「友だち追加」のボタンを出す。
+  // 友だち追加済みで、LINEで登録された方には、公式LINEから登録完了のメッセージを1通送る（sendSignupWelcome）
   useEffect(() => {
     if (!isSignup || screen !== "complete") return;
     let cancelled = false;
@@ -262,12 +263,54 @@ function AppInner({ entry = "src" }) {
         const liff = (await import("@line/liff")).default;
         const f = await liff.getFriendship();
         if (!cancelled && f && f.friendFlag === false) setSignupNeedFriend(true);
+        if (!cancelled && f && f.friendFlag === true) await sendSignupWelcome();
       } catch (e) {
         console.error("[signup] 友だち状態の確認に失敗しました", e);
       }
     })();
     return () => { cancelled = true; };
   }, [screen]);
+  // 登録完了のメッセージ（/signup だけ）。送るのは次をすべて満たすときの1回だけ：
+  //   完了画面・画面1で「LINEではじめる」を選んだ（notificationMethod が "line"）・LINE連携が済んだ（signupResult.lineLinked）・
+  //   localStorage に yurari_line_user_id がある・公式LINEの友だち（上の getFriendship で確認済み。友だちでない方へのプッシュはエラーになる）
+  // 完了画面の useEffect は再実行されることがあるので、signupWelcomeSentRef で二重送信を防ぐ。
+  // 送り方は予約確定のLINE通知と同じ（/api/send-line）。失敗しても画面は完了のまま
+  const signupWelcomeSentRef = useRef(false);
+  const sendSignupWelcome = async () => {
+    if (!isSignup || signupWelcomeSentRef.current) return;
+    if (notificationMethod !== "line" || !signupResult?.lineLinked) return;
+    let lineUserId = null;
+    try { lineUserId = localStorage.getItem('yurari_line_user_id'); } catch {}
+    if (!lineUserId) return;
+    signupWelcomeSentRef.current = true; // 送る前に立てる（送信中に再実行されても二重に送らない）
+    // 本文は3通り：
+    //   すでにLINE連携がお済みの方（line_already）… 何もしていないので「登録・連携が完了しました」とは言わない
+    //   カウンセリングシートが未記入のまま完了した初めての方 … シートの案内を入れる（URLは予約完了の案内と同じ組み立て方）
+    //   それ以外 … リマインドの一文を入れる
+    const intakeWebUrl = "https://yurari-booking.vercel.app/mypage/monshin";
+    const intakeLineUrl = process.env.NEXT_PUBLIC_LIFF_ID_MYPAGE ? "https://liff.line.me/" + process.env.NEXT_PUBLIC_LIFF_ID_MYPAGE + "/monshin" : intakeWebUrl;
+    const needsIntake = signupResult.kind === "new" && !!signupResult.intakeLater;
+    const text = signupResult.kind === "line_already"
+      ? "整体院 癒楽里 です。\n\n"
+        + "すでにご登録・LINE連携はお済みです。\nご予約・ご変更は下のメニューからどうぞ。"
+      : needsIntake
+      ? "ご登録ありがとうございます。\n整体院 癒楽里 です。\n\n"
+        + "LINEとの連携が完了しました。\n次回からこのトークからご予約いただけます。\n\n"
+        + "ご来院前に、カウンセリングシート（約5分）の\nご記入をお願いしております。\n▶ " + intakeLineUrl + "\n\n"
+        + "ご予約・ご変更は下のメニューからどうぞ。\nご不明な点は、このトークにお送りください。"
+      : "ご登録ありがとうございます。\n整体院 癒楽里 です。\n\n"
+        + "LINEとの連携が完了しました。\n次回からこのトークからご予約いただけます。\n\n"
+        + "ご予約・ご変更は下のメニューからどうぞ。\n前日にはリマインドをお送りします。\nご不明な点は、このトークにお送りください。";
+    try {
+      await fetch("/api/send-line", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: lineUserId, messages: [{ type: "text", text }] }),
+      });
+    } catch (e) {
+      console.error("[signup] 登録完了のLINEメッセージの送信に失敗しました", e);
+    }
+  };
   // ②はじめにお読みください（/first だけ）：同意した版と時刻（画面の中だけで持ち、登録・電話番号での照合のときに保存する）
   const [termsAgreement, setTermsAgreement] = useState(null); // { version, agreed_at }
   const [termsNext, setTermsNext] = useState(null);           // 同意のあとに進む画面（"register" | "booking"）
