@@ -229,24 +229,31 @@ export async function runFollowups() {
       // 先に記録してから送る（同時実行で二重に送らないため）
       if (!(await recordSent(t))) { skipped++; continue; }
       recorded = true;
-      let text = buildMessage(t.kind, { name: t.customer?.name, storeId: t.storeId, visitDate: t.visitDate, late: t.late });
-      if (t.channel === "email") {
-        text = text.replace("このトークでお気軽にご相談ください。", "お電話（南浦和院 048-762-8333／戸田院 048-287-3318）でお気軽にご相談ください。");
-      }
+      const text = buildMessage(t.kind, { name: t.customer?.name, storeId: t.storeId, visitDate: t.visitDate, late: t.late });
+      // メールでは「このトークで」が使えないので、電話番号に差し替える（LINEで送れずメールに切り替えた分も同じ）
+      const emailText = text.replace("このトークでお気軽にご相談ください。", "お電話（南浦和院 048-762-8333／戸田院 048-287-3318）でお気軽にご相談ください。");
+      // APIキー未設定・送信エラーは sendEmail が例外にする（以前は送れていなくても送信済みになっていた）
+      const sendFollowupEmail = () => sendEmail({
+        to: t.customer.email,
+        subject: "整体院 癒楽里からのご案内",
+        html: "<div style='font-family:sans-serif;padding:20px;line-height:1.7'>" + emailText.replace(/\n/g, "<br>") + "</div>",
+      });
       if (t.channel === "line") {
         const res = await fetch("https://api.line.me/v2/bot/message/push", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: "Bearer " + process.env.LINE_CHANNEL_ACCESS_TOKEN },
           body: JSON.stringify({ to: t.customer.line_user_id, messages: [{ type: "text", text }] }),
         });
-        if (!res.ok) throw new Error(`LINE ${res.status}: ${await res.text()}`);
+        if (!res.ok) {
+          const lineError = `LINE ${res.status}: ${await res.text()}`;
+          // 友だちでない・ブロック中などでLINEに届かない方には、メールアドレスがあれば同じ内容をメールで送る。
+          // メールも送れなければ（アドレスなし・送信エラー）、今までどおり line_failed として記録する（markFailed）
+          if (!t.customer?.email) throw new Error(lineError + "（メールアドレスがないため切り替えできません）");
+          console.warn("[followup] LINEで送れなかったためメールで送ります", t.kind, t.customerId, lineError);
+          await sendFollowupEmail();
+        }
       } else if (t.channel === "email") {
-        // APIキー未設定・送信エラーは sendEmail が例外にする（以前は送れていなくても送信済みになっていた）
-        await sendEmail({
-          to: t.customer.email,
-          subject: "整体院 癒楽里からのご案内",
-          html: "<div style='font-family:sans-serif;padding:20px;line-height:1.7'>" + text.replace(/\n/g, "<br>") + "</div>",
-        });
+        await sendFollowupEmail();
       }
       sent++;
     } catch (e) {
