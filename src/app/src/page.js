@@ -323,7 +323,8 @@ function AppInner({ entry = "src" }) {
   //     kind … "line_already"（LINEで照合できた＝連携済み）| "existed"（電話番号が既存の方と一致）| "new"（新規登録）| "returning"（2回目以降の方）
   //   signupCode：2回目以降の方の8桁コード。signupLoggedIn：8桁コードでマイページのセッションが取れたか
   //   signupLineError：2回目以降の方のLINE連携に失敗したときの文言。signupEmail：2回目以降の方のメールアドレス
-  //   signupNeedFriend：完了画面で「公式LINEを友だち追加する」を出すか（LIFF内で、まだ友だちでない）
+  //   signupNeedFriend：完了画面の「公式LINEを友だち追加する」を強調するか（LIFF内で、まだ友だちでないと分かった）。
+  //     案内とボタン自体は、LINEで登録された方（signupResult.lineLinked）には必ず出す
   const [signupResult, setSignupResult] = useState(null);
   const [signupBusy, setSignupBusy] = useState(false);
   const [signupCode, setSignupCode] = useState("");
@@ -334,6 +335,18 @@ function AppInner({ entry = "src" }) {
   // 2回目以降の方が8桁コードを使えず（コードが分からない・誕生日が未登録）、初めての方と同じ流れ（同意 → お客様情報）に来たか。
   // お客様情報の画面に「同じ内容で照合します」の一行を出すために使う
   const [signupViaFallback, setSignupViaFallback] = useState(false);
+  // /signup だけ：画面1（ご登録方法）・画面2（ご来院は初めてですか）に来たら、前の方の同意と完了の内容を消す。
+  // 受付で続けて何人も登録するとき、前の方の同意（termsAgreement）が次の方に引き継がれないようにするため。
+  // あわせて、同意のチェック・友だち判定・登録完了メッセージの送信済みの印も戻す（次の方の分として扱う）。
+  // /src・/first では何もしない
+  useEffect(() => {
+    if (!isSignup || (screen !== "auth" && screen !== "signup_visit")) return;
+    setTermsAgreement(null);
+    setTermsChecked(false);
+    setSignupResult(null);
+    setSignupNeedFriend(false);
+    signupWelcomeSentRef.current = false;
+  }, [screen]);
   const [notificationMethod, setNotificationMethod] = useState(null);
   const [step, setStep] = useState(0);
   const [store, setStore] = useState(null);
@@ -713,6 +726,8 @@ function AppInner({ entry = "src" }) {
   const goAfterAuth = (next) => {
     if (isSignup) {
       if (next === "booking") {
+        // line-customer は照合できた方の notification_method を line に更新してから found を返す（更新に失敗すると 500 で、ここには来ない）。
+        // そのため email・none だった方も、ここに来た時点でDBは line になっている
         setSignupResult({ kind: "line_already", lineLinked: true });
         setScreen("complete");
       } else {
@@ -874,8 +889,12 @@ function AppInner({ entry = "src" }) {
   //   existed（電話番号が既存の方と一致）… カウンセリングシートは出さず完了へ
   //   新規 … いま登録した本人の8桁コードでマイページのセッションを作り、カウンセリングシートへ。
   //          セッションが取れなければシートは出さずに完了へ（登録自体は済んでいるので止めない）
+  // lineLinked は「DBの notification_method が line になった」ときだけ真にする（完了画面の「LINEに届きます」の表示に使う）。
+  //   新規 … LINEを選んでいれば notification_method=line・検証済みのLINE IDで作られる（has_line）
+  //   existed … register がLINEを紐づけて通知方法も更新したとき（linked）だけ。
+  //             別のLINEに連携済みの方（has_line だが linked でない）は通知方法を書き換えないので、LINEに届くとは言えない
   const afterSignupRegister = async (data, tel) => {
-    const lineLinked = notificationMethod === "line" && !!data.has_line;
+    const lineLinked = notificationMethod === "line" && (data.existed ? !!data.linked : !!data.has_line);
     if (data.existed) {
       setSignupResult({ kind: "existed", lineLinked });
       setScreen("complete");
@@ -1068,28 +1087,36 @@ function AppInner({ entry = "src" }) {
       const needsIntake = createData?.needs_intake === true;
       // 元の予約のキャンセルは booking-create が新しい予約の登録成功後に行う
       if (changeBookingId && !createData?.change_cancelled) console.error("元の予約のキャンセルに失敗しました");
+      const storeName = store.id === "minamiurawa" ? "南浦和本院" : "戸田院";
+      // 予約確定（変更も同じ）のメール。メールを選んだ方と、LINEで送れなかった方（下）の両方に使う。
+      // /api/send-email が失敗を返したら例外にする（以前は応答を見ていなかった）
+      const sendBookingMail = async () => {
+        const res = await fetch("/api/send-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: profile.email,
+            subject: "ご予約確定のお知らせ｜整体院 癒楽里",
+            html: "<div style='font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;'><h2 style='color:#3a5a3a;'>ご予約確定のお知らせ</h2><p>" + profile.name + " 様</p><p>ご予約が確定しました。</p><div style='background:#f9f6f2;border-radius:8px;padding:16px;margin:20px 0;'><table style='width:100%;border-collapse:collapse;'><tr><td style='padding:6px 0;color:#7a9a7a;width:120px;'>予約番号</td><td style='padding:6px 0;'>" + num + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>店舗</td><td style='padding:6px 0;'>整体院 癒楽里 " + storeName + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>日時</td><td style='padding:6px 0;'>" + formatDate(date) + " " + time + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>コース</td><td style='padding:6px 0;'>" + course.name + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>担当</td><td style='padding:6px 0;'>" + staff.name + "</td></tr></table></div><p>ご来院をお待ちしております。</p>" + (needsIntake ? "<div style='background:#fff8ec;border:1px solid #f0d58a;border-radius:8px;padding:14px 16px;margin:20px 0;font-size:13px;color:#555;'>" + intakeInvite + "<br>▶ <a href='" + intakeWebUrl + "' style='color:#3a5a3a;font-weight:bold;'>" + intakeWebUrl + "</a></div>" : "") + "<div style='background:#f0f8f4;border-radius:8px;padding:14px 16px;margin:20px 0;font-size:13px;color:#555;'>📱 スマホのホーム画面に「癒楽里」のアイコンを置くと、予約・マイページがアプリのようにすぐ開けます。<br><a href='https://yurari-booking.vercel.app/app-guide' style='color:#3a5a3a;font-weight:bold;'>追加のしかたはこちら</a></div><p style='color:#aaa;font-size:12px;'>整体院 癒楽里</p></div>",
+          }),
+        });
+        if (!res.ok) throw new Error("send-email " + res.status);
+      };
       if (profile.email && notificationMethod === "email") {
         try {
-          const storeName = store.id === "minamiurawa" ? "南浦和本院" : "戸田院";
-          await fetch("/api/send-email", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              to: profile.email,
-              subject: "ご予約確定のお知らせ｜整体院 癒楽里",
-              html: "<div style='font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;'><h2 style='color:#3a5a3a;'>ご予約確定のお知らせ</h2><p>" + profile.name + " 様</p><p>ご予約が確定しました。</p><div style='background:#f9f6f2;border-radius:8px;padding:16px;margin:20px 0;'><table style='width:100%;border-collapse:collapse;'><tr><td style='padding:6px 0;color:#7a9a7a;width:120px;'>予約番号</td><td style='padding:6px 0;'>" + num + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>店舗</td><td style='padding:6px 0;'>整体院 癒楽里 " + storeName + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>日時</td><td style='padding:6px 0;'>" + formatDate(date) + " " + time + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>コース</td><td style='padding:6px 0;'>" + course.name + "</td></tr><tr><td style='padding:6px 0;color:#7a9a7a;'>担当</td><td style='padding:6px 0;'>" + staff.name + "</td></tr></table></div><p>ご来院をお待ちしております。</p>" + (needsIntake ? "<div style='background:#fff8ec;border:1px solid #f0d58a;border-radius:8px;padding:14px 16px;margin:20px 0;font-size:13px;color:#555;'>" + intakeInvite + "<br>▶ <a href='" + intakeWebUrl + "' style='color:#3a5a3a;font-weight:bold;'>" + intakeWebUrl + "</a></div>" : "") + "<div style='background:#f0f8f4;border-radius:8px;padding:14px 16px;margin:20px 0;font-size:13px;color:#555;'>📱 スマホのホーム画面に「癒楽里」のアイコンを置くと、予約・マイページがアプリのようにすぐ開けます。<br><a href='https://yurari-booking.vercel.app/app-guide' style='color:#3a5a3a;font-weight:bold;'>追加のしかたはこちら</a></div><p style='color:#aaa;font-size:12px;'>整体院 癒楽里</p></div>",
-            }),
-          });
+          await sendBookingMail();
         } catch (mailErr) {
           console.error("メール送信エラー:", mailErr);
         }
       }
       if (notificationMethod === "line") {
+        // LINEで送れなかったとき（友だちでない・ブロック中・送信先のLINE IDが無いなど）は、メールアドレスがあれば同じ予約内容をメールで送る。
+        // メールの件名・本文は、メールを選んだ方への予約確定メールと同じ
         const liffLineUserId = localStorage.getItem('yurari_line_user_id');
+        let lineOk = false;
         if (liffLineUserId) {
           try {
-            const storeName = store.id === "minamiurawa" ? "南浦和本院" : "戸田院";
-            await fetch("/api/send-line", {
+            const lineRes = await fetch("/api/send-line", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -1097,8 +1124,17 @@ function AppInner({ entry = "src" }) {
                 messages: [{ type: "text", text: "ご予約が確定しました！\n\n予約番号：" + num + "\n店舗：整体院 癒楽里 " + storeName + "\n日時：" + formatDate(date) + " " + time + "\nコース：" + course.name + "\n担当：" + staff.name + "\n\nご来院をお待ちしております。" + (needsIntake ? "\n\n" + intakeInvite + "\n▶ " + intakeLineUrl : "") }],
               }),
             });
+            lineOk = lineRes.ok;
+            if (!lineOk) console.error("LINE送信エラー:", lineRes.status);
           } catch (lineErr) {
             console.error("LINE送信エラー:", lineErr);
+          }
+        }
+        if (!lineOk && profile.email) {
+          try {
+            await sendBookingMail();
+          } catch (mailErr) {
+            console.error("LINEで送れなかった分のメール送信エラー:", mailErr);
           }
         }
       }
@@ -1462,17 +1498,27 @@ function AppInner({ entry = "src" }) {
           カウンセリングシートは、後ほどマイページからご記入いただけます。
         </div>
       )}
-      {signupNeedFriend && (
-        <div style={{ fontSize: 12, color: "#888", marginBottom: 8 }}>友だち追加をしないと、LINEにお知らせが届きません。</div>
-      )}
-      {signupNeedFriend && (
-        <a href={LINE_ADD_FRIEND_URL} style={{ display: "block", width: "100%", padding: "16px", borderRadius: 14, background: "#06C755", color: "white", fontSize: 16, fontWeight: 700, textDecoration: "none", textAlign: "center", marginBottom: 12, boxSizing: "border-box" }}>
-          公式LINEを友だち追加する
-        </a>
+      {/* LINEで登録された方には、友だち判定（signupNeedFriend）の結果にかかわらず友だち追加の案内を必ず出す。
+          getFriendship() は外部ブラウザでは使えず、友だちの方でも friendFlag が true にならないことがあるため、判定には頼らない。
+          すでに友だちの方が押しても公式LINEのトークが開くだけ。まだ友だちでないと分かったとき（signupNeedFriend）だけ強調する */}
+      {r.lineLinked && (
+        <div style={{ background: signupNeedFriend ? "#fff8ec" : "white", border: signupNeedFriend ? "2px solid #f0d58a" : "1px solid #e3e3dc", borderRadius: 16, padding: "16px 18px", marginBottom: 20, textAlign: "left" }}>
+          {signupNeedFriend && (
+            <div style={{ fontSize: 14, color: "#b06a00", fontWeight: 700, marginBottom: 8 }}>友だち追加をしないと、LINEにお知らせが届きません。</div>
+          )}
+          <div style={{ fontSize: 13, color: "#555", lineHeight: 1.8, marginBottom: 12 }}>
+            LINEでお知らせを受け取るには、公式LINE「整体院癒楽里～ゆらり～」の友だち追加が必要です。まだの方は下のボタンから追加してください。
+          </div>
+          <a href={LINE_ADD_FRIEND_URL} style={{ display: "block", width: "100%", padding: "16px", borderRadius: 14, background: "#06C755", color: "white", fontSize: 16, fontWeight: 700, textDecoration: "none", textAlign: "center", boxSizing: "border-box" }}>
+            公式LINEを友だち追加する
+          </a>
+        </div>
       )}
       <div style={{ marginTop: 32 }}>
         <a href="/src" style={{ fontSize: 13, color: LIGHT_GREEN, textDecoration: "none" }}>このままご予約もできます →</a>
       </div>
+      {/* 受付で「止まった」と誤解して読み直されないように */}
+      <div style={{ marginTop: 28, fontSize: 13, color: "#888" }}>設定は完了しました。この画面は閉じて大丈夫です。</div>
     </div>);
   }
 

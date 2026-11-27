@@ -96,9 +96,17 @@ export async function GET(request) {
       }).catch((e) => console.error("[remind] アプリ通知に失敗（LINE・メールは続行）", booking.id, e.message));
 
       const channel = contactChannel(customer);
-      const invite = needsIntake.has(String(booking.customer_id))
-        ? "\n\n" + INTAKE_INVITE_TEXT + "\n▶ " + (channel === "line" ? monshinUrlForLine() : MONSHIN_WEB_URL)
+      // 問診票の案内のURLは、届ける手段に合わせる（LINEはLIFF、メールはWeb）
+      const inviteFor = (ch) => needsIntake.has(String(booking.customer_id))
+        ? "\n\n" + INTAKE_INVITE_TEXT + "\n▶ " + (ch === "line" ? monshinUrlForLine() : MONSHIN_WEB_URL)
         : "";
+      const sendRemindEmail = () => sendEmail({
+        to: customer.email,
+        subject: timeLabel + "のご予約リマインド｜整体院 癒楽里",
+        html:
+          "<div style='font-family:sans-serif;padding:20px;'><p>" + customer.name +
+          " 様</p><p>" + (message + inviteFor("email")).replace(/\n/g, "<br>") + "</p></div>",
+      });
       if (channel === "line") {
         const res = await fetch("https://api.line.me/v2/bot/message/push", {
           method: "POST",
@@ -108,19 +116,20 @@ export async function GET(request) {
           },
           body: JSON.stringify({
             to: customer.line_user_id,
-            messages: [{ type: "text", text: message + invite }],
+            messages: [{ type: "text", text: message + inviteFor("line") }],
           }),
         });
-        if (!res.ok) throw new Error(`LINE ${res.status}: ${await res.text()}`);
+        if (!res.ok) {
+          const lineError = `LINE ${res.status}: ${await res.text()}`;
+          // 友だちでない・ブロック中などでLINEに届かない方には、メールアドレスがあれば同じ内容をメールで送る。
+          // メールも送れなければ（アドレスなし・送信エラー）、今までどおり失敗として数える
+          if (!customer.email) throw new Error(lineError + "（メールアドレスがないため切り替えできません）");
+          console.warn("[remind] LINEで送れなかったためメールで送ります", booking.id, lineError);
+          await sendRemindEmail();
+        }
         sent++;
       } else if (channel === "email") {
-        await sendEmail({
-          to: customer.email,
-          subject: timeLabel + "のご予約リマインド｜整体院 癒楽里",
-          html:
-            "<div style='font-family:sans-serif;padding:20px;'><p>" + customer.name +
-            " 様</p><p>" + (message + invite).replace(/\n/g, "<br>") + "</p></div>",
-        });
+        await sendRemindEmail();
         sent++;
       }
 
