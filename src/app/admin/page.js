@@ -118,6 +118,8 @@ const fetchAllRows = async (url, headers, label = "fetchAllRows") => {
 // 金券の会計は金額ではなく枚数で指定し、金額は引き落とす金券の face_value（1枚の額面）の合計で求める。
 // face_value が分からない金券（未登録の紙の金券・額面の記録がない古いデータ）だけこの既定額面で数える。
 const GIFT_TICKET_DEFAULT_FACE_VALUE = 1000;
+// 紙金券の振替で追加する金券の名前。「紙から振り替えた分」を数えるときに使うので、この名前で統一する
+const PAPER_TRANSFER_TICKET_NAME = "紙金券からの振替";
 // ポイント20P達成特典で発行するプレゼント金券の額面
 const POINT_REWARD_TICKET_FACE_VALUE = 1000;
 // ポイントが付く会計の条件：施術メニュー（item_type='course'、物販の0円枠を除く）の金額がこれを「超える」こと。
@@ -343,6 +345,9 @@ export default function AdminPage() {
   const [customerTickets, setCustomerTickets] = useState([]);
   const [allCustomerTickets, setAllCustomerTickets] = useState({});
   const [editTicketModal, setEditTicketModal] = useState(null);
+  // 紙金券の振替（回収した紙の金券の枚数だけ、アプリの金券を追加する。既存の金券には触らない）
+  // { customer, type: "purchase"|"present"|"", count: string, expiresAt: "YYYY-MM-DD", memo, saving }
+  const [paperTransferModal, setPaperTransferModal] = useState(null);
   const [shareGroupMembers, setShareGroupMembers] = useState([]);
   const [shareSearchQuery, setShareSearchQuery] = useState("");
   const [shareSearchResults, setShareSearchResults] = useState([]); // { customer, type: "purchase"|"present", count, date }
@@ -1807,6 +1812,82 @@ const handleAdminQrInput = async (value) => {
     }
     setEditTicketModal(null);
     await fetchAllCustomerTickets();
+  };
+
+  // 紙金券の振替：回収した紙の金券の枚数ぶん gift_tickets を追加するだけ。既存の金券は削除も更新もしない
+  // （「金券の枚数編集」は作り直しになり、有効期限が振替日起算にリセットされるため使わない）。
+  // ticket_name は集計用に必ず PAPER_TRANSFER_TICKET_NAME。notes は checkoutIssueNotes の形と一致しないので、
+  // 会計の取り消し・ポイント特典の判定（notes の完全一致）には影響しない。
+  const savePaperTransfer = async () => {
+    if (!paperTransferModal || paperTransferModal.saving) return;
+    const { customer, type, expiresAt } = paperTransferModal;
+    const memo = (paperTransferModal.memo || "").trim();
+    const today = formatDate(new Date());
+    const countText = String(paperTransferModal.count ?? "").trim();
+    const count = /^-?\d+$/.test(countText) ? parseInt(countText, 10) : NaN;
+    if (type !== "purchase" && type !== "present") { alert("種別（購入金券／プレゼント金券）を選んでください。"); return; }
+    if (!Number.isInteger(count)) { alert("枚数を整数で入力してください。"); return; }
+    if (count <= 0) { alert(`枚数が${count}枚になっています。1枚以上を入力してください。`); return; }
+    if (count > 20 && !window.confirm(`枚数が${count}枚になっています（20枚を超えています）。\n入力に間違いはありませんか？`)) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(expiresAt || "")) { alert("有効期限（紙の金券に印字されている期限）を入力してください。"); return; }
+    if (expiresAt < today) { alert("この紙の金券は期限が切れています。扱いを店舗でご判断ください"); return; }
+
+    setPaperTransferModal(m => m && { ...m, saving: true });
+    try {
+      // 追加後の有効枚数は、一覧の数字ではなく保存の直前の最新の状態から計算する（fetchCustomerTickets と同じ範囲：共有グループ分を含む・期限内）
+      const custData = await fetchJsonArray(`${SUPABASE_URL}/rest/v1/customers?id=eq.${customer.id}&select=share_group_id`, headers, "紙金券の振替：共有グループの確認");
+      if (custData === null) { alert("お客様の金券の確認に失敗しました。保存していません。もう一度お試しください。"); return; }
+      const shareGroupId = custData[0]?.share_group_id;
+      let idList = [customer.id];
+      if (shareGroupId) {
+        const groupData = await fetchJsonArray(`${SUPABASE_URL}/rest/v1/customers?share_group_id=eq.${shareGroupId}&select=id`, headers, "紙金券の振替：共有グループの取得");
+        if (groupData === null) { alert("共有グループの確認に失敗しました。保存していません。もう一度お試しください。"); return; }
+        if (groupData.length > 0) idList = groupData.map(c => c.id);
+      }
+      const idFilter = idList.length > 1 ? `customer_id=in.(${idList.join(",")})` : `customer_id=eq.${customer.id}`;
+      const activeNow = await fetchJsonArray(`${SUPABASE_URL}/rest/v1/gift_tickets?${idFilter}&status=eq.active&expires_at=gte.${today}&select=id`, headers, "紙金券の振替：有効な金券の取得");
+      if (activeNow === null) { alert("お客様の金券の確認に失敗しました。保存していません。もう一度お試しください。"); return; }
+
+      const typeLabel = type === "purchase" ? "購入金券" : "プレゼント金券";
+      const msg = `紙の金券を${count}枚回収し、アプリに${count}枚追加します。\n` +
+        `種別：${typeLabel}\n` +
+        `有効期限：${expiresAt}\n` +
+        `追加後のこのお客様の有効枚数：${activeNow.length + count}枚` +
+        (idList.length > 1 ? "（ご家族と共有している分を含む）" : "") + "\n\n" +
+        "回収した紙の金券は破棄してください。よろしいですか？";
+      if (!window.confirm(msg)) return;
+
+      const beforeState = await captureGiftTicketState(customer.id);
+      const row = {
+        customer_id: customer.id,
+        store_id: currentStore.id,
+        ticket_type: type,
+        purchase_group_id: crypto.randomUUID(), // 1回の振替をひとまとめにする（途中で失敗したら、この分だけ消して1枚も残さない）
+        ticket_name: PAPER_TRANSFER_TICKET_NAME,
+        face_value: GIFT_TICKET_DEFAULT_FACE_VALUE,
+        issued_at: today,
+        expires_at: expiresAt,
+        status: "active",
+        notes: `紙の金券を回収してアプリに振替（${today} 受付／券面の期限 ${expiresAt}）` + (memo ? `／メモ：${memo}` : ""),
+      };
+      const result = await issueGiftTicketsAllOrNothing(Array.from({ length: count }, () => ({ ...row })));
+      if (!result.ok) {
+        alert(`⚠️ 紙金券の振替に失敗しました。\n\nアプリの金券は1枚も追加されていません。回収した紙の金券は破棄せず、もう一度お試しください。${result.cleanupFailed ? giftIssueCleanupNote(customer.name) : ""}`);
+        return;
+      }
+      const afterState = await captureGiftTicketState(customer.id);
+      await logGiftTicketAction("paper_transfer", customer.id, beforeState,
+        { ...(afterState || {}), paper_transfer: { ticket_type: type, count, expires_at: expiresAt, memo } });
+      setPaperTransferModal(null);
+      await fetchCustomerTickets(customer.id);
+      await fetchAllCustomerTickets();
+      alert(`紙の金券${count}枚をアプリに振り替えました（${typeLabel}・有効期限 ${expiresAt}）。\n回収した紙の金券は破棄してください。`);
+    } catch (e) {
+      console.error("[紙金券の振替] 失敗:", e);
+      alert("紙金券の振替でエラーが発生しました。金券の履歴でこのお客様の金券を確認してから、もう一度お試しください。");
+    } finally {
+      setPaperTransferModal(m => m && { ...m, saving: false });
+    }
   };
 
   const saveGiftGroupEdit = async () => {
@@ -3944,6 +4025,56 @@ const handleAdminQrInput = async (value) => {
         </div>
       )}
 
+    {paperTransferModal && (() => {
+      const m = paperTransferModal;
+      const set = (patch) => setPaperTransferModal(prev => prev && { ...prev, ...patch });
+      const label = { fontSize: 12, fontWeight: 700, color: "#8a6a3a", display: "block", marginBottom: 6 };
+      const input = { width: "100%", padding: "10px 14px", borderRadius: 10, border: "2px solid #e8ddd0", fontSize: 14, boxSizing: "border-box", fontFamily: "inherit" };
+      return (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => { if (!m.saving) setPaperTransferModal(null); }}>
+          <div style={{ background: "white", borderRadius: 20, padding: 28, width: "100%", maxWidth: 380, maxHeight: "90vh", overflow: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#3a5a3a" }}>📄 紙金券の振替</div>
+              <button onClick={() => setPaperTransferModal(null)} disabled={m.saving} style={{ border: "none", background: "none", fontSize: 22, cursor: "pointer", color: "#aaa" }}>×</button>
+            </div>
+            <div style={{ fontSize: 12, color: "#888", marginBottom: 12 }}>{m.customer.name} 様</div>
+            <div style={{ fontSize: 12, color: "#8a6a3a", background: "#fdf8ef", borderRadius: 10, padding: "10px 12px", marginBottom: 16, lineHeight: 1.6 }}>
+              回収した紙の金券の枚数だけ、アプリに金券（1枚1,000円）を追加します。いまアプリにある金券はそのまま残ります。
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={label}>種別（必須）</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[["purchase", "購入金券", "#5a9e7a", "#eaf5ec"], ["present", "プレゼント金券", "#e07b39", "#fff5ee"]].map(([v, text, color, bg]) => (
+                  <button key={v} onClick={() => set({ type: v })}
+                    style={{ flex: 1, padding: "10px", borderRadius: 10, border: `2px solid ${m.type === v ? color : "#e8ddd0"}`, background: m.type === v ? bg : "white", color: m.type === v ? color : "#888", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                    {text}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={label}>枚数（必須・回収した紙の金券の枚数）</label>
+              <input type="number" min={1} step={1} inputMode="numeric" value={m.count} onChange={e => set({ count: e.target.value })} style={{ ...input, fontSize: 18, fontWeight: 700 }} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={label}>有効期限（必須・紙に印字されている期限）</label>
+              <input type="date" value={m.expiresAt} onChange={e => set({ expiresAt: e.target.value })} style={input} />
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <label style={label}>メモ（任意・券面の記載など）</label>
+              <input value={m.memo} onChange={e => set({ memo: e.target.value })} style={input} />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setPaperTransferModal(null)} disabled={m.saving} style={{ flex: 1, padding: "12px", borderRadius: 12, border: "2px solid #e8ddd0", background: "white", color: "#888", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>キャンセル</button>
+              <button onClick={savePaperTransfer} disabled={m.saving} style={{ flex: 2, padding: "12px", borderRadius: 12, border: "none", background: m.saving ? "#ccc" : "linear-gradient(135deg, #c9a46a, #a07a3a)", color: "white", fontSize: 14, fontWeight: 700, cursor: m.saving ? "default" : "pointer" }}>
+                {m.saving ? "保存中…" : "振り替える"}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    })()}
+
     {editTicketModal && (
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setEditTicketModal(null)}>
         <div style={{ background: "white", borderRadius: 20, padding: 28, width: "100%", maxWidth: 360, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
@@ -4450,7 +4581,14 @@ const handleAdminQrInput = async (value) => {
 
       {/* 保有金券 */}
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a", marginBottom: 10 }}>保有金券</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#3a5a3a" }}>保有金券</div>
+          {/* 「金券の枚数編集」（顧客一覧の A/B ボタン）とは別の操作。既存の金券には触らず、回収した枚数だけ追加する */}
+          <button onClick={() => setPaperTransferModal({ customer: selectedCustomer, type: "", count: "", expiresAt: "", memo: "", saving: false })}
+            style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #c9b89a", background: "#fdf8ef", color: "#8a6a3a", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+            📄 紙金券の振替
+          </button>
+        </div>
         {customerTicketsLoadError && <TicketLoadErrorBand />}
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1, background: "#f0f8f4", borderRadius: 12, padding: "12px 16px", textAlign: "center" }}>
